@@ -1,6 +1,5 @@
 package crazydude.com.telemetry.protocol
 
-import android.util.Log
 import crazydude.com.telemetry.protocol.crc.CRC8
 import crazydude.com.telemetry.protocol.decoder.DataDecoder
 import crazydude.com.telemetry.protocol.decoder.GhstDataDecoder
@@ -67,7 +66,6 @@ class GhstProtocol : Protocol {
                             crC8.reset()
                             payload.map { it.toByte() }.forEach { crC8.update(it) }
                             val calculatedCrc = crC8.value.toUByte().toInt()
-                            Log.d("GhstProto", "cand len=$packetLen type=${payload.getOrNull(0)} crcRx=$frameCrc crcCalc=$calculatedCrc")
                             if (frameCrc == calculatedCrc) {
                                 proccessFrame(payload.map { it.toByte() }.toByteArray())
                                 buffer.subList(0, pos + 2 + packetLen).clear()
@@ -106,7 +104,6 @@ class GhstProtocol : Protocol {
         if (data.size != FRAME_PAYLOAD_LEN) {
             return
         }
-        Log.d("GhstProto", "FRAME type=0x%02X".format(u8(data, 0)))
         when (u8(data, 0)) {
             LINK_STAT -> {
                 // rssi is sent as a positive number of dB below zero
