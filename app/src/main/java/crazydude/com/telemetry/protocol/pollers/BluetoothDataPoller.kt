@@ -51,6 +51,14 @@ class BluetoothDataPoller(
                                     listener?.onProtocolDetected("CRSF")
                                 }
 
+                                is GhstProtocol -> {
+                                    selectedProtocol =
+                                        GhstProtocol(
+                                            listener
+                                        )
+                                    listener?.onProtocolDetected("GHST")
+                                }
+
                                 is LTMProtocol -> {
                                     selectedProtocol =
                                         LTMProtocol(

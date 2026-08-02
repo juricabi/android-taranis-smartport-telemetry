@@ -4,7 +4,7 @@ import crazydude.com.telemetry.protocol.decoder.DataDecoder
 
 class ProtocolDetector(private val callback: Callback) {
 
-    private val hits = arrayOf(0, 0, 0, 0, 0, 0)
+    private val hits = arrayOf(0, 0, 0, 0, 0, 0, 0)
     private val sportProtocol =
         FrSkySportProtocol(object : DataDecoder.Companion.DefaultDecodeListener() {
             override fun onSuccessDecode() {
@@ -43,6 +43,13 @@ class ProtocolDetector(private val callback: Callback) {
             }
         })
 
+    private val ghstProtocol =
+        GhstProtocol(object : DataDecoder.Companion.DefaultDecodeListener() {
+            override fun onSuccessDecode() {
+                hits[6]++
+            }
+        })
+
     fun feedData(data: Int) {
         sportProtocol.process(data)
         crsfProtocol.process(data)
@@ -50,6 +57,7 @@ class ProtocolDetector(private val callback: Callback) {
         mavLinkProtocol.process(data)
         mavLink2Protocol.process(data)
         linkTestProtocol.process(data)
+        ghstProtocol.process(data)
 
 
         hits.forEachIndexed { index, i ->
@@ -61,6 +69,7 @@ class ProtocolDetector(private val callback: Callback) {
                     3 -> callback.onProtocolDetected(mavLinkProtocol)
                     4 -> callback.onProtocolDetected(mavLink2Protocol)
                     5 -> callback.onProtocolDetected(linkTestProtocol)
+                    6 -> callback.onProtocolDetected(ghstProtocol)
                 }
             }
         }

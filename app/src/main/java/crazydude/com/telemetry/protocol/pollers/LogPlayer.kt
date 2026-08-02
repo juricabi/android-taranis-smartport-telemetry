@@ -83,6 +83,18 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
                                 dataReadyListener?.onProtocolDetected("CRSF")
                             }
 
+                            is GhstProtocol -> {
+                                tempProtocol =
+                                    GhstProtocol(
+                                        tempDecoder
+                                    )
+                                protocol =
+                                    GhstProtocol(
+                                        this@LogPlayer
+                                    )
+                                dataReadyListener?.onProtocolDetected("GHST")
+                            }
+
                             is LTMProtocol -> {
                                 tempProtocol =
                                     LTMProtocol(
