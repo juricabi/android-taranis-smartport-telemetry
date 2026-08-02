@@ -82,6 +82,9 @@ class GhstDataDecoder(listener: Listener) : DataDecoder(listener) {
             Protocol.UP_SNR -> {
                 listener.onUPSNRData(data.data)
             }
+            Protocol.ELRS_RF_MODE -> {
+                listener.onElrsModeModeData(data.data)
+            }
             Protocol.POWER -> {
                 listener.onPowerData(data.data)
             }

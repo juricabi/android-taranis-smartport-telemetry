@@ -72,7 +72,14 @@ import kotlin.math.roundToInt
 //class MapsActivity : AppCompatActivity(), DataDecoder.Listener {
 class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Listener, SensorTimeoutManager.Listener, Fr24Manager.Listener {
 
+    private var detectedProtocol: String = ""
+
     companion object {
+
+        // Ghost RF profiles, matching EdgeTX ghstRfProfileValue
+        private val GHST_RF_PROFILES = arrayOf(
+            "Auto", "Norm", "Race", "Pure", "Long", "Unused", "Race2", "Pure2"
+        )
         private const val REQUEST_ENABLE_BT: Int = 0
         private const val REQUEST_LOCATION_PERMISSION: Int = 1
         private const val REQUEST_WRITE_PERMISSION: Int = 2
@@ -2021,6 +2028,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     override fun onElrsModeModeData(mode: Int) {
         this.sensorTimeoutManager.onElrsModeModeData(mode);
+        if (detectedProtocol == "GHST") {
+            runOnUiThread {
+                this.elrsRate.text = GHST_RF_PROFILES.getOrNull(mode) ?: mode.toString()
+            }
+            return
+        }
         runOnUiThread {
             when (mode) {
                 13 -> this.elrsRate.text = "F1000"
@@ -2366,6 +2379,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     override fun onProtocolDetected( protocolName: String) {
+        detectedProtocol = protocolName
         runOnUiThread {
             Toast.makeText(this, "Protocol: $protocolName", Toast.LENGTH_SHORT).show()
         }

@@ -118,6 +118,9 @@ class GhstProtocol : Protocol {
                 dataDecoder.decodeData(
                     Protocol.Companion.TelemetryData(POWER, POWER_INDEX[txPower] ?: 0)
                 )
+                dataDecoder.decodeData(
+                    Protocol.Companion.TelemetryData(ELRS_RF_MODE, u8(data, 10))
+                )
 
                 // Ghost carries no flight mode, so treat a live link as armed.
                 // This gives the map a home position to measure distance from.
