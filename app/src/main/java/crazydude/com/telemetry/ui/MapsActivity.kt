@@ -998,6 +998,15 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             DataDecoder.Companion.FlyMode.RATE -> {
                 mode.text = mode.text.toString() + " | Rate"
             }
+            DataDecoder.Companion.FlyMode.TURTLE -> {
+                mode.text = mode.text.toString() + " | Turle"
+            }
+            DataDecoder.Companion.FlyMode.RATE -> {
+                mode.text = mode.text.toString() + " | Geo"
+            }
+            DataDecoder.Companion.FlyMode.ANGLE_HOLD -> {
+                mode.text = mode.text.toString() + " | Angle Hold"
+            }
             null -> {
             }
         }
@@ -1683,7 +1692,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     private fun formatHeight(v: Float): String {
-        if (v < 10) {
+        if (v < -100) {
+            return "${"%.1f".format(v / 1000)} km"
+        } else if (v < -10) {
+            return "${"%.0f".format(v)} m"
+        } else if (v < 0) {
+            return "${"%.1f".format(v)} m"
+        } else  if (v < 10) {
             return "${"%.2f".format(v)} m"
         } else if (v < 100) {
             return "${"%.1f".format(v)} m"
