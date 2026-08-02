@@ -20,7 +20,7 @@ jobs:
 
       - name: Generate signing keystore
         run: |
-          keytool -genkeypair -v -keystore app/debug.keystore \
+          keytool -genkeypair -v -keystore app/release.keystore \
             -storepass android -keypass android -alias androiddebugkey \
             -keyalg RSA -keysize 2048 -validity 10000 \
             -dname "CN=Android Debug,O=Android,C=US"
