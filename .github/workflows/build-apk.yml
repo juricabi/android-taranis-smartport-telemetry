@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -18,27 +18,50 @@ jobs:
           java-version: '11'
           distribution: 'temurin'
 
-      - name: Generate signing keystore
+      - name: Restore signing keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
-          keytool -genkeypair -v -keystore app/release.keystore \
-            -storepass android -keypass android -alias androiddebugkey \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname "CN=Android Debug,O=Android,C=US"
-          cat > keystore.properties <<PROPS
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 --decode > app/release.keystore
+            cat > keystore.properties <<PROPS
           storeFile=release.keystore
-          storePassword=android
-          keyAlias=androiddebugkey
-          keyPassword=android
+          storePassword=$STORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
           PROPS
+          else
+            echo "No signing secret set, generating a throwaway key"
+            keytool -genkeypair -v -keystore app/release.keystore \
+              -storepass android -keypass android -alias androiddebugkey \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+            printf 'storeFile=release.keystore\nstorePassword=android\nkeyAlias=androiddebugkey\nkeyPassword=android\n' > keystore.properties
+          fi
 
       - name: Build release APK
         run: |
           chmod +x gradlew
           ./gradlew :app:assembleRelease --stacktrace
 
+      - name: Name the APK
+        run: |
+          VER=$(sed -n 's/.*versionName *"\([^"]*\)".*/\1/p' app/build.gradle | head -1)
+          cp app/build/outputs/apk/release/app-release.apk "telemetry-$VER.apk"
+          ls -la telemetry-*.apk
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: telemetry-ghst-apk
-          path: app/build/outputs/apk/release/*.apk
+          path: telemetry-*.apk
           if-no-files-found: warn
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: telemetry-*.apk
