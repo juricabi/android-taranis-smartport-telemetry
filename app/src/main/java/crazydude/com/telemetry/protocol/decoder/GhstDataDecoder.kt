@@ -51,6 +51,9 @@ class GhstDataDecoder(listener: Listener) : DataDecoder(listener) {
                 val satellites = data.data
                 listener.onGPSState(satellites, satellites > 6)
             }
+            Protocol.GPS_ALTITUDE -> {
+                listener.onGPSAltitudeData(data.data.toFloat())
+            }
             Protocol.ALTITUDE -> {
                 // metres, already signed
                 listener.onAltitudeData(data.data.toFloat())

@@ -138,6 +138,7 @@ class GhstProtocol : Protocol {
                 dataDecoder.decodeData(Protocol.Companion.TelemetryData(GPS_LONGITUDE, longitude))
                 processLongitude(longitude / 10000000.toDouble())
                 dataDecoder.decodeData(Protocol.Companion.TelemetryData(ALTITUDE, altitude))
+                dataDecoder.decodeData(Protocol.Companion.TelemetryData(GPS_ALTITUDE, altitude))
             }
             GPS_SECONDARY -> {
                 dataDecoder.decodeData(Protocol.Companion.TelemetryData(GSPEED, u16le(data, 1)))
