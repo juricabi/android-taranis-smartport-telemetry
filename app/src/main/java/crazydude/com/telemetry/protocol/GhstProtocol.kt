@@ -33,12 +33,6 @@ class GhstProtocol : Protocol {
 
         // type + 10 payload bytes, the crc byte is stripped before processing
         private const val FRAME_PAYLOAD_LEN = 11
-
-        // uplink tx power is reported in mW, the UI expects the CRSF power index
-        private val POWER_INDEX = mapOf(
-            10 to 1, 25 to 2, 50 to 8, 100 to 3,
-            250 to 7, 500 to 4, 1000 to 5, 2000 to 6
-        )
     }
 
     override fun process(data: Int) {
@@ -115,9 +109,7 @@ class GhstProtocol : Protocol {
                 dataDecoder.decodeData(Protocol.Companion.TelemetryData(RSSI, rssi))
                 dataDecoder.decodeData(Protocol.Companion.TelemetryData(CRSF_UP_LQ, lq))
                 dataDecoder.decodeData(Protocol.Companion.TelemetryData(UP_SNR, snr))
-                dataDecoder.decodeData(
-                    Protocol.Companion.TelemetryData(POWER, POWER_INDEX[txPower] ?: 0)
-                )
+                dataDecoder.decodeData(Protocol.Companion.TelemetryData(POWER, txPower))
                 dataDecoder.decodeData(
                     Protocol.Companion.TelemetryData(ELRS_RF_MODE, u8(data, 10))
                 )

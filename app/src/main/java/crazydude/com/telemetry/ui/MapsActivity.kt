@@ -2138,6 +2138,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     override fun onPowerData(power: Int) {
         this.sensorTimeoutManager.onPowerData(power);
+        if (detectedProtocol == "GHST") {
+            // Ghost reports the power in mW and uses levels the CRSF table does not have
+            runOnUiThread {
+                this.power.text =
+                    if (power >= 1000 && power % 1000 == 0) "${power / 1000}W" else "${power}mW"
+            }
+            return
+        }
         runOnUiThread {
             when (power) {
                 1 -> this.power.text = "10mW"
