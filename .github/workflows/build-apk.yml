@@ -18,27 +18,27 @@ jobs:
           java-version: '11'
           distribution: 'temurin'
 
-      - name: Generate debug keystore
+      - name: Generate signing keystore
         run: |
           keytool -genkeypair -v -keystore app/debug.keystore \
             -storepass android -keypass android -alias androiddebugkey \
             -keyalg RSA -keysize 2048 -validity 10000 \
             -dname "CN=Android Debug,O=Android,C=US"
           cat > keystore.properties <<PROPS
-          storeFile=debug.keystore
+          storeFile=release.keystore
           storePassword=android
           keyAlias=androiddebugkey
           keyPassword=android
           PROPS
 
-      - name: Build debug APK
+      - name: Build release APK
         run: |
           chmod +x gradlew
-          ./gradlew :app:assembleDebug --stacktrace
+          ./gradlew :app:assembleRelease --stacktrace
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: telemetry-ghst-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: app/build/outputs/apk/release/*.apk
           if-no-files-found: warn
