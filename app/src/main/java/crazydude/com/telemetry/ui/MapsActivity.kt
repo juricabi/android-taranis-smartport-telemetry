@@ -2389,6 +2389,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     override fun onProtocolDetected( protocolName: String) {
         detectedProtocol = protocolName
         runOnUiThread {
+            if (protocolName == "GHST") {
+                this.elrsRate.setCompoundDrawablesRelativeWithIntrinsicBounds(
+                    R.drawable.ic_ghst_rate, 0, 0, 0
+                )
+            }
             Toast.makeText(this, "Protocol: $protocolName", Toast.LENGTH_SHORT).show()
         }
     }
