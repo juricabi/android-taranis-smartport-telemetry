@@ -2390,9 +2390,19 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         detectedProtocol = protocolName
         runOnUiThread {
             if (protocolName == "GHST") {
-                this.elrsRate.setCompoundDrawablesRelativeWithIntrinsicBounds(
-                    R.drawable.ic_ghst_rate, 0, 0, 0
+                // keep the icon on the side the current layout puts it on
+                val icon = androidx.core.content.ContextCompat.getDrawable(
+                    this, R.drawable.ic_ghst_rate
                 )
+                if (this.elrsRate.compoundDrawablesRelative[1] != null) {
+                    this.elrsRate.setCompoundDrawablesRelativeWithIntrinsicBounds(
+                        null, icon, null, null
+                    )
+                } else {
+                    this.elrsRate.setCompoundDrawablesRelativeWithIntrinsicBounds(
+                        icon, null, null, null
+                    )
+                }
             }
             Toast.makeText(this, "Protocol: $protocolName", Toast.LENGTH_SHORT).show()
         }
