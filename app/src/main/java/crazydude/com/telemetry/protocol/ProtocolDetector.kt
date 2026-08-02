@@ -1,5 +1,7 @@
 package crazydude.com.telemetry.protocol
 
+import android.util.Log
+
 import crazydude.com.telemetry.protocol.decoder.DataDecoder
 
 class ProtocolDetector(private val callback: Callback) {
@@ -50,7 +52,18 @@ class ProtocolDetector(private val callback: Callback) {
             }
         })
 
+    private val dbgHex = StringBuilder()
+    private var dbgCount = 0
+
     fun feedData(data: Int) {
+        if (dbgCount < 512) {
+            dbgHex.append(String.format("%02X ", data))
+            dbgCount++
+            if (dbgCount % 128 == 0) {
+                Log.d("ProtoDetect", "RAW[$dbgCount]: $dbgHex")
+                dbgHex.setLength(0)
+            }
+        }
         sportProtocol.process(data)
         crsfProtocol.process(data)
         ltmProtocol.process(data)
@@ -61,6 +74,9 @@ class ProtocolDetector(private val callback: Callback) {
 
 
         hits.forEachIndexed { index, i ->
+            if (i == 1) {
+                Log.d("ProtoDetect", "hit on index $index (hits=${hits.joinToString(",")})")
+            }
             if (i >= 2) {
                 when (index) {
                     0 -> callback.onProtocolDetected(sportProtocol)
