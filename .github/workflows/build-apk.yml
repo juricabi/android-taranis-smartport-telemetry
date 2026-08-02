@@ -26,20 +26,19 @@ jobs:
             -dname "CN=Android Debug,O=Android,C=US"
           printf 'storeFile=../debug.keystore\nstorePassword=android\nkeyAlias=androiddebugkey\nkeyPassword=android\n' > keystore.properties
 
-      - name: Write local.properties
-        run: |
-          NDK_DIR="$(ls -d $ANDROID_HOME/ndk/* 2>/dev/null | sort -V | tail -1)"
-          [ -z "$NDK_DIR" ] && NDK_DIR="$ANDROID_NDK_ROOT"
-          echo "sdk.dir=$ANDROID_HOME" > local.properties
-          echo "ndk.dir=$NDK_DIR" >> local.properties
-          cat local.properties
-
       - name: Install SDK platform 28
         run: |
           export JAVA_HOME="$JAVA_HOME_17_X64"
           export PATH="$JAVA_HOME/bin:$PATH"
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-28" "build-tools;28.0.3"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-28" "build-tools;29.0.2" "ndk;21.4.7075529"
+
+      - name: Write local.properties
+        run: |
+          NDK_DIR="$ANDROID_HOME/ndk/21.4.7075529"
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          echo "ndk.dir=$NDK_DIR" >> local.properties
+          cat local.properties
 
       - name: Build debug APK
         run: |
