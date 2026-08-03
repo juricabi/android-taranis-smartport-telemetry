@@ -327,8 +327,11 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
                     val focusY = focusYOf(event)
 
                     if (lastSpan > 0f && span > 0f) {
+                        // Twenty kilometres out is already far past the ground
+                        // that gets loaded; beyond that there is nothing to see
+                        // and everything to fight over in the depth buffer.
                         renderer.distance =
-                            (renderer.distance * lastSpan / span).coerceIn(50f, 200000f)
+                            (renderer.distance * lastSpan / span).coerceIn(60f, 20000f)
                     }
                     // a twist turns the world, the way it does on a map
                     var turn = angle - lastAngle

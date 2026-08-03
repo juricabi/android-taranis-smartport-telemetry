@@ -315,13 +315,21 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         surfaceWidth = Math.max(1, width)
         surfaceHeight = Math.max(1, height)
         GLES20.glViewport(0, 0, surfaceWidth, surfaceHeight)
-        val ratio = surfaceWidth.toFloat() / surfaceHeight
-        Matrix.perspectiveM(projection, 0, 50f, ratio, 5f, 120000f)
+        // the projection is rebuilt per frame instead, from how far out we are
     }
 
     override fun onDrawFrame(gl: GL10?) {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         uploadPending()
+
+        // Depth resolution is spent between the near and far planes, so a near
+        // plane fixed at a few metres with the far one kilometres away left
+        // almost none of it for the ground — which is why the arrow flickered
+        // against the terrain from far out. Both now follow the camera.
+        val ratio = surfaceWidth.toFloat() / surfaceHeight
+        val near = Math.max(1f, distance / 200f)
+        val far = Math.max(4000f, distance * 8f)
+        Matrix.perspectiveM(projection, 0, 50f, ratio, near, far)
 
         val az = Math.toRadians(azimuth.toDouble())
         val el = Math.toRadians(elevation.toDouble().coerceIn(3.0, 87.0))
