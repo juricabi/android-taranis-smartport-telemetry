@@ -611,13 +611,15 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     }
 
     /**
-     * A whisker above the terrain, no more.
+     * A whisker above the terrain, no more, and no longer growing with
+     * distance.
      *
-     * The ground is pushed back in depth while it is drawn, which is what
-     * actually keeps these clear of it; this is only so a line lying exactly on
-     * a slope does not weave in and out of it between vertices.
+     * The ground is pushed back in depth while it is drawn, and that is what
+     * keeps these clear of it. This is only so a line lying across a slope does
+     * not weave in and out of the surface between its vertices. Scaling it with
+     * the camera made the ring float metres above the ground it belongs to.
      */
-    private fun groundLift(): Float = Math.max(1f, distance * 0.002f)
+    private fun groundLift(): Float = 0.25f
 
     private fun drawLines() {
         if (lineProgram == 0) return

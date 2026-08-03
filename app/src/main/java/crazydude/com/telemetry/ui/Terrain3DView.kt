@@ -250,7 +250,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
             val pointLon = myLon + myAccuracy * Math.sin(angle) / metresPerDegreeLon
             val h = scene.groundAt(pointLat, pointLon) ?: ground
             ring[i++] = scene.east(pointLon)
-            ring[i++] = h - scene.originAltitude + 1f
+            ring[i++] = h - scene.originAltitude + 0.15f
             ring[i++] = -scene.north(pointLat)
         }
         renderer.setAccuracyCircle(ring)
@@ -448,7 +448,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         if (myLat.isNaN() || myLon.isNaN()) return
         val ground = scene.groundAt(myLat, myLon) ?: return
         renderer.setMyLocation(
-            scene.east(myLon), ground - scene.originAltitude + 1f,
+            scene.east(myLon), ground - scene.originAltitude + 0.1f,
             -scene.north(myLat), myHeading
         )
     }
