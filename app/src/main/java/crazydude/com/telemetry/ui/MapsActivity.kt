@@ -445,31 +445,23 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             showFindMyQuad()
         }
 
+        // Copying the location and routing to the model used to be here as
+        // well; they are on the Find my quad button now, which is where someone
+        // looking for their model actually goes.
         menuButton.setOnClickListener {
-            val option0 = "Copy UAV location to clipboard";
-            val option1 = "Show route to UAV";
             val option2 = "Rename Log";
             val option3 = "Delete Log";
             val option4 = "Export GPX file...";
             val option5 = "Export KML file...";
             val option6 = "Set playback duration..."
 
-            var options = arrayOf(option0, option1, option2, option3, option4, option5, option6)
-            if ( this.logPlayer == null) {
-                options = arrayOf(option0, option1)
-            }
+            val options = arrayOf(option2, option3, option4, option5, option6)
 
             this.showDialog( AlertDialog.Builder(this)
             .setTitle("Select an action")
             .setItems(options) { dialog: DialogInterface, which: Int ->
                 val selectedOption = options[which]
                 when (selectedOption) {
-                    option0 -> {
-                        showAndCopyCurrentGPSLocation()
-                    }
-                    option1 -> {
-                        showDirectionsToCurrentLocation()
-                    }
                     option2 -> {
                         showRenameLogDialog()
                     }
@@ -659,22 +651,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
-    private fun showAndCopyCurrentGPSLocation() {
-        marker?.let {
-            val posString = "${it.position.lat},${it.position.lon}"
-            val clipboardManager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboardManager.primaryClip = ClipData.newPlainText("Location", posString)
-            Toast.makeText(
-                this,
-                "Current plane location copied to clipboard ($posString)",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-        if ( marker == null ) {
-            Toast.makeText(this, "Location is unknown", Toast.LENGTH_SHORT).show()
-        }
-    }
-
     // Everything needed to walk to a downed model: where it was last seen, how
     // far and in which direction from where you are standing, and a plus code
     // that can be typed into any maps app or read out to someone else.
@@ -758,24 +734,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 Toast.makeText(this, "Copied " + plusCode, Toast.LENGTH_LONG).show()
             }
             .create())
-    }
-
-    private fun showDirectionsToCurrentLocation() {
-        marker?.let {
-            val posString = "${it.position.lat},${it.position.lon}"
-            val intent = Intent(
-                Intent.ACTION_VIEW,
-                Uri.parse("http://maps.google.com/maps?daddr=$posString")
-            )
-            try {
-                startActivity(intent)
-            } catch (e: ActivityNotFoundException) {
-                Toast.makeText(this, "Cannot build directions", Toast.LENGTH_LONG).show()
-            }
-        }
-        if ( marker == null ) {
-            Toast.makeText(this, "Location is unknown", Toast.LENGTH_SHORT).show()
-        }
     }
 
     private fun checkAppInstallDate() {
