@@ -439,6 +439,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
         followButton.setOnClickListener {
             setFollowMode(!followMode);
+            terrain3D?.setFollowing(followMode)
             if (followMode) {
                 marker?.let {
                     if (map?.initialized() ?: false) {
@@ -454,9 +455,17 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
         northUpButton.setOnClickListener {
             map?.resetMapOrientation()
+            terrain3D?.faceNorth()
         }
 
         myLocationButton.setOnClickListener {
+            terrain3D?.let {
+                setFollowMode(false)
+                if (!it.goToMyLocation()) {
+                    Toast.makeText(this, "Phone location not available", Toast.LENGTH_SHORT).show()
+                }
+                return@setOnClickListener
+            }
             val pos = map?.getMyLocation()
             if (pos != null) {
                 setFollowMode(false)
@@ -467,6 +476,15 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
 
         findQuadButton.setOnClickListener {
+            terrain3D?.let { view ->
+                val live = crazydude.com.telemetry.gl.LiveFlightPath.latest()
+                if (live != null) {
+                    setFollowMode(false)
+                    view.lookAt(live.lat, live.lon, live.altitudeMsl)
+                } else {
+                    lastKnownGPS?.let { view.lookAt(it.lat, it.lon, null) }
+                }
+            }
             showFindMyQuad()
         }
 
@@ -2398,6 +2416,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
             )
         )
+        view.onFollowingLost = { setFollowMode(false) }
+        setFollowMode(true)
         view.start(
             crazydude.com.telemetry.gl.LiveFlightPath.snapshot(),
             where?.lat ?: Double.NaN, where?.lon ?: Double.NaN,

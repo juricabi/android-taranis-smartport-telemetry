@@ -265,24 +265,31 @@ class TerrainRenderer : GLSurfaceView.Renderer {
 
         val az = Math.toRadians(azimuth.toDouble())
         val el = Math.toRadians(elevation.toDouble().coerceIn(3.0, 87.0))
-        val eyeX = target[0] + (distance * Math.cos(el) * Math.sin(az)).toFloat()
-        var eyeY = target[1] + (distance * Math.sin(el)).toFloat()
-        val eyeZ = target[2] + (distance * Math.cos(el) * Math.cos(az)).toFloat()
-        // never under the ground: the terrain is opaque from below and the view
-        // becomes a meaningless slab
-        val floorY = groundUnderCamera?.invoke(eyeX, eyeZ)
-        if (floorY != null && eyeY < floorY + 30f) eyeY = floorY + 30f
-        // and the point being looked at, or the camera tips under the ground
-        // trying to see beneath it
-        val targetFloor = groundUnderCamera?.invoke(target[0], target[2])
-        val targetY = if (targetFloor != null && target[1] < targetFloor + 5f) {
-            targetFloor + 5f
+        // The ground is drawn stretched by verticalScale, so the camera has to
+        // live in that same stretched space. Placing it in unstretched metres
+        // put it below hills it was supposed to clear — which is why it could
+        // still end up inside them.
+        val targetFloorRaw = groundUnderCamera?.invoke(target[0], target[2])
+        val targetYRaw = if (targetFloorRaw != null && target[1] < targetFloorRaw + 5f) {
+            targetFloorRaw + 5f
         } else {
             target[1]
         }
+        val targetY = targetYRaw * verticalScale
+
+        val eyeX = target[0] + (distance * Math.cos(el) * Math.sin(az)).toFloat()
+        var eyeY = targetY + (distance * Math.sin(el)).toFloat()
+        val eyeZ = target[2] + (distance * Math.cos(el) * Math.cos(az)).toFloat()
+        // never under the ground: it is opaque from below and the view becomes
+        // a meaningless slab
+        val floorY = groundUnderCamera?.invoke(eyeX, eyeZ)
+        if (floorY != null && eyeY < floorY * verticalScale + 40f) {
+            eyeY = floorY * verticalScale + 40f
+        }
         Matrix.setLookAtM(view, 0, eyeX, eyeY, eyeZ, target[0], targetY, target[2], 0f, 1f, 0f)
 
-        // the exaggeration lives in the matrix, so nothing has to be rebuilt
+        // the exaggeration lives in the matrix, so nothing has to be rebuilt,
+        // and the camera above was placed in the same stretched space
         val scaled = FloatArray(16)
         Matrix.setIdentityM(scaled, 0)
         Matrix.scaleM(scaled, 0, 1f, verticalScale, 1f)

@@ -38,10 +38,8 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private var lastX = 0f
     private var lastY = 0f
     private var lastSpan = 0f
-    private var lastFocusX = 0f
     private var lastFocusY = 0f
-    private var lastTouchDown = 0L
-    private var pinching = false
+    private var lastAngle = 0f
     private var seenVersion = -1
     private var loadingTerrain = false
     private var started = false
@@ -207,17 +205,20 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         val x = scene.east(myLon)
         val z = -scene.north(myLat)
         val y = ground - scene.originAltitude + 1f
-        val size = Math.max(12f, scene.extent / 50f)
-
-        // a chevron lying on the ground, the shape the map uses, rather than the
-        // bare post that was here before
+        // A small pin with sides, not a big flat arrow: it has to read as
+        // standing on the ground from any angle, and it is a place, not a
+        // heading, so it points up rather than along.
+        val size = Math.max(4f, scene.extent / 120f)
+        val apex = size * 3f
+        val a = floatArrayOf(x, y, z - size)
+        val b = floatArrayOf(x + size * 0.87f, y, z + size * 0.5f)
+        val c = floatArrayOf(x - size * 0.87f, y, z + size * 0.5f)
+        val top = floatArrayOf(x, y + apex, z)
         renderer.setMyLocation(floatArrayOf(
-            x, y, z - size,
-            x - size * 0.7f, y, z + size * 0.7f,
-            x, y, z + size * 0.2f,
-            x, y, z - size,
-            x, y, z + size * 0.2f,
-            x + size * 0.7f, y, z + size * 0.7f
+            a[0], a[1], a[2], b[0], b[1], b[2], top[0], top[1], top[2],
+            b[0], b[1], b[2], c[0], c[1], c[2], top[0], top[1], top[2],
+            c[0], c[1], c[2], a[0], a[1], a[2], top[0], top[1], top[2],
+            a[0], a[1], a[2], c[0], c[1], c[2], b[0], b[1], b[2]
         ))
 
         if (myAccuracy < 1f) return
@@ -236,69 +237,105 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         renderer.setAccuracyCircle(ring)
     }
 
+    /** The buttons down the side of the map drive this too. */
+    fun setFollowing(on: Boolean) {
+        following = on
+        status.text = ""
+        if (on) LiveFlightPath.latest()?.let { lookAt(it.lat, it.lon, it.altitudeMsl) }
+    }
+
+    fun isFollowing(): Boolean = following
+
+    fun faceNorth() {
+        renderer.azimuth = 0f
+        renderer.elevation = 30f
+    }
+
+    /** Put the camera on a place, without following anything. */
+    fun lookAt(lat: Double, lon: Double, altitudeMsl: Float?) {
+        val ground = scene.groundAt(lat, lon)
+        val height = when {
+            altitudeMsl != null -> altitudeMsl - scene.originAltitude
+            ground != null -> ground - scene.originAltitude
+            else -> 0f
+        }
+        renderer.target = floatArrayOf(scene.east(lon), height, -scene.north(lat))
+    }
+
+    fun goToMyLocation(): Boolean {
+        if (myLat.isNaN() || myLon.isNaN()) return false
+        following = false
+        status.text = ""
+        lookAt(myLat, myLon, null)
+        renderer.distance = Math.min(renderer.distance, 800f)
+        return true
+    }
+
+    /**
+     * The gestures every map app uses, because everyone already knows them:
+     * one finger drags the ground, two fingers pinch to zoom, twist to turn,
+     * and slide together to tilt.
+     */
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                val now = System.currentTimeMillis()
-                if (now - lastTouchDown < 300) {
-                    following = true
-                    status.text = ""
-                }
-                lastTouchDown = now
                 lastX = event.x
                 lastY = event.y
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 lastSpan = spanOf(event)
-                pinching = true
+                lastAngle = angleOf(event)
+                lastFocusY = focusYOf(event)
             }
             MotionEvent.ACTION_MOVE -> {
                 if (event.pointerCount >= 2) {
-                    pinching = true
                     val span = spanOf(event)
+                    val angle = angleOf(event)
+                    val focusY = focusYOf(event)
+
                     if (lastSpan > 0f && span > 0f) {
                         renderer.distance =
                             (renderer.distance * lastSpan / span).coerceIn(50f, 200000f)
                     }
+                    // a twist turns the world, the way it does on a map
+                    var turn = angle - lastAngle
+                    while (turn > 180f) turn -= 360f
+                    while (turn < -180f) turn += 360f
+                    if (Math.abs(turn) < 40f) renderer.azimuth += turn
+
+                    // both fingers sliding together tilt the view
+                    val tilt = focusY - lastFocusY
+                    if (Math.abs(tilt) > 0.5f) {
+                        renderer.elevation =
+                            (renderer.elevation + tilt * 0.15f).coerceIn(3f, 87f)
+                        followingOff()
+                    }
+
                     lastSpan = span
-                    val focusX = (event.getX(0) + event.getX(1)) / 2
-                    val focusY = (event.getY(0) + event.getY(1)) / 2
-                    if (lastFocusX != 0f || lastFocusY != 0f) {
-                        panBy(focusX - lastFocusX, focusY - lastFocusY)
-                    }
-                    lastFocusX = focusX
+                    lastAngle = angle
                     lastFocusY = focusY
-                } else if (!pinching) {
-                    if (following) {
-                        following = false
-                        status.text = "Double tap to follow"
-                    }
-                    renderer.azimuth -= (event.x - lastX) * 0.3f
-                    renderer.elevation =
-                        (renderer.elevation + (event.y - lastY) * 0.2f).coerceIn(3f, 87f)
+                } else {
+                    panBy(event.x - lastX, event.y - lastY)
                     lastX = event.x
                     lastY = event.y
                 }
             }
             MotionEvent.ACTION_POINTER_UP -> {
                 lastSpan = 0f
-                lastFocusX = 0f
-                lastFocusY = 0f
+                // the finger that stays becomes the anchor, wherever it is, so
+                // nothing snaps when the other one leaves
                 val remaining = if (event.actionIndex == 0) 1 else 0
                 lastX = event.getX(remaining)
                 lastY = event.getY(remaining)
             }
-            MotionEvent.ACTION_UP -> pinching = false
         }
         return true
     }
 
-    /** Drag the ground with the fingers, scaled by how far out the camera is. */
+    /** Drag the ground with the finger, scaled by how far out the camera is. */
     private fun panBy(dx: Float, dy: Float) {
-        if (following) {
-            following = false
-            status.text = "Double tap to follow"
-        }
+        if (dx == 0f && dy == 0f) return
+        followingOff()
         val height = Math.max(1, resources.displayMetrics.heightPixels)
         val metresPerPixel = renderer.distance * 0.93f / height
         val az = Math.toRadians(renderer.azimuth.toDouble())
@@ -307,13 +344,34 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         val awayX = Math.sin(az).toFloat()
         val awayZ = Math.cos(az).toFloat()
         val t = renderer.target
-        // the ground goes the way the fingers go, which is the other way from
-        // the camera
+        // the ground follows the finger, so the camera goes the other way
         renderer.target = floatArrayOf(
-            t[0] + dx * metresPerPixel * rightX - dy * metresPerPixel * awayX,
+            t[0] - dx * metresPerPixel * rightX + dy * metresPerPixel * awayX,
             t[1],
-            t[2] + dx * metresPerPixel * rightZ - dy * metresPerPixel * awayZ
+            t[2] - dx * metresPerPixel * rightZ + dy * metresPerPixel * awayZ
         )
+    }
+
+    /** Touching the view takes the camera; the follow button gives it back. */
+    private fun followingOff() {
+        if (!following) return
+        following = false
+        onFollowingLost?.invoke()
+    }
+
+    /** Told to the map screen, so its follow button can dim with the mode. */
+    var onFollowingLost: (() -> Unit)? = null
+
+    private fun angleOf(event: MotionEvent): Float {
+        if (event.pointerCount < 2) return 0f
+        val dx = event.getX(1) - event.getX(0)
+        val dy = event.getY(1) - event.getY(0)
+        return Math.toDegrees(Math.atan2(dy.toDouble(), dx.toDouble())).toFloat()
+    }
+
+    private fun focusYOf(event: MotionEvent): Float {
+        if (event.pointerCount < 2) return 0f
+        return (event.getY(0) + event.getY(1)) / 2
     }
 
     private fun spanOf(event: MotionEvent): Float {
