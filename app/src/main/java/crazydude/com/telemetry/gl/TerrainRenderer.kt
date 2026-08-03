@@ -105,6 +105,9 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     @Volatile var azimuth = 30f
     @Volatile var elevation = 28f
     @Volatile var distance = 1500f
+
+    /** As far out as the ground goes; set from the flight, not guessed. */
+    @Volatile var maxDistance = 3000f
     @Volatile var target = floatArrayOf(0f, 0f, 0f)
 
     /** Height is exaggerated a little, or a hill reads as flat from above. */

@@ -128,6 +128,10 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         } else {
             500f
         }
+        // Zooming out past the ground shows nothing but sky, so the limit
+        // follows the flight: a couple of kilometres for an ordinary one, more
+        // for a flight that covers more.
+        renderer.maxDistance = Math.max(2500f, scene.extent * 5f)
         status.text = "Loading terrain…"
 
         val worker = Thread(Runnable {
@@ -196,6 +200,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
                 scene.loadTerrain(points, { _, _ -> }, { })
                 post {
                     renderer.submit(scene.tiles)
+                    renderer.maxDistance = Math.max(2500f, scene.extent * 5f)
                     status.text = ""
                     loadingTerrain = false
                 }
@@ -327,11 +332,8 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
                     val focusY = focusYOf(event)
 
                     if (lastSpan > 0f && span > 0f) {
-                        // Twenty kilometres out is already far past the ground
-                        // that gets loaded; beyond that there is nothing to see
-                        // and everything to fight over in the depth buffer.
-                        renderer.distance =
-                            (renderer.distance * lastSpan / span).coerceIn(60f, 20000f)
+                        renderer.distance = (renderer.distance * lastSpan / span)
+                            .coerceIn(60f, renderer.maxDistance)
                     }
                     // a twist turns the world, the way it does on a map
                     var turn = angle - lastAngle
