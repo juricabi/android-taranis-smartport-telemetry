@@ -515,6 +515,16 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         }
     }
 
+    /**
+     * How far above the terrain to draw the things that lie on it.
+     *
+     * A hundredth of the camera distance: at arm's length that is centimetres,
+     * and at the far end of the zoom it is tens of metres, which is still
+     * invisible at that range and is well clear of what the depth buffer can
+     * resolve. The zoom being capped is what makes a proportion safe.
+     */
+    private fun groundLift(): Float = Math.max(0.5f, distance * 0.01f)
+
     private fun drawLines() {
         if (lineProgram == 0) return
         GLES20.glUseProgram(lineProgram)
@@ -539,7 +549,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // Anything lying on the ground fights with it once the camera is far
         // enough out that a metre is below what the depth buffer can tell
         // apart. Lift them with distance instead of by a fixed metre.
-        val lift = Math.max(1f, distance * 0.004f)
+        val lift = groundLift()
         Matrix.setIdentityM(liftMatrix, 0)
         Matrix.translateM(liftMatrix, 0, 0f, lift / verticalScale, 0f)
         Matrix.multiplyMM(liftMvp, 0, mvp, 0, liftMatrix, 0)
@@ -580,7 +590,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             // however far the camera is
             val size = Math.max(2f, distance * 0.014f)
             Matrix.setIdentityM(arrowMatrix, 0)
-            Matrix.translateM(arrowMatrix, 0, myX, myY, myZ)
+            Matrix.translateM(arrowMatrix, 0, myX, myY + groundLift() / verticalScale, myZ)
             Matrix.rotateM(arrowMatrix, 0, -myHeading, 0f, 1f, 0f)
             Matrix.scaleM(arrowMatrix, 0, size, size / verticalScale, size)
             Matrix.multiplyMM(arrowMvp, 0, mvp, 0, arrowMatrix, 0)
@@ -588,15 +598,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             mine.position(0)
             GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, mine)
             GLES20.glUniform4f(uColor, 0.15f, 0.55f, 1f, 1f)
-            // Drawn without the depth test, so it cannot fight the ground it
-            // stands on. Lifting it only ever reduced the flicker — from far
-            // enough out no offset is large enough to separate two surfaces in
-            // a buffer that has run out of resolution. This is a marker rather
-            // than scenery, and a marker belongs on top, which is what every
-            // map does with them.
-            GLES20.glDisable(GLES20.GL_DEPTH_TEST)
             GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 18)
-            GLES20.glEnable(GLES20.GL_DEPTH_TEST)
             GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
         }
 
@@ -609,9 +611,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, ring)
             GLES20.glUniform4f(uColor, 0.2f, 0.6f, 1f, 0.9f)
             GLES20.glLineWidth(3f)
-            GLES20.glDisable(GLES20.GL_DEPTH_TEST)
             GLES20.glDrawArrays(GLES20.GL_LINE_LOOP, 0, rCount)
-            GLES20.glEnable(GLES20.GL_DEPTH_TEST)
             GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
         }
         if (marker != null && mCount > 1) {
