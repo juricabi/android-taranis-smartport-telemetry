@@ -178,7 +178,8 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     @Volatile private var myX = 0f
     @Volatile private var myY = 0f
     @Volatile private var myZ = 0f
-    @Volatile private var myHeading = 0f
+    @Volatile private var myHeadingTarget = 0f
+    private var myHeading = 0f
 
     /**
      * Where you are standing and which way you face.
@@ -191,7 +192,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     @Synchronized
     fun setMyLocation(x: Float, y: Float, z: Float, headingDegrees: Float) {
         myX = x; myY = y; myZ = z
-        myHeading = headingDegrees
+        myHeadingTarget = headingDegrees
         myVisible = true
         if (arrowBuffer == null) arrowBuffer = floats(arrowMesh())
     }
@@ -478,9 +479,16 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val mine: FloatBuffer?
         synchronized(this) { mine = if (myVisible) arrowBuffer else null }
         if (mine != null) {
-            // a fortieth of the distance out, so it is the same size on screen
+            // eased towards the compass rather than snapped to it, so it turns
+            // like the needle on the map instead of twitching
+            var turn = myHeadingTarget - myHeading
+            while (turn > 180f) turn -= 360f
+            while (turn < -180f) turn += 360f
+            myHeading = (myHeading + turn * 0.12f + 360f) % 360f
+
+            // a fraction of the distance out, so it is the same size on screen
             // however far the camera is
-            val size = Math.max(3f, distance * 0.025f)
+            val size = Math.max(2f, distance * 0.014f)
             Matrix.setIdentityM(arrowMatrix, 0)
             Matrix.translateM(arrowMatrix, 0, myX, myY, myZ)
             Matrix.rotateM(arrowMatrix, 0, -myHeading, 0f, 1f, 0f)

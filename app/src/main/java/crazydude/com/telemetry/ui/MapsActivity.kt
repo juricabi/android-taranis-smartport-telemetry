@@ -183,7 +183,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         override fun onLocationChanged(location: Location) {
             // kept for the 3D view, which draws the same accuracy circle the map does
             phoneAccuracy = if (location.hasAccuracy()) location.accuracy else 0f
-            runOnUiThread { updateHomeLine() }
+            runOnUiThread {
+                updateHomeLine()
+                terrain3D?.setMyPosition(location.latitude, location.longitude, phoneAccuracy)
+            }
         }
         override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
         override fun onProviderEnabled(provider: String) {}

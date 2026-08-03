@@ -213,12 +213,17 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     }
 
     /** The same arrow and accuracy ring the map draws, laid on the ground. */
+    /** Where the phone is, as it changes. Keeps the arrow and its ring current. */
+    fun setMyPosition(lat: Double, lon: Double, accuracy: Float) {
+        myLat = lat
+        myLon = lon
+        myAccuracy = accuracy
+        showMyLocation()
+    }
+
     private fun showMyLocation() {
         if (myLat.isNaN() || myLon.isNaN()) return
         val ground = scene.groundAt(myLat, myLon) ?: return
-        val x = scene.east(myLon)
-        val z = -scene.north(myLat)
-        val y = ground - scene.originAltitude + 1f
         placeMyArrow()
 
         if (myAccuracy < 1f) return
@@ -291,11 +296,6 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
 
     /** Which way the phone is pointing, so the arrow means something. */
     fun setMyHeading(degrees: Float) {
-        var turn = degrees - myHeading
-        while (turn > 180f) turn -= 360f
-        while (turn < -180f) turn += 360f
-        // a couple of degrees of hysteresis, or it twitches on every sample
-        if (Math.abs(turn) < 2f) return
         myHeading = degrees
         placeMyArrow()
     }
@@ -429,11 +429,11 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     override fun onSensorChanged(event: android.hardware.SensorEvent) {
         when (event.sensor.type) {
             android.hardware.Sensor.TYPE_ACCELEROMETER -> {
-                System.arraycopy(event.values, 0, gravity, 0, 3)
+                smooth(gravity, event.values, hasGravity)
                 hasGravity = true
             }
             android.hardware.Sensor.TYPE_MAGNETIC_FIELD -> {
-                System.arraycopy(event.values, 0, geomagnetic, 0, 3)
+                smooth(geomagnetic, event.values, hasGeomagnetic)
                 hasGeomagnetic = true
             }
         }
@@ -448,6 +448,15 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     }
 
     override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) {}
+
+    /** Filtering the readings themselves, not the angle they produce. */
+    private fun smooth(target: FloatArray, values: FloatArray, initialised: Boolean) {
+        if (!initialised) {
+            System.arraycopy(values, 0, target, 0, 3)
+            return
+        }
+        for (i in 0..2) target[i] += (values[i] - target[i]) * 0.10f
+    }
 
     /**
      * Sensors follow the view being on screen, not the activity's lifecycle.
