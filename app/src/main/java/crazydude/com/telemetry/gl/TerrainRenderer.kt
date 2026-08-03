@@ -325,11 +325,11 @@ class TerrainRenderer : GLSurfaceView.Renderer {
 
         /** A box laid along a direction in the ground plane: an arm, or a wing. */
         fun arm(dirX: Float, dirZ: Float, from: Float, to: Float,
-                halfWidth: Float, y0: Float, y1: Float) {
+                halfWidth: Float, y0: Float, y1: Float, alongZ: Float = 0f) {
             val px = -dirZ
             val pz = dirX
             fun at(along: Float, side: Float, y: Float) = floatArrayOf(
-                dirX * along + px * side, y, dirZ * along + pz * side)
+                dirX * along + px * side, y, dirZ * along + pz * side + alongZ)
             val a = at(from, -halfWidth, y0); val b = at(to, -halfWidth, y0)
             val c = at(to, halfWidth, y0);    val d = at(from, halfWidth, y0)
             val e = at(from, -halfWidth, y1); val f = at(to, -halfWidth, y1)
@@ -377,12 +377,15 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         for (c in arrayOf(floatArrayOf(d, -d), floatArrayOf(-d, -d),
                           floatArrayOf(d, d), floatArrayOf(-d, d))) {
             s.arm(c[0], c[1], 0.15f, 1f, 0.07f, -0.03f, 0.05f)
-            s.post(c[0], c[1], 0.13f, 0.05f, 0.22f, 8)
+            // into the arm, not resting on it: two faces at one height are a
+            // coin toss for the depth buffer, and it comes down differently
+            // from one frame to the next
+            s.post(c[0], c[1], 0.13f, 0.01f, 0.22f, 8)
             s.post(c[0], c[1], 0.42f, 0.23f, 0.25f, 10)
         }
         s.box(-0.28f, -0.10f, -0.30f, 0.28f, 0.20f, 0.42f)
         s.box(-0.16f, -0.05f, -0.62f, 0.16f, 0.10f, -0.28f)
-        s.box(-0.18f, 0.20f, -0.18f, 0.18f, 0.32f, 0.20f)
+        s.box(-0.18f, 0.15f, -0.18f, 0.18f, 0.32f, 0.20f)
         return s.build()
     }
 
@@ -391,11 +394,14 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val s = Solid()
         s.box(-0.11f, -0.08f, -0.95f, 0.11f, 0.12f, 0.75f)
         s.box(-0.07f, -0.05f, -1.25f, 0.07f, 0.07f, -0.90f)
-        s.box(-0.16f, 0.12f, -0.35f, 0.16f, 0.26f, 0.15f)
+        s.box(-0.16f, 0.07f, -0.35f, 0.16f, 0.26f, 0.15f)
         s.arm(1f, 0f, 0.10f, 1.35f, 0.28f, -0.02f, 0.04f)
         s.arm(-1f, 0f, 0.10f, 1.35f, 0.28f, -0.02f, 0.04f)
-        s.arm(1f, 0f, 0.05f, 0.5f, 0.16f, 0f, 0.04f)
-        s.arm(-1f, 0f, 0.05f, 0.5f, 0.16f, 0f, 0.04f)
+        // the tailplane belongs at the tail. It was built in the middle, inside
+        // the wing and sharing its top face, which both hid it and left the two
+        // fighting over which was in front.
+        s.arm(1f, 0f, 0.05f, 0.5f, 0.13f, 0f, 0.03f, 0.60f)
+        s.arm(-1f, 0f, 0.05f, 0.5f, 0.13f, 0f, 0.03f, 0.60f)
         s.box(-0.04f, 0.10f, 0.45f, 0.04f, 0.55f, 0.78f)
         return s.build()
     }

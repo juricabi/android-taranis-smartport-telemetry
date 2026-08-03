@@ -512,11 +512,16 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
                     }
 
                     // both fingers sliding together tilt the view
+                    // Turning, tilting and zooming all move the camera round
+                    // what it is looking at, and leave that alone — so they do
+                    // not give up following it. Only dragging does, because
+                    // that is what takes the camera somewhere else. A twist
+                    // always slides the focus a little, which is why rotating
+                    // used to stop the chase.
                     val tilt = focusY - lastFocusY
                     if (Math.abs(tilt) > 0.5f) {
                         renderer.elevation =
                             (renderer.elevation + tilt * 0.15f).coerceIn(3f, 87f)
-                        followingOff()
                     }
 
                     lastSpan = span
