@@ -15,6 +15,7 @@ class GhstProtocol : Protocol {
     constructor(dataDecoder: DataDecoder) : super(dataDecoder)
 
     private var buffer = ArrayList<Int>()
+    private var launchAltitude: Int? = null
     private val crC8 = CRC8()
 
     companion object {
@@ -28,8 +29,9 @@ class GhstProtocol : Protocol {
 
         private const val MAX_BUFFER_FILL_LIMIT = 128
         private const val MIN_BUFFER_FILL_LEVEL_BEFORE_LOOKING_FOR_VALID_PACKETS = 20
-        private const val MAX_PAYLOAD_SIZE = 62
-        private const val MIN_PAYLOAD_SIZE = 5
+        // telemetry frames are 12 bytes; the module menu frame is 25
+        private const val MAX_PAYLOAD_SIZE = 25
+        private const val MIN_PAYLOAD_SIZE = 12
 
         // type + 10 payload bytes, the crc byte is stripped before processing
         private const val FRAME_PAYLOAD_LEN = 11
@@ -100,10 +102,11 @@ class GhstProtocol : Protocol {
         }
         when (u8(data, 0)) {
             LINK_STAT -> {
-                // rssi is sent as a positive number of dB below zero
-                val rssi = -u8(data, 1)
-                val lq = u8(data, 2)
-                val snr = u8(data, 3)
+                // rssi is sent as a positive number of dB below zero.
+                // the firmware clamps these before use, so do the same
+                val rssi = -Math.min(u8(data, 1), 120)
+                val lq = Math.min(u8(data, 2), 100)
+                val snr = Math.min(u8(data, 3), 100)
                 val txPower = u16be(data, 4)
 
                 dataDecoder.decodeData(Protocol.Companion.TelemetryData(RSSI, rssi))
@@ -132,8 +135,19 @@ class GhstProtocol : Protocol {
                 processLatitude(latitude / 10000000.toDouble())
                 dataDecoder.decodeData(Protocol.Companion.TelemetryData(GPS_LONGITUDE, longitude))
                 processLongitude(longitude / 10000000.toDouble())
-                dataDecoder.decodeData(Protocol.Companion.TelemetryData(ALTITUDE, altitude))
+
+                // Ghost reports height above sea level. The app also wants height
+                // above the launch point, so remember the first fix and subtract
+                // it; sending the sea level figure for both would be counted
+                // twice when a track is exported.
                 dataDecoder.decodeData(Protocol.Companion.TelemetryData(GPS_ALTITUDE, altitude))
+                if (latitude != 0 || longitude != 0) {
+                    if (launchAltitude == null) {
+                        launchAltitude = altitude
+                    }
+                    val relative = altitude - (launchAltitude ?: altitude)
+                    dataDecoder.decodeData(Protocol.Companion.TelemetryData(ALTITUDE, relative))
+                }
             }
             GPS_SECONDARY -> {
                 dataDecoder.decodeData(Protocol.Companion.TelemetryData(GSPEED, u16le(data, 1)))

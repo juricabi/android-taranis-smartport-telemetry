@@ -67,14 +67,21 @@ class GhstDataDecoder(listener: Listener) : DataDecoder(listener) {
                 listener.onHeadingData(data.data / 10f)
             }
             Protocol.RSSI -> {
-                // dBm, converted to a percentage the same way the CRSF decoder does
-                var v = (100 * sq(MAX_RSSI - MIN_RSSI) - (100 * sq(MAX_RSSI - data.data))) /
-                        sq(MAX_RSSI - MIN_RSSI)
-                if (data.data >= MAX_RSSI) v = 99
-                if (data.data < MIN_RSSI) v = 0
+                if (data.data == 0) {
+                    // zero means the module has no reading. Without this the
+                    // conversion below would report a full strength signal on a
+                    // link that has actually dropped.
+                    listener.onRSSIData(-1)
+                } else {
+                    // dBm, converted to a percentage the same way the CRSF decoder does
+                    var v = (100 * sq(MAX_RSSI - MIN_RSSI) - (100 * sq(MAX_RSSI - data.data))) /
+                            sq(MAX_RSSI - MIN_RSSI)
+                    if (data.data >= MAX_RSSI) v = 99
+                    if (data.data < MIN_RSSI) v = 0
 
-                listener.onRSSIData(v)
-                listener.onRssiDbm1Data(data.data)
+                    listener.onRSSIData(v)
+                    listener.onRssiDbm1Data(data.data)
+                }
             }
             Protocol.CRSF_UP_LQ -> {
                 listener.onUpLqData(data.data)
