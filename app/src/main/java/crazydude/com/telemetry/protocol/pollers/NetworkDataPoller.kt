@@ -13,6 +13,7 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketException
 import java.net.SocketTimeoutException
@@ -39,7 +40,7 @@ import java.net.SocketTimeoutException
  * where they have always come from.
  */
 class NetworkDataPoller(
-    private val useTcp: Boolean,
+    private val mode: Int,
     private val host: String,
     private val port: Int,
     private val listener: DataDecoder.Listener,
@@ -50,8 +51,24 @@ class NetworkDataPoller(
     companion object {
         private const val TCP_CONNECT_TIMEOUT_MS = 8000
         private const val BUFFER = 2048
+        /** Listen for datagrams: a module that broadcasts, or a router. */
+        const val MODE_UDP = 0
+
+        /** Dial out: a TBS WiFi module or a serial-to-WiFi bridge is a server. */
+        const val MODE_TCP_CLIENT = 1
+
+        /**
+         * Wait for the other end to dial in.
+         *
+         * The remaining common shape: mavlink-router's tcp server, and bridges
+         * configured to push rather than serve. Without it those setups have no
+         * way to reach the app at all.
+         */
+        const val MODE_TCP_SERVER = 2
+
         private const val RECEIVE_TIMEOUT_MS = 1000
         private const val ANNOUNCE_EVERY_MS = 1000L
+        private const val MAX_PEERS = 4
 
         /**
          * A MAVLink v1 HEARTBEAT from a ground station: length 9, sysid 255,
@@ -112,14 +129,33 @@ class NetworkDataPoller(
     private var tcpSocket: Socket? = null
 
     @Volatile
+    private var serverSocket: ServerSocket? = null
+
+    @Volatile
     private var udpSocket: DatagramSocket? = null
+
+    /**
+     * Everyone we have heard from on this socket.
+     *
+     * Taken from QGroundControl, which adds the sender of every datagram to its
+     * session targets and then talks to all of them. It matters because the
+     * address field is deliberately empty for a UDP listen — there is nothing
+     * to type when a module broadcasts — and a source that wants to be spoken
+     * to would otherwise never hear from us. Once anything arrives we know
+     * where it came from, so we can keep it alive.
+     */
+    private val peers = LinkedHashSet<Pair<InetAddress, Int>>()
 
     private val thread: Thread
 
     init {
         thread = Thread(Runnable {
             try {
-                if (useTcp) runTcp() else runUdp()
+                when (mode) {
+                    MODE_TCP_CLIENT -> runTcp()
+                    MODE_TCP_SERVER -> runTcpServer()
+                    else -> runUdp()
+                }
             } catch (e: Exception) {
                 // Anything at all that escapes still has to produce exactly one
                 // terminal callback, or DataService.isConnected() stays true
@@ -154,6 +190,48 @@ class NetworkDataPoller(
             val size = input.read(buffer)
             if (size < 0) break
             feed(buffer, 0, size)
+        }
+        finish()
+    }
+
+    private fun runTcpServer() {
+        val server = ServerSocket()
+        serverSocket = server
+        server.reuseAddress = true
+        server.bind(InetSocketAddress(port))
+
+        // Bound and waiting counts as connected: there is nothing else the user
+        // can do, and reporting it lets the service go foreground and the UI
+        // stop saying "connecting".
+        connectedOnce = true
+        runOnMainThread(Runnable { listener.onConnected() })
+
+        server.soTimeout = RECEIVE_TIMEOUT_MS
+        while (!stopping && !finished) {
+            val client = try {
+                server.accept()
+            } catch (e: SocketTimeoutException) {
+                continue
+            }
+            tcpSocket = client
+            client.tcpNoDelay = true
+            val buffer = ByteArray(BUFFER)
+            val input = client.getInputStream()
+            try {
+                while (!stopping && !finished) {
+                    val size = input.read(buffer)
+                    if (size < 0) break
+                    feed(buffer, 0, size)
+                }
+            } catch (e: IOException) {
+                // that client went away; keep the door open for the next one
+            }
+            try {
+                client.close()
+            } catch (e: IOException) {
+                // ignore
+            }
+            tcpSocket = null
         }
         finish()
     }
@@ -204,6 +282,7 @@ class NetworkDataPoller(
                 // it is the gap in which we announce ourselves again.
                 continue
             }
+            rememberPeer(packet.address, packet.port)
             feed(packet.data, packet.offset, packet.length)
         }
         finish()
@@ -219,15 +298,49 @@ class NetworkDataPoller(
      * sender is never registered. A heartbeat is what a ground station sends
      * anyway, so anything expecting a GCS recognises it.
      */
+    private fun rememberPeer(address: InetAddress?, senderPort: Int) {
+        if (address == null || senderPort <= 0) return
+        synchronized(peers) {
+            val key = Pair(address, senderPort)
+            if (peers.contains(key)) return
+            // bounded: a broadcast network could otherwise introduce us to
+            // every device on it
+            if (peers.size >= MAX_PEERS) {
+                val oldest = peers.iterator()
+                if (oldest.hasNext()) {
+                    oldest.next()
+                    oldest.remove()
+                }
+            }
+            peers.add(key)
+        }
+    }
+
+    /**
+     * Say hello to the configured address and to everyone we have heard from.
+     *
+     * A source that broadcasts does not need any of this. One that unicasts
+     * only to whoever spoke to it does, and for those the address field is
+     * usually empty because there was nothing to type — so the sender learned
+     * from an arriving datagram is the only address we will ever have.
+     */
     private fun announce() {
-        if (host.isEmpty()) return
-        try {
-            val addr = InetAddress.getByName(host)
-            val socket = udpSocket ?: return
-            socket.send(DatagramPacket(HEARTBEAT, HEARTBEAT.size, addr, port))
-        } catch (e: IOException) {
-            // A sender that broadcasts does not need this, and one that does
-            // will simply never be heard from.
+        val socket = udpSocket ?: return
+        val targets = ArrayList<Pair<InetAddress, Int>>()
+        if (host.isNotEmpty()) {
+            try {
+                targets.add(Pair(InetAddress.getByName(host), port))
+            } catch (e: IOException) {
+                // an unresolvable address is not worth failing the connection
+            }
+        }
+        synchronized(peers) { targets.addAll(peers) }
+        for (target in targets) {
+            try {
+                socket.send(DatagramPacket(HEARTBEAT, HEARTBEAT.size, target.first, target.second))
+            } catch (e: IOException) {
+                // one unreachable peer must not stop the others
+            }
         }
     }
 
@@ -284,6 +397,11 @@ class NetworkDataPoller(
         } catch (e: Exception) {
             // ignore
         }
+        try {
+            serverSocket?.close()
+        } catch (e: Exception) {
+            // ignore
+        }
         binder?.release()
     }
 
@@ -308,6 +426,11 @@ class NetworkDataPoller(
         }
         try {
             udpSocket?.close()
+        } catch (e: Exception) {
+            // ignore
+        }
+        try {
+            serverSocket?.close()
         } catch (e: Exception) {
             // ignore
         }

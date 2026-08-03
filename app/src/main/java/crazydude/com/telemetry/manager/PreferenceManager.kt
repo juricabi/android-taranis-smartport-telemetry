@@ -274,6 +274,15 @@ class PreferenceManager(context: Context) {
      * so a port typed once should still be there next time that preset is
      * picked — without overwriting what the other presets use.
      */
+    /** 0 udp listen, 1 tcp client, 2 tcp server. */
+    fun getNetworkMode(): Int {
+        return sharedPreferences.getInt("network_mode", if (getNetworkUseTcp()) 1 else 0)
+    }
+
+    fun setNetworkMode(mode: Int) {
+        sharedPreferences.edit().putInt("network_mode", mode).apply()
+    }
+
     fun getNetworkPortFor(preset: Int, fallback: Int): Int {
         return sharedPreferences.getInt("network_port_" + preset, fallback)
     }

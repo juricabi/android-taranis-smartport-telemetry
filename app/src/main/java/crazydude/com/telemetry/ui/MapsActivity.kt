@@ -54,6 +54,7 @@ import crazydude.com.telemetry.maps.osm.OsmMapWrapper
 import crazydude.com.telemetry.utils.GeoUtils
 import crazydude.com.telemetry.utils.PlusCode
 import crazydude.com.telemetry.protocol.decoder.DataDecoder
+import crazydude.com.telemetry.protocol.pollers.NetworkDataPoller
 import crazydude.com.telemetry.protocol.pollers.LogPlayer
 import crazydude.com.telemetry.utils.LocalNetworks
 import crazydude.com.telemetry.utils.WifiNetworkBinder
@@ -266,7 +267,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     // hold on to as there is for Bluetooth
     private var lastNetworkHost = ""
     private var lastNetworkPort = 0
-    private var lastNetworkUseTcp = false
+    private var lastNetworkMode = 0
 
     private val serviceConnection: ServiceConnection = object : ServiceConnection {
         override fun onServiceDisconnected(p0: ComponentName?) {
@@ -1703,7 +1704,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         dataService?.let {
             connectButton.text = getString(R.string.reconnecting)
             connectButton.isEnabled = false
-            it.connect(lastNetworkHost, lastNetworkPort, lastNetworkUseTcp)
+            it.connect(lastNetworkHost, lastNetworkPort, lastNetworkMode)
         }
     }
 
@@ -1765,7 +1766,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val findButton = view.findViewById<Button>(R.id.network_find)
         val portDefaultButton = view.findViewById<Button>(R.id.network_port_default)
 
-        val transports = arrayOf("UDP listen", "TCP client")
+        val transports = arrayOf("UDP listen", "TCP client", "TCP server (wait)")
 
         presetSpinner.adapter = ArrayAdapter(
             this, android.R.layout.simple_spinner_dropdown_item,
@@ -1804,6 +1805,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // A UDP listen binds a local port and never needs the module's address,
         // which is the whole reason the UDP presets are offered first.
         fun updateHostEnabled() {
+            // only a TCP *client* needs somewhere to dial
             val tcp = transportSpinner.selectedItemPosition == 1
             hostField.isEnabled = tcp
             hostLabel.isEnabled = tcp
@@ -1846,7 +1848,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
         // restore what was used last
         val savedPreset = preferenceManager.getNetworkPreset()
-        transportSpinner.setSelection(if (preferenceManager.getNetworkUseTcp()) 1 else 0)
+        transportSpinner.setSelection(preferenceManager.getNetworkMode())
         // Reopening is restoring the last session, so the fallback is the port
         // that session used — not the preset's documented default. Falling back
         // to the default threw away a port that had been typed and connected
@@ -1995,7 +1997,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 .setView(view)
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(R.string.network_connect) { _, _ ->
-                    val useTcp = transportSpinner.selectedItemPosition == 1
+                    val mode = transportSpinner.selectedItemPosition
+                    val useTcp = mode == NetworkDataPoller.MODE_TCP_CLIENT
                     val port = portField.text.toString().trim().toIntOrNull() ?: 0
                     val host = hostField.text.toString().trim()
 
@@ -2016,23 +2019,24 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                         interfaceSpinner.selectedItemPosition == 0)
                     preferenceManager.setNetworkPreset(presetSpinner.selectedItemPosition)
                     preferenceManager.setNetworkUseTcp(useTcp)
+                    preferenceManager.setNetworkMode(mode)
                     preferenceManager.setNetworkHost(host)
                     preferenceManager.setNetworkPort(port)
                     preferenceManager.setNetworkPortFor(
                         presetSpinner.selectedItemPosition, port)
 
-                    connectToNetwork(host, port, useTcp)
+                    connectToNetwork(host, port, mode)
                 }
                 .create())
     }
 
-    private fun connectToNetwork(host: String, port: Int, useTcp: Boolean) {
+    private fun connectToNetwork(host: String, port: Int, mode: Int) {
         // connect() clears this before the chooser opens, so every transport
         // has to set it again or it becomes silently non-reconnectable
         lastConnectionType = CONNTYPE_NET;
         lastNetworkHost = host
         lastNetworkPort = port
-        lastNetworkUseTcp = useTcp
+        lastNetworkMode = mode
         reconnectionStartTime = 0;
         reconnectOnFailure = false;
 
@@ -2040,7 +2044,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         dataService?.let {
             connectButton.text = getString(R.string.connecting)
             connectButton.isEnabled = false
-            it.connect(host, port, useTcp)
+            it.connect(host, port, mode)
         }
     }
 

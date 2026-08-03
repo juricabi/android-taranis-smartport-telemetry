@@ -161,7 +161,7 @@ class DataService : Service(), DataDecoder.Listener {
      * thread, because this runs on the UI thread and a socket call would throw
      * NetworkOnMainThreadException.
      */
-    fun connect(host: String, port: Int, useTcp: Boolean) {
+    fun connect(host: String, port: Int, mode: Int) {
         try {
             dataPoller?.disconnect()
 
@@ -181,7 +181,7 @@ class DataService : Service(), DataDecoder.Listener {
             binder.acquire(preferenceManager.getNetworkPinWifi())
 
             dataPoller = NetworkDataPoller(
-                useTcp,
+                mode,
                 host,
                 port,
                 this,
