@@ -49,6 +49,15 @@ class NetworkDataPoller(
     companion object {
         private const val TCP_CONNECT_TIMEOUT_MS = 8000
         private const val BUFFER = 2048
+
+        /**
+         * A MAVLink v1 HEARTBEAT from a ground station: length 9, sysid 255,
+         * compid 190, msgid 0, type GCS. Only used to announce ourselves.
+         */
+        private val HEARTBEAT = byteArrayOf(
+            0xFE.toByte(), 9, 0, 0xFF.toByte(), 0xBE.toByte(), 0,
+            0, 0, 0, 0, 6, 8, 0xC0.toByte(), 0, 0, 0
+        )
     }
 
     /**
@@ -178,15 +187,25 @@ class NetworkDataPoller(
         finish()
     }
 
+    /**
+     * Say hello, so a sender that unicasts back to whoever spoke first knows
+     * where to send.
+     *
+     * A MAVLink heartbeat rather than an empty datagram. Zero length datagrams
+     * are legal and cost nothing to send, but plenty of firmware never sees
+     * them: the receive loop treats a length of zero as nothing to do and the
+     * sender is never registered. A heartbeat is what a ground station sends
+     * anyway, so anything expecting a GCS recognises it.
+     */
     private fun announce() {
         if (host.isEmpty()) return
         try {
             val addr = InetAddress.getByName(host)
-            val hello = ByteArray(0)
-            udpSocket?.send(DatagramPacket(hello, 0, addr, port))
+            val socket = udpSocket ?: return
+            socket.send(DatagramPacket(HEARTBEAT, HEARTBEAT.size, addr, port))
         } catch (e: IOException) {
-            // Nothing to do: a peer that broadcasts does not need this, and one
-            // that does will simply never be heard from.
+            // A sender that broadcasts does not need this, and one that does
+            // will simply never be heard from.
         }
     }
 

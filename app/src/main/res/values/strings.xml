@@ -184,6 +184,8 @@
     <string name="network_interface">Network</string>
     <string name="network_interface_auto">Automatic</string>
     <string name="network_find">Find</string>
+    <string name="network_default">Default</string>
+    <string name="network_port_reset">Back to the default port %1$d for this preset</string>
     <string name="network_searching">Searching %1$s …</string>
     <string name="network_searching_short">Searching…</string>
     <string name="network_searching_progress">Searching %1$s — %2$d of %3$d</string>

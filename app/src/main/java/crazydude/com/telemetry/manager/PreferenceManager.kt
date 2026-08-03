@@ -266,6 +266,27 @@ class PreferenceManager(context: Context) {
         sharedPreferences.edit().putBoolean("network_pin_wifi", pin).apply()
     }
 
+    /**
+     * The port for one preset, remembered separately from the others.
+     *
+     * The documented defaults are only defaults: a TBS WiFi module lets you
+     * change its port and ships from some vendors on something else entirely,
+     * so a port typed once should still be there next time that preset is
+     * picked — without overwriting what the other presets use.
+     */
+    fun getNetworkPortFor(preset: Int, fallback: Int): Int {
+        return sharedPreferences.getInt("network_port_" + preset, fallback)
+    }
+
+    fun setNetworkPortFor(preset: Int, port: Int) {
+        sharedPreferences.edit().putInt("network_port_" + preset, port).apply()
+    }
+
+    /** Forget the override so the preset's own default comes back. */
+    fun clearNetworkPortFor(preset: Int) {
+        sharedPreferences.edit().remove("network_port_" + preset).apply()
+    }
+
     fun getNetworkPreset(): Int {
         return sharedPreferences.getInt("network_preset", 0)
     }

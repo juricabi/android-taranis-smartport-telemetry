@@ -1763,6 +1763,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val hint = view.findViewById<TextView>(R.id.network_hint)
         val interfaceSpinner = view.findViewById<Spinner>(R.id.network_interface)
         val findButton = view.findViewById<Button>(R.id.network_find)
+        val portDefaultButton = view.findViewById<Button>(R.id.network_port_default)
 
         val transports = arrayOf("UDP listen", "TCP client")
 
@@ -1830,7 +1831,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         fun applyPreset(index: Int) {
             val preset = networkPresets[index]
             transportSpinner.setSelection(if (preset.useTcp) 1 else 0)
-            portField.setText(preset.port.toString())
+            // the port this preset was last used with, not the documented one:
+            // modules do get moved off their default
+            portField.setText(
+                preferenceManager.getNetworkPortFor(index, preset.port).toString())
             if (preset.host != null) {
                 hostField.setText(preset.host)
             } else if (preset.useGateway) {
@@ -1843,7 +1847,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // restore what was used last
         val savedPreset = preferenceManager.getNetworkPreset()
         transportSpinner.setSelection(if (preferenceManager.getNetworkUseTcp()) 1 else 0)
-        portField.setText(preferenceManager.getNetworkPort().toString())
+        portField.setText(
+            preferenceManager.getNetworkPortFor(
+                preferenceManager.getNetworkPreset(),
+                networkPresets.getOrNull(preferenceManager.getNetworkPreset())?.port
+                    ?: preferenceManager.getNetworkPort()
+            ).toString())
         val savedHost = preferenceManager.getNetworkHost()
         hostField.setText(if (savedHost.isEmpty()) (binder.gatewayAddress() ?: "") else savedHost)
         if (savedPreset in networkPresets.indices) presetSpinner.setSelection(savedPreset)
@@ -1902,6 +1911,15 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
                 updateHostEnabled()
             }
+        }
+
+        portDefaultButton.setOnClickListener {
+            val index = presetSpinner.selectedItemPosition
+            val preset = networkPresets.getOrNull(index)
+            if (preset == null) return@setOnClickListener
+            preferenceManager.clearNetworkPortFor(index)
+            portField.setText(preset.port.toString())
+            hint.text = getString(R.string.network_port_reset, preset.port)
         }
 
         // Finding a module that joined this phone's hotspot: there is no
@@ -1997,6 +2015,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     preferenceManager.setNetworkUseTcp(useTcp)
                     preferenceManager.setNetworkHost(host)
                     preferenceManager.setNetworkPort(port)
+                    preferenceManager.setNetworkPortFor(
+                        presetSpinner.selectedItemPosition, port)
 
                     connectToNetwork(host, port, useTcp)
                 }
