@@ -73,7 +73,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                 // backwards flat black; this cannot, and still tells a top from
                 // a side from an end.
                 vec3 light = normalize(vec3(-0.5, 0.8, -0.4));
-                vShade = 0.70 + 0.30 * abs(dot(normalize(aNormal), light));
+                vShade = 0.82 + 0.18 * abs(dot(normalize(aNormal), light));
             }
         """
 
@@ -87,13 +87,14 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             #extension GL_OES_standard_derivatives : enable
             precision mediump float;
             uniform vec3 uBase;
+            uniform float uInk;
             varying vec3 vCorner;
             varying float vShade;
             void main() {
-                vec3 wide = fwidth(vCorner) * 2.2;
+                vec3 wide = fwidth(vCorner) * uInk;
                 vec3 near = smoothstep(vec3(0.0), wide, vCorner);
                 float ink = min(min(near.x, near.y), near.z);
-                vec3 colour = mix(vec3(0.03, 0.03, 0.04), uBase * vShade, ink);
+                vec3 colour = mix(vec3(0.13, 0.13, 0.16), uBase * vShade, ink);
                 gl_FragColor = vec4(colour, 1.0);
             }
         """
@@ -102,12 +103,13 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         private const val MODEL_FRAGMENT = """
             precision mediump float;
             uniform vec3 uBase;
+            uniform float uInk;
             varying vec3 vCorner;
             varying float vShade;
             void main() {
                 float edge = min(min(vCorner.x, vCorner.y), vCorner.z);
-                float ink = smoothstep(0.0, 0.06, edge);
-                vec3 colour = mix(vec3(0.03, 0.03, 0.04), uBase * vShade, ink);
+                float ink = smoothstep(0.0, uInk * 0.028, edge);
+                vec3 colour = mix(vec3(0.13, 0.13, 0.16), uBase * vShade, ink);
                 gl_FragColor = vec4(colour, 1.0);
             }
         """
@@ -507,27 +509,27 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         if (arrowBuffer == null) arrowBuffer = floats(arrowMesh())
     }
 
-    /** A unit arrow: nose along -z, swept corners, a raised spine. */
+    /**
+     * A unit arrow: nose along -z, swept corners, a raised spine.
+     *
+     * Built the way the model is, so the same shader lights it and inks in its
+     * edges. Five corners and six faces, every edge of it a real one, so none
+     * are marked as seams.
+     */
     private fun arrowMesh(): FloatArray {
         val nose = floatArrayOf(0f, 0f, -1.6f)
         val left = floatArrayOf(-1f, 0f, 1f)
         val right = floatArrayOf(1f, 0f, 1f)
         val tail = floatArrayOf(0f, 0f, 0.4f)
         val spine = floatArrayOf(0f, 0.8f, 0.1f)
-        val faces = arrayOf(
-            nose, left, spine,
-            nose, spine, right,
-            left, tail, spine,
-            tail, right, spine,
-            nose, tail, left,
-            nose, right, tail
-        )
-        val out = FloatArray(faces.size * 3)
-        var i = 0
-        for (f in faces) {
-            out[i++] = f[0]; out[i++] = f[1]; out[i++] = f[2]
-        }
-        return out
+        val solid = Solid()
+        solid.tri(nose, left, spine)
+        solid.tri(nose, spine, right)
+        solid.tri(left, tail, spine)
+        solid.tri(tail, right, spine)
+        solid.tri(nose, tail, left)
+        solid.tri(nose, right, tail)
+        return solid.build()
     }
 
     /** The accuracy ring, already laid on the ground by whoever built it. */
@@ -710,6 +712,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
 
         drawTerrain()
         drawModelLit()
+        drawMyArrow()
         drawLines()
     }
 
@@ -901,39 +904,6 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         }
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
 
-        val mine: FloatBuffer?
-        synchronized(this) { mine = if (myVisible) arrowBuffer else null }
-        if (mine != null) {
-            // eased towards the compass rather than snapped to it, so it turns
-            // like the needle on the map instead of twitching
-            var turn = myHeadingTarget - myHeading
-            while (turn > 180f) turn -= 360f
-            while (turn < -180f) turn += 360f
-            myHeading = (myHeading + turn * 0.12f + 360f) % 360f
-
-            // a fraction of the distance out, so it is the same size on screen
-            // however far the camera is. Not rounded: a whole metre is a third
-            // of it at close range, and a camera drifting across the rounding
-            // point made it jump between two sizes.
-            val size = Math.max(2f, distance * 0.014f)
-            // Clearance in proportion, because the arrow lies flat: zoomed out
-            // it is tens of metres across, and a fixed quarter of a metre left
-            // its uphill half buried in any slope. That is why it came and went
-            // with the zoom. Far too small to see at the range it applies to.
-            val lift = groundLift() + size * 0.3f
-            Matrix.setIdentityM(arrowMatrix, 0)
-            Matrix.translateM(arrowMatrix, 0, myX, myY + lift / verticalScale, myZ)
-            Matrix.rotateM(arrowMatrix, 0, -myHeading, 0f, 1f, 0f)
-            Matrix.scaleM(arrowMatrix, 0, size, size / verticalScale, size)
-            Matrix.multiplyMM(arrowMvp, 0, mvp, 0, arrowMatrix, 0)
-            GLES20.glUniformMatrix4fv(uMvp, 1, false, arrowMvp, 0)
-            mine.position(0)
-            GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, mine)
-            GLES20.glUniform4f(uColor, 0.15f, 0.55f, 1f, 1f)
-            GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 18)
-            GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
-        }
-
         val ring: FloatBuffer?
         val rCount: Int
         synchronized(this) { ring = circleBuffer; rCount = circleCount }
@@ -982,6 +952,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val aNormal = GLES20.glGetAttribLocation(modelProgram, "aNormal")
         val uMvp = GLES20.glGetUniformLocation(modelProgram, "uMvp")
         val uBase = GLES20.glGetUniformLocation(modelProgram, "uBase")
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(modelProgram, "uInk"), 1.3f)
 
         Matrix.setIdentityM(modelMatrix, 0)
         Matrix.translateM(modelMatrix, 0, shownX, shownY, shownZ)
@@ -1021,6 +992,65 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         GLES20.glPolygonOffset(-2f, -4f)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, modelCount)
         GLES20.glDisable(GLES20.GL_POLYGON_OFFSET_FILL)
+
+        GLES20.glDisableVertexAttribArray(aPosition)
+        GLES20.glDisableVertexAttribArray(aCorner)
+        GLES20.glDisableVertexAttribArray(aNormal)
+    }
+
+    /**
+     * The arrow for where you are standing, drawn the way the model is: lit,
+     * and with its own edges inked in, so the two read as one family.
+     */
+    private fun drawMyArrow() {
+        val mine: FloatBuffer?
+        synchronized(this) { mine = if (myVisible) arrowBuffer else null }
+        if (mine == null || modelProgram == 0) return
+
+        // eased towards the compass rather than snapped to it, so it turns
+        // like the needle on the map instead of twitching
+        var turn = myHeadingTarget - myHeading
+        while (turn > 180f) turn -= 360f
+        while (turn < -180f) turn += 360f
+        myHeading = (myHeading + turn * 0.12f + 360f) % 360f
+
+        // a fraction of the distance out, so it is the same size on screen
+        // however far the camera is
+        val size = Math.max(2f, distance * 0.014f)
+        // Clearance in proportion, because the arrow lies flat: zoomed out it
+        // is tens of metres across, and a fixed quarter of a metre left its
+        // uphill half buried in any slope.
+        val lift = groundLift() + size * 0.3f
+        Matrix.setIdentityM(arrowMatrix, 0)
+        Matrix.translateM(arrowMatrix, 0, myX, myY + lift / verticalScale, myZ)
+        Matrix.rotateM(arrowMatrix, 0, -myHeading, 0f, 1f, 0f)
+        Matrix.scaleM(arrowMatrix, 0, size, size / verticalScale, size)
+        Matrix.multiplyMM(arrowMvp, 0, mvp, 0, arrowMatrix, 0)
+
+        GLES20.glUseProgram(modelProgram)
+        val aPosition = GLES20.glGetAttribLocation(modelProgram, "aPosition")
+        val aCorner = GLES20.glGetAttribLocation(modelProgram, "aCorner")
+        val aNormal = GLES20.glGetAttribLocation(modelProgram, "aNormal")
+        val stride = MODEL_FLOATS * 4
+        mine.position(0)
+        GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, stride, mine)
+        GLES20.glEnableVertexAttribArray(aPosition)
+        mine.position(3)
+        GLES20.glVertexAttribPointer(aCorner, 3, GLES20.GL_FLOAT, false, stride, mine)
+        GLES20.glEnableVertexAttribArray(aCorner)
+        mine.position(6)
+        GLES20.glVertexAttribPointer(aNormal, 3, GLES20.GL_FLOAT, false, stride, mine)
+        GLES20.glEnableVertexAttribArray(aNormal)
+
+        GLES20.glUniformMatrix4fv(
+            GLES20.glGetUniformLocation(modelProgram, "uMvp"), 1, false, arrowMvp, 0)
+        // A thinner line and a brighter blue. The arrow is drawn much smaller
+        // than the model, so an edge of the same weight took up most of it and
+        // turned it dark.
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(modelProgram, "uInk"), 0.8f)
+        GLES20.glUniform3f(
+            GLES20.glGetUniformLocation(modelProgram, "uBase"), 0.26f, 0.63f, 1f)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 18)
 
         GLES20.glDisableVertexAttribArray(aPosition)
         GLES20.glDisableVertexAttribArray(aCorner)

@@ -137,7 +137,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         // follows the flight: a couple of kilometres for an ordinary one, more
         // for a flight that covers more.
         renderer.maxDistance = Math.max(2500f, scene.extent * 5f)
-        status.text = "Loading terrain…"
+        // no notice that it is loading: the empty screen says so already
 
         val worker = Thread(Runnable {
             scene.loadTerrain(flight,
