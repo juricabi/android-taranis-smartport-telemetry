@@ -267,6 +267,9 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
      */
     var onBearingChanged: ((Float) -> Unit)? = null
 
+    /** Where the camera is pointing now, for whoever has just started listening. */
+    fun bearing(): Float = renderer.azimuth
+
     /** Put the camera on a place, without following anything. */
     fun lookAt(lat: Double, lon: Double, altitudeMsl: Float?) {
         val ground = scene.groundAt(lat, lon)

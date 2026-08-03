@@ -334,7 +334,17 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         connectionFailedSoundId = soundPool!!.load(this, R.raw.connection_failed, 1)
         reconnectingSoundId = soundPool!!.load(this, R.raw.reconnecting, 1)
 
+        // A build along the way stored the 3D entry in here as though it were a
+        // map type, and there is no tile source at that number: the map fell
+        // through to the topo one and the choice looked forgotten. The 3D
+        // choice keeps its own setting now, and anything unknown here is the
+        // ordinary map again.
         mapType = preferenceManager.getMapType()
+        if (mapType < OsmMapWrapper.MAP_TYPE_DEFAULT ||
+            mapType > OsmMapWrapper.MAP_TYPE_SATELLITE_HYBRID) {
+            mapType = OsmMapWrapper.MAP_TYPE_DEFAULT
+            preferenceManager.setMapType(mapType)
+        }
         followMode = savedInstanceState?.getBoolean("follow_mode", true) ?: true
         replayFileString = savedInstanceState?.getString("replay_file_name")
         fullscreenWindow = preferenceManager.isFullscreenWindow()
@@ -2460,7 +2470,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         var best: Location? = null
         for (provider in arrayOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
             val fix = try { lm.getLastKnownLocation(provider) } catch (e: Exception) { null }
-            if (fix != null && (best == null || fix.time > best!!.time)) best = fix
+            if (fix == null) continue
+            val known = best
+            best = when {
+                known == null -> fix
+                // A mast answers at once and puts a half kilometre circle round
+                // you; the satellites are slower and sure. Take the better one
+                // unless it is old enough to be somewhere else entirely.
+                Math.abs(fix.time - known.time) < 5 * 60 * 1000L ->
+                    if (fix.accuracy > 0f && fix.accuracy < known.accuracy) fix else known
+                fix.time > known.time -> fix
+                else -> known
+            }
         }
         val found = best ?: return null
         if (phoneAccuracy <= 0f && found.hasAccuracy()) phoneAccuracy = found.accuracy
@@ -2506,7 +2527,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         view.setTraffic(lastAirplanes)
         view.onFollowingLost = { setFollowMode(false) }
         view.onBearingChanged = { updateCompassHeading(it) }
-        updateCompassHeading(0f)
+        updateCompassHeading(view.bearing())
         setFollowMode(true)
         view.start(
             crazydude.com.telemetry.gl.LiveFlightPath.snapshot(),
@@ -2929,7 +2950,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val checkItem = if (terrain3D != null) {
             ITEM_3D
         } else {
-            preferenceManager.getMapType() - OsmMapWrapper.MAP_TYPE_DEFAULT
+            mapType - OsmMapWrapper.MAP_TYPE_DEFAULT
         }
 
         builder.setSingleChoiceItems(
