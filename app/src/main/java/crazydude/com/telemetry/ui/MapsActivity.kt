@@ -1334,7 +1334,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     override fun onResume() {
         super.onResume()
         map?.onResume()
-        terrain3D?.onResume()
+        terrain3D?.let {
+            it.onResume()
+            applyTerrainSettings(it)
+        }
         this.sensorTimeoutManager.resume();
         updateWindowFullscreenDecoration()
         updateScreenOrientation()
@@ -2461,20 +2464,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
             )
         )
-        view.setModelShape(preferenceManager.getModelType())
-        view.setTrackColor(preferenceManager.getRouteColor())
-        view.setModelColor(preferenceManager.getPlaneColor())
-        // the same overlays the map carries, from the same settings
-        view.setOverlaySettings(
-            preferenceManager.isHomeLineEnabled(), preferenceManager.getHomeLineColor(),
-            preferenceManager.isHeadingLineEnabled(), preferenceManager.getHeadLineColor()
-        )
-        if (preferenceManager.isFlightPlansEnabled()) {
-            val plans = FlightPlanManager(this).getPlans()
-                .filter { it.visible && it.waypoints.size >= 2 }
-                .map { Pair(it.waypoints, it.color) }
-            view.setFlightPlans(plans)
-        }
+        applyTerrainSettings(view)
         view.setTraffic(lastAirplanes)
         view.onFollowingLost = { setFollowMode(false) }
         setFollowMode(true)
@@ -2491,6 +2481,31 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         headingPolyline = null
         marker = null
         flightPlanLines.clear()
+    }
+
+    /**
+     * Everything the 3D view takes from the settings.
+     *
+     * Applied when it is built and again whenever this screen resumes, since
+     * that is what returning from the settings looks like — without it a change
+     * of model or colour did not appear until the view was rebuilt.
+     */
+    private fun applyTerrainSettings(view: Terrain3DView) {
+        view.setModelShape(preferenceManager.getModelType())
+        view.setTrackColor(preferenceManager.getRouteColor())
+        view.setModelColor(preferenceManager.getPlaneColor())
+        view.setOverlaySettings(
+            preferenceManager.isHomeLineEnabled(), preferenceManager.getHomeLineColor(),
+            preferenceManager.isHeadingLineEnabled(), preferenceManager.getHeadLineColor()
+        )
+        val plans = if (preferenceManager.isFlightPlansEnabled()) {
+            FlightPlanManager(this).getPlans()
+                .filter { it.visible && it.waypoints.size >= 2 }
+                .map { Pair(it.waypoints, it.color) }
+        } else {
+            emptyList()
+        }
+        view.setFlightPlans(plans)
     }
 
     private fun hide3DView() {
