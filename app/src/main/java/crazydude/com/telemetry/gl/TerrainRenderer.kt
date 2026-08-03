@@ -1048,8 +1048,10 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // than the model, so an edge of the same weight took up most of it and
         // turned it dark.
         GLES20.glUniform1f(GLES20.glGetUniformLocation(modelProgram, "uInk"), 0.8f)
+        // brighter than the marker on the map: satellite imagery is dark
+        // greens and browns, and a deeper blue disappeared into it
         GLES20.glUniform3f(
-            GLES20.glGetUniformLocation(modelProgram, "uBase"), 0.26f, 0.63f, 1f)
+            GLES20.glGetUniformLocation(modelProgram, "uBase"), 0.42f, 0.76f, 1f)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 18)
 
         GLES20.glDisableVertexAttribArray(aPosition)
