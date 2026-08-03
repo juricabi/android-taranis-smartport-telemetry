@@ -68,7 +68,12 @@ class LTMDataDecoder(listener: Listener) : DataDecoder(listener) {
                 listener.onGPSState(((gpsState.toUInt() shr 2) and 0xFF.toUInt()).toInt(), ((gpsState.toUInt() shr 0) and 1.toUInt()) == 1.toUInt())
                 listener.onGPSData(latitude, longitude)
                 listener.onGSpeedData(speed.toUByte().toByte() * (18 / 5f))
+                // The G frame's altitude comes from the GPS, so it is a height
+                // above sea level as well as the altitude reading — and only
+                // saying the latter left nothing able to place the flight
+                // against terrain.
                 listener.onAltitudeData(altitude / 100f)
+                listener.onGPSAltitudeData(altitude / 100f)
                 this.latitude = latitude;
                 this.longitude = longitude;
                 this.newLatitude = true;

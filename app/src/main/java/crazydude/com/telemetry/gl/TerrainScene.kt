@@ -103,9 +103,14 @@ class TerrainScene {
         originLat = lat
         originLon = lon
         originAltitude = altitude
+        // Only claim the area when there is nothing else to go on. Calling this
+        // to fix an origin already worked out from a flight must not throw that
+        // flight's extent away, or the ground gets built around a point.
+        if (!originFixed) {
+            minLat = lat; maxLat = lat
+            minLon = lon; maxLon = lon
+        }
         originFixed = true
-        minLat = lat; maxLat = lat
-        minLon = lon; maxLon = lon
     }
 
     /** Rebuild the path in the frame already chosen. Cheap; call as often as needed. */
@@ -242,6 +247,8 @@ class TerrainScene {
     var altitudeIsAboveLaunch = false
         private set
 
+    private var altitudeResolved = false
+
     /**
      * Work out what the reported altitude is measured from.
      *
@@ -257,7 +264,15 @@ class TerrainScene {
      * missing.
      */
     private fun resolveAltitudeReference(points: List<TrackPoint>) {
+        // Once only. Ground is fetched again whenever the model nears the edge
+        // of what is built, and answering this a second time — from a different
+        // first point, by then in mid air — moved the origin under tiles that
+        // had already been built against the old one. The terrain then sat in a
+        // different frame from everything else, which is what put the whole
+        // flight underneath it.
+        if (altitudeResolved) return
         if (points.isEmpty()) return
+        altitudeResolved = true
         var launchGround: Float? = null
         var reportedThere = 0f
         for (p in points) {

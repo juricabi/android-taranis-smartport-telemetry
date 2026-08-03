@@ -900,6 +900,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         cellsAnswered = false
         crazydude.com.telemetry.gl.LiveFlightPath.clear()
         lastGpsAltitudeMsl = Float.NaN
+        lastAnyAltitude = Float.NaN
         file?.also {
             val progressDialog = ProgressDialog(this)
             progressDialog.setCancelable(false)
@@ -2136,6 +2137,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         cellsAnswered = false
         crazydude.com.telemetry.gl.LiveFlightPath.clear()
         lastGpsAltitudeMsl = Float.NaN
+        lastAnyAltitude = Float.NaN
         crsfSystem = null
         // else the next link would redraw the old rate under its own table
         lastRfMode = null
@@ -2285,7 +2287,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
+    /**
+     * The last height of any kind, for links that send no GPS altitude.
+     *
+     * What it is measured from does not matter here: whether it is sea level or
+     * the launch point is worked out later, from the ground under the first
+     * fix. What matters is that a flight is recorded at all, which without this
+     * did not happen on a link that only reports a barometric height.
+     */
+    private var lastAnyAltitude = Float.NaN
+
     override fun onAltitudeData(altitude: Float) {
+        if (lastGpsAltitudeMsl.isNaN()) lastAnyAltitude = altitude
         this.sensorTimeoutManager.onAltitudeData(altitude);
         runOnUiThread {
             this.altitude.text = this.formatHeight(altitude);
@@ -2511,9 +2524,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     private fun rememberForProfile(latitude: Double, longitude: Double) {
-        if (lastGpsAltitudeMsl.isNaN()) return
+        val height = if (!lastGpsAltitudeMsl.isNaN()) lastGpsAltitudeMsl else lastAnyAltitude
+        if (height.isNaN()) return
         if (latitude == 0.0 && longitude == 0.0) return
-        crazydude.com.telemetry.gl.LiveFlightPath.add(latitude, longitude, lastGpsAltitudeMsl)
+        crazydude.com.telemetry.gl.LiveFlightPath.add(latitude, longitude, height)
     }
 
     /** The marker for whatever is being flown, quad or fixed wing. */
