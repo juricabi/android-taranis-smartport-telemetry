@@ -2462,6 +2462,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             )
         )
         view.setModelShape(preferenceManager.getModelType())
+        view.setTrackColor(preferenceManager.getRouteColor())
         // the same overlays the map carries, from the same settings
         view.setOverlaySettings(
             preferenceManager.isHomeLineEnabled(), preferenceManager.getHomeLineColor(),

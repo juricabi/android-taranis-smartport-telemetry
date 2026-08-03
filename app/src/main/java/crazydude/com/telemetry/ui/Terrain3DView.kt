@@ -411,6 +411,12 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         renderer.setOverlays(sets)
     }
 
+    /** The route line colour, so the flight looks the same in both views. */
+    fun setTrackColor(argb: Int) {
+        val c = colorOf(argb)
+        renderer.trackColor = floatArrayOf(c[0], c[1], c[2], 1f)
+    }
+
     /** Quad or plane, from the setting; the map marker follows the same one. */
     fun setModelShape(shape: String) {
         renderer.modelShape = shape

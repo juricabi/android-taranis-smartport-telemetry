@@ -106,8 +106,18 @@ https://github.com/iNavFlight/inav/blob/135456936834ab4129e6ed540038b2e88dcb3c44
 */
 
             Protocol.ALTITUDE -> {
-                val altitude = data.data - 1000f
-                listener.onAltitudeData(altitude)
+                // The barometric frame carries metres when the top bit is set,
+                // and decimetres offset by ten thousand otherwise — the two
+                // cases EdgeTX handles in crossfire.cpp. Taking a thousand off
+                // the raw value instead reported a model at fifty metres, which
+                // arrives as 10500, at nine and a half thousand.
+                val raw = data.data and 0xFFFF
+                val metres = if ((raw and 0x8000) != 0) {
+                    (raw and 0x7FFF).toFloat()
+                } else {
+                    (raw - 10000) / 10f
+                }
+                listener.onAltitudeData(metres)
             }
             Protocol.GSPEED -> {
                 val speed = data.data / 10f

@@ -529,7 +529,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // slope and the depth resolution to hand, which is why it holds at
         // every zoom where a fixed lift could not — and nothing floats.
         GLES20.glEnable(GLES20.GL_POLYGON_OFFSET_FILL)
-        GLES20.glPolygonOffset(1.5f, 4f)
+        GLES20.glPolygonOffset(2.5f, 8f)
 
         val snapshot: List<Tile>
         synchronized(this) { snapshot = ArrayList(tiles) }
@@ -570,7 +570,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
      * actually keeps these clear of it; this is only so a line lying exactly on
      * a slope does not weave in and out of it between vertices.
      */
-    private fun groundLift(): Float = Math.max(0.15f, distance * 0.0005f)
+    private fun groundLift(): Float = Math.max(1f, distance * 0.002f)
 
     private fun drawLines() {
         if (lineProgram == 0) return
@@ -658,7 +658,9 @@ class TerrainRenderer : GLSurfaceView.Renderer {
 
             // a fraction of the distance out, so it is the same size on screen
             // however far the camera is
-            val size = Math.max(2f, distance * 0.014f)
+            // rounded, so a camera drifting in or out does not resize it every
+            // frame — which reads as a flicker rather than as movement
+            val size = Math.max(2f, Math.round(distance * 0.014f).toFloat())
             Matrix.setIdentityM(arrowMatrix, 0)
             Matrix.translateM(arrowMatrix, 0, myX, myY + groundLift() / verticalScale, myZ)
             Matrix.rotateM(arrowMatrix, 0, -myHeading, 0f, 1f, 0f)
@@ -719,7 +721,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // Held at a size on screen rather than in metres — a model drawn to
         // scale is invisible from anywhere useful — but a good deal smaller
         // than it was, which made a quad look the size of a hangar.
-        val drawSize = Math.max(3f, distance * 0.008f)
+        val drawSize = Math.max(6f, Math.round(distance * 0.018f).toFloat())
         Matrix.scaleM(modelMatrix, 0, drawSize, drawSize / verticalScale, drawSize)
         Matrix.multiplyMM(modelMvp, 0, mvp, 0, modelMatrix, 0)
 

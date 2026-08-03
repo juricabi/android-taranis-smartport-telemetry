@@ -149,11 +149,13 @@ class CrsfProtocol : Protocol {
                         val longitude = data.int
                         val groundSpeed = data.short
                         val heading = data.short
-                        val altitude = data.short  //alt + 1000m
+                        // sent as metres plus a thousand, so that a hundred
+                        // metres below sea level still fits an unsigned field
+                        val altitude = (data.short.toInt() and 0xFFFF) - 1000
                         val satellites = data.get()
 
                         dataDecoder.decodeData( Protocol.Companion.TelemetryData( GPS_SATELLITES, satellites.toInt()))
-                        dataDecoder.decodeData( Protocol.Companion.TelemetryData( GPS_ALTITUDE, altitude.toInt()))
+                        dataDecoder.decodeData( Protocol.Companion.TelemetryData( GPS_ALTITUDE, altitude))
                         dataDecoder.decodeData( Protocol.Companion.TelemetryData( GPS_LATITUDE,latitude ))
                         this.processLatitude(latitude / 10000000.toDouble());
                         dataDecoder.decodeData( Protocol.Companion.TelemetryData( GPS_LONGITUDE, longitude ))
