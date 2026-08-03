@@ -145,6 +145,15 @@
                     app:backgroundTint="@color/colorAccent" />
 
             <com.google.android.material.floatingactionbutton.FloatingActionButton
+                    android:id="@+id/chase_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_margin="8dp"
+                    android:src="@drawable/ic_chase"
+                    app:fabSize="mini"
+                    app:backgroundTint="@color/colorAccent" />
+
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
                     android:id="@+id/my_location_button"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"

@@ -42,6 +42,9 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     private var lastAngle = 0f
     private var seenVersion = -1
     private var loadingTerrain = false
+
+    /** The ground is up: until it is, there is nothing to draw anything on. */
+    private var terrainReady = false
     private var started = false
 
     private var myLat = Double.NaN
@@ -114,7 +117,6 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         scene.setOrigin(scene.originLat, scene.originLon, scene.originAltitude)
         val flight = if (hasFlight) points else emptyList()
 
-        renderer.setTrack(scene.track, scene.shadow)
         renderer.groundUnderCamera = { x, z ->
             val lat = scene.originLat - z / 111320.0
             val lon = scene.originLon + x / (111320.0 * Math.cos(Math.toRadians(scene.originLat)))
@@ -139,10 +141,16 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
                 // deliberately silent: a count that changed on every tile read
                 // as a flicker in the corner of the screen
                 { _, _ -> },
-                { post { renderer.setTrack(scene.track, scene.shadow) } })
+                { post { if (terrainReady) renderer.setTrack(scene.track, scene.shadow) } })
             post {
                 renderer.submit(scene.tiles)
+                // The flight, the lines and the model wait for the ground.
+                // Drawn before it they hang in the black on their own, and then
+                // jump when it arrives and settles what the heights mean.
+                terrainReady = true
+                seenVersion = -1
                 renderer.setTrack(scene.track, scene.shadow)
+                pickUpNewPoints()
                 showMyLocation()
                 status.text = when {
                     scene.tiles.isEmpty() -> "No terrain here"
@@ -176,6 +184,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     }
 
     private fun pickUpNewPoints() {
+        if (!terrainReady) return
         val version = LiveFlightPath.version
         if (version == seenVersion) return
         seenVersion = version
@@ -191,6 +200,8 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         // from the course over the ground in any wind; the course is the
         // fallback for links that carry no attitude.
         val heading = if (hasAttitude) modelHeading else courseBetween(before, last)
+        lastModelHeading = heading
+        applyChaseBearing()
         renderer.setModel(
             scene.east(last.lon),
             scene.aboveSeaLevel(last.altitudeMsl) - scene.originAltitude,
@@ -250,6 +261,8 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     fun setFollowing(on: Boolean) {
         following = on
         status.text = ""
+        // there is no riding behind something that is not being kept up with
+        if (!on) chasing = false
         if (on) {
             panX = 0f
             panZ = 0f
@@ -260,6 +273,9 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     fun isFollowing(): Boolean = following
 
     fun faceNorth() {
+        // north up and behind the model are two different answers to the same
+        // question, so asking for one lets go of the other
+        chasing = false
         renderer.azimuth = 0f
         renderer.elevation = 30f
         onBearingChanged?.invoke(renderer.azimuth)
@@ -343,6 +359,9 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         Math.max(0.35f, ((argb ushr 24) and 0xFF) / 255f))
 
     private fun rebuildOverlays() {
+        // flight plans and traffic arrive on their own schedule, and they wait
+        // for the ground as everything else does
+        if (!terrainReady) return
         val sets = ArrayList<TerrainRenderer.LineSet>()
         val model = LiveFlightPath.latest()
 
@@ -438,6 +457,10 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
 
     /** The model's own attitude, which is worth far more than its shape. */
     fun setModelAttitude(heading: Float, pitch: Float, roll: Float) {
+        if (chasing) {
+            lastModelHeading = heading
+            applyChaseBearing()
+        }
         hasAttitude = true
         modelHeading = heading
         modelPitch = pitch
@@ -459,7 +482,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
      * origin, the arrow followed and the ring was left hanging where it was.
      */
     private fun placeMyArrow() {
-        if (myLat.isNaN() || myLon.isNaN()) return
+        if (!terrainReady || myLat.isNaN() || myLon.isNaN()) return
         val ground = scene.groundAt(myLat, myLon) ?: return
         renderer.setMyLocation(
             scene.east(myLon), ground - scene.originAltitude + 0.1f,
@@ -513,8 +536,13 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
                     while (turn > 180f) turn -= 360f
                     while (turn < -180f) turn += 360f
                     if (Math.abs(turn) < 40f) {
-                        renderer.azimuth += turn
-                        onBearingChanged?.invoke(renderer.azimuth)
+                        if (chasing) {
+                            chaseYaw += turn
+                            applyChaseBearing()
+                        } else {
+                            renderer.azimuth += turn
+                            onBearingChanged?.invoke(renderer.azimuth)
+                        }
                     }
 
                     // both fingers sliding together tilt the view
@@ -582,10 +610,52 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     private var panX = 0f
     private var panZ = 0f
 
+    /**
+     * Riding behind the model: the camera is turned to whichever way it is
+     * pointing, so the view is the one from over its shoulder.
+     */
+    private var chasing = false
+
+    /** Leaning out of that, in degrees, the way [panX] leans out of following. */
+    private var chaseYaw = 0f
+
+    /** The heading last drawn: from the model when it says, from its course when not. */
+    private var lastModelHeading = 0f
+
+    fun setChasing(on: Boolean) {
+        chasing = on
+        if (!on) return
+        chaseYaw = 0f
+        // over its shoulder means keeping up with it, and from a low angle
+        following = true
+        panX = 0f
+        panZ = 0f
+        renderer.elevation = 16f
+        renderer.distance = renderer.distance.coerceIn(80f, 400f)
+        LiveFlightPath.latest()?.let { lookAt(it.lat, it.lon, it.altitudeMsl) }
+        applyChaseBearing()
+    }
+
+    fun isChasing(): Boolean = chasing
+
+    /**
+     * Behind the model, looking the way it is going.
+     *
+     * The camera sits opposite its heading, so the aircraft is between it and
+     * where it is headed. Ridden all the way to the attitude, which arrives far
+     * more often than a position does, so a turn is smooth rather than stepped.
+     */
+    private fun applyChaseBearing() {
+        if (!chasing) return
+        renderer.azimuth = ((-lastModelHeading + chaseYaw) % 360f + 360f) % 360f
+        onBearingChanged?.invoke(renderer.azimuth)
+    }
+
     /** Only a button does this now: no gesture gives up following. */
     private fun followingOff() {
         if (!following) return
         following = false
+        chasing = false
         onFollowingLost?.invoke()
     }
 

@@ -223,6 +223,17 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
         }
     }
 
+    /**
+     * Straight to an angle, with no animation: this is called on every heading
+     * the model sends, and an animation would be forever chasing the last one.
+     */
+    override fun setMapOrientation(degrees: Float) {
+        orientationAnimator?.cancel()
+        mapView.mapOrientation = degrees
+        markers.forEach { m -> m.updateForMapOrientation() }
+        onOrientationChangedListener?.invoke(degrees)
+    }
+
     override fun invalidate() {
         this.mapView.invalidate()
     }

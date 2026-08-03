@@ -218,6 +218,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private lateinit var mode: TextView
     private lateinit var statustext: TextView
     private lateinit var followButton: FloatingActionButton
+    private lateinit var chaseButton: FloatingActionButton
     private lateinit var mapTypeButton: FloatingActionButton
     private lateinit var northUpButton: FloatingActionButton
     private lateinit var myLocationButton: FloatingActionButton
@@ -266,6 +267,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var lastKnownGPSAt: Long = 0L
     private var lastHeading = 0f
     private var followMode = true
+    private var chaseMode = false
     private var hasGPSFix = false
     private var replayFileString: String? = null
     private var dataService: DataService? = null
@@ -373,6 +375,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         mode = findViewById(R.id.mode)
         statustext = findViewById(R.id.statustext)
         followButton = findViewById(R.id.follow_button)
+        chaseButton = findViewById(R.id.chase_button)
+        chaseButton.imageAlpha = 128
         mapTypeButton = findViewById(R.id.map_type_button)
         northUpButton = findViewById(R.id.north_up_button)
         compassHeading = findViewById(R.id.compass_heading)
@@ -453,7 +457,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         */
 
         followButton.setOnClickListener {
-            setFollowMode(!followMode);
+            // from behind the model, this is a step back to plain tracking
+            // rather than a step to nothing
+            if (chaseMode) {
+                setChaseMode(false)
+                setFollowMode(true)
+            } else {
+                setFollowMode(!followMode)
+            }
             terrain3D?.setFollowing(followMode)
             if (followMode) {
                 marker?.let {
@@ -464,16 +475,25 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             }
         }
 
+        chaseButton.setOnClickListener {
+            setChaseMode(!chaseMode)
+        }
+
         mapTypeButton.setOnClickListener {
             showMapTypeSelectorDialog()
         }
 
         northUpButton.setOnClickListener {
+            // north up and heading up are two answers to the same question
+            setChaseMode(false)
             map?.resetMapOrientation()
             terrain3D?.faceNorth()
         }
 
         myLocationButton.setOnClickListener {
+            // going to where you are standing is leaving the model behind, so
+            // it ends both ways of watching it
+            setChaseMode(false)
             terrain3D?.let {
                 setFollowMode(false)
                 if (!it.goToMyLocation()) {
@@ -2531,6 +2551,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         view.setTraffic(lastAirplanes)
         view.onFollowingLost = { setFollowMode(false) }
         view.onBearingChanged = { updateCompassHeading(it) }
+        if (chaseMode) view.setChasing(true)
         updateCompassHeading(view.bearing())
         setFollowMode(true)
         view.start(
@@ -3196,6 +3217,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     private fun updateHeading() {
+        applyHeadingUp()
         if (lastGPS.lat != 0.0 && lastGPS.lon != 0.0) {
             headingPolyline?.let { headingLine ->
                 headingLine.setPoint(0, lastGPS)
@@ -3749,11 +3771,37 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     fun setFollowMode(mode: Boolean) {
         followMode = mode;
-        if (mode) {
-            this.followButton.imageAlpha = 255
+        // Lit for plain tracking only. Riding behind the model tracks it too,
+        // but that is the other button's business: one of the two is on.
+        this.followButton.imageAlpha = if (mode && !chaseMode) 255 else 128
+    }
+
+    /**
+     * Riding behind the model, looking the way it is going: over its shoulder
+     * in 3D, and the map turned to its heading in 2D.
+     *
+     * It keeps up with the model itself, so plain tracking gives way to it.
+     */
+    private fun setChaseMode(on: Boolean) {
+        if (chaseMode == on) return
+        chaseMode = on
+        chaseButton.imageAlpha = if (on) 255 else 128
+        terrain3D?.setChasing(on)
+        if (on) {
+            setFollowMode(true)
+            terrain3D?.setFollowing(true)
+            applyHeadingUp()
         } else {
-            this.followButton.imageAlpha = 128
+            // back to north up, so the map is not left at a stale angle
+            setFollowMode(followMode)
+            if (terrain3D == null) map?.resetMapOrientation()
         }
+    }
+
+    /** The map turned so the model's heading is up. The 3D view does its own. */
+    private fun applyHeadingUp() {
+        if (!chaseMode || terrain3D != null) return
+        map?.setMapOrientation(-lastHeading)
     }
 
     fun commitRouteLinePoints() {
