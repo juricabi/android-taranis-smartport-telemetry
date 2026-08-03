@@ -76,6 +76,11 @@ class PreferenceManager(context: Context) {
         return sharedPreferences.getInt("headline_color", defaultHeadlineColor)
     }
 
+    /** "quad" or "plane": what the model is, on the map and in three dimensions. */
+    fun getModelType(): String {
+        return sharedPreferences.getString("model_type", "quad") ?: "quad"
+    }
+
     fun getPlaneColor(): Int {
         return sharedPreferences.getInt("drone_color", defaultPlaneColor)
     }

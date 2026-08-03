@@ -502,9 +502,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             val option5 = "Export KML file...";
             val option6 = "Set playback duration..."
             val option7 = "Altitude profile...";
-            val option8 = "3D view";
 
-            val options = arrayOf(option7, option8, option4, option5, option6)
+            val options = arrayOf(option7, option4, option5, option6)
 
             this.showDialog( AlertDialog.Builder(this)
             .setTitle("Select an action")
@@ -522,9 +521,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     }
                     option7 -> {
                         showAltitudeProfile()
-                    }
-                    option8 -> {
-                        show3DView()
                     }
                 }
                 dialog.dismiss()
@@ -661,7 +657,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 headingPolyline = null
             }
             headingPolyline?.let { it.color = preferenceManager.getHeadLineColor() }
-            marker?.setIcon(R.drawable.ic_plane, preferenceManager.getPlaneColor())
+            marker?.setIcon(modelIcon(), preferenceManager.getPlaneColor())
         }
         drawFlightPlans()
     }
@@ -2430,6 +2426,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
             )
         )
+        view.setModelShape(preferenceManager.getModelType())
         view.onFollowingLost = { setFollowMode(false) }
         setFollowMode(true)
         view.start(
@@ -2485,6 +2482,15 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         crazydude.com.telemetry.gl.LiveFlightPath.add(latitude, longitude, lastGpsAltitudeMsl)
     }
 
+    /** The marker for whatever is being flown, quad or fixed wing. */
+    private fun modelIcon(): Int {
+        return if (preferenceManager.getModelType() == "plane") {
+            R.drawable.ic_fixedwing
+        } else {
+            R.drawable.ic_plane
+        }
+    }
+
     //should be called on ui thread
     fun tryCreateMarker() {
         if (this.hasGPSFix && marker == null && (map?.initialized() ?: false) && lastGPS.lat != 0.0 && lastGPS.lon != 0.0) {
@@ -2493,7 +2499,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 updateHeading()
             }
             marker =
-                map?.addMarker(R.drawable.ic_plane, preferenceManager.getPlaneColor(), lastGPS)
+                map?.addMarker(modelIcon(), preferenceManager.getPlaneColor(), lastGPS)
             marker?.rotation = lastHeading;
             map?.moveCamera(lastGPS, LOCATE_ZOOM)
         }

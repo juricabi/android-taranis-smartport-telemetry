@@ -52,6 +52,15 @@
             android:layout="@layout/preference_category_title"
             app:iconSpaceReserved="false" android:title="Map markers">
 
+        <ListPreference
+            app:iconSpaceReserved="false"
+                android:title="Model"
+                android:summary="What the model is drawn as, on the map and in 3D. %s"
+                android:entries="@array/ModelTypes"
+                android:entryValues="@array/ModelTypeValues"
+                android:defaultValue="quad"
+                android:key="model_type"/>
+
         <com.jaredrummler.android.colorpicker.ColorPreferenceCompat
             app:iconSpaceReserved="false"
                 android:defaultValue="@color/colorPlane"

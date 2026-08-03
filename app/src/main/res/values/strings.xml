@@ -144,6 +144,15 @@
         <item>60</item>
     </string-array>
 
+    <string-array name="ModelTypes">
+        <item>Quad</item>
+        <item>Plane or wing</item>
+    </string-array>
+    <string-array name="ModelTypeValues">
+        <item>quad</item>
+        <item>plane</item>
+    </string-array>
+
     <string-array name="BatteryCells">
         <item>Auto</item>
         <item>1S</item>

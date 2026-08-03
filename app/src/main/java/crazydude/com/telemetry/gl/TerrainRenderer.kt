@@ -144,31 +144,95 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         modelRoll = rollDegrees
         modelSize = size
         modelVisible = true
-        if (modelBuffer == null) modelBuffer = floats(dart())
-        modelCount = 18
+        if (modelBuffer == null || builtShape != modelShape) {
+            val mesh = if (modelShape == "plane") plane() else quad()
+            modelBuffer = floats(mesh)
+            modelCount = mesh.size / 3
+            builtShape = modelShape
+        }
     }
 
-    /** A dart: nose forward along -z, two wings and a fin, eighteen vertices. */
-    private fun dart(): FloatArray {
-        val nose = floatArrayOf(0f, 0f, -1f)
-        val left = floatArrayOf(-0.6f, 0f, 0.7f)
-        val right = floatArrayOf(0.6f, 0f, 0.7f)
-        val top = floatArrayOf(0f, 0.4f, 0.5f)
-        val tail = floatArrayOf(0f, 0f, 0.35f)
-        val faces = arrayOf(
-            nose, left, top,
-            nose, top, right,
-            nose, right, tail,
-            nose, tail, left,
-            left, right, top,
-            left, tail, right
-        )
+    /** "quad" or "plane": the same choice the map marker follows. */
+    @Volatile var modelShape = "quad"
+    private var builtShape = ""
+
+    private fun mesh(faces: Array<FloatArray>): FloatArray {
         val out = FloatArray(faces.size * 3)
         var i = 0
         for (f in faces) {
             out[i++] = f[0]; out[i++] = f[1]; out[i++] = f[2]
         }
         return out
+    }
+
+    private fun v(x: Float, y: Float, z: Float) = floatArrayOf(x, y, z)
+
+    /** A quad seen as a quad: four arms, four motors, a body with a nose. */
+    private fun quad(): FloatArray {
+        val faces = ArrayList<FloatArray>()
+        val arms = arrayOf(
+            floatArrayOf(-1f, -1f), floatArrayOf(1f, -1f),
+            floatArrayOf(-1f, 1f), floatArrayOf(1f, 1f)
+        )
+        for (a in arms) {
+            val ex = a[0]
+            val ez = a[1]
+            // arm, as a flat strip from the body out to the motor
+            faces.add(v(ex * 0.12f, 0.02f, ez * 0.12f))
+            faces.add(v(ex * 0.9f, 0.02f, ez * 0.9f))
+            faces.add(v(ex * 0.12f + ez * 0.12f, 0.02f, ez * 0.12f - ex * 0.12f))
+            faces.add(v(ex * 0.9f, 0.02f, ez * 0.9f))
+            faces.add(v(ex * 0.9f + ez * 0.12f, 0.02f, ez * 0.9f - ex * 0.12f))
+            faces.add(v(ex * 0.12f + ez * 0.12f, 0.02f, ez * 0.12f - ex * 0.12f))
+            // motor, a short post standing on the arm end
+            faces.add(v(ex * 1f - 0.12f, 0.02f, ez * 1f))
+            faces.add(v(ex * 1f + 0.12f, 0.02f, ez * 1f))
+            faces.add(v(ex * 1f, 0.35f, ez * 1f))
+        }
+        // body: a low pyramid with its nose forward, so heading is readable
+        val nose = v(0f, 0.1f, -0.75f)
+        val top = v(0f, 0.42f, 0.1f)
+        val bl = v(-0.35f, 0f, 0.45f)
+        val br = v(0.35f, 0f, 0.45f)
+        val fl = v(-0.32f, 0f, -0.2f)
+        val fr = v(0.32f, 0f, -0.2f)
+        faces.add(nose); faces.add(fl); faces.add(top)
+        faces.add(nose); faces.add(top); faces.add(fr)
+        faces.add(fl); faces.add(bl); faces.add(top)
+        faces.add(br); faces.add(fr); faces.add(top)
+        faces.add(bl); faces.add(br); faces.add(top)
+        faces.add(nose); faces.add(fr); faces.add(fl)
+        return mesh(faces.toTypedArray())
+    }
+
+    /** A plane or wing: fuselage, swept wings, a fin and a tailplane. */
+    private fun plane(): FloatArray {
+        val faces = ArrayList<FloatArray>()
+        val nose = v(0f, 0f, -1.5f)
+        val spine = v(0f, 0.22f, -0.2f)
+        val tail = v(0f, 0.05f, 1.1f)
+        val bl = v(-0.18f, -0.08f, 0.6f)
+        val br = v(0.18f, -0.08f, 0.6f)
+        // fuselage
+        faces.add(nose); faces.add(bl); faces.add(spine)
+        faces.add(nose); faces.add(spine); faces.add(br)
+        faces.add(spine); faces.add(bl); faces.add(tail)
+        faces.add(spine); faces.add(tail); faces.add(br)
+        faces.add(nose); faces.add(br); faces.add(bl)
+        // wings, swept back from the shoulder
+        val wl = v(-1.25f, 0.02f, 0.55f)
+        val wr = v(1.25f, 0.02f, 0.55f)
+        val rootFront = v(0f, 0.02f, -0.35f)
+        val rootBack = v(0f, 0.02f, 0.35f)
+        faces.add(rootFront); faces.add(wl); faces.add(rootBack)
+        faces.add(rootFront); faces.add(rootBack); faces.add(wr)
+        faces.add(rootFront); faces.add(rootBack); faces.add(wl)
+        faces.add(rootFront); faces.add(wr); faces.add(rootBack)
+        // fin and tailplane
+        faces.add(v(0f, 0.05f, 0.75f)); faces.add(v(0f, 0.55f, 1.1f)); faces.add(tail)
+        faces.add(v(-0.45f, 0.05f, 1.05f)); faces.add(v(0.45f, 0.05f, 1.05f)); faces.add(tail)
+        faces.add(v(0.45f, 0.05f, 1.05f)); faces.add(v(-0.45f, 0.05f, 1.05f)); faces.add(tail)
+        return mesh(faces.toTypedArray())
     }
 
     private var circleBuffer: FloatBuffer? = null

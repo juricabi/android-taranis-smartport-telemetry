@@ -18,9 +18,13 @@ class OsmMarker(icon: Int, color: Int?, position: Position, private val mapView:
     private fun buildIcon(icon: Int, color: Int?): Drawable {
         val body = context.resources.getDrawable(icon).mutate()
         if (color != null) DrawableCompat.setTint(body, color)
-        if (icon != R.drawable.ic_plane) return body
+        val outlineIcon = when (icon) {
+            R.drawable.ic_plane -> R.drawable.ic_plane_outline
+            R.drawable.ic_fixedwing -> R.drawable.ic_fixedwing_outline
+            else -> return body
+        }
         // dark silhouette underneath, so a light marker stays readable on satellite imagery
-        val outline = context.resources.getDrawable(R.drawable.ic_plane_outline).mutate()
+        val outline = context.resources.getDrawable(outlineIcon).mutate()
         return LayerDrawable(arrayOf(outline, body))
     }
 

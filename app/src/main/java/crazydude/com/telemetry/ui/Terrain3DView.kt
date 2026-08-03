@@ -291,6 +291,11 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     private var modelPitch = 0f
     private var modelRoll = 0f
 
+    /** Quad or plane, from the setting; the map marker follows the same one. */
+    fun setModelShape(shape: String) {
+        renderer.modelShape = shape
+    }
+
     /** The model's own attitude, which is worth far more than its shape. */
     fun setModelAttitude(heading: Float, pitch: Float, roll: Float) {
         hasAttitude = true
