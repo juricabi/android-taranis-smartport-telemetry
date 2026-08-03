@@ -179,7 +179,10 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         if (modelBuffer == null || builtShape != modelShape) {
             val mesh = if (modelShape == "plane") plane() else quad()
             modelBuffer = floats(mesh)
-            modelCount = mesh.size / 3
+            // eight floats a vertex now, not three: dividing by three drew far
+            // more triangles than the mesh has and read whatever lay past its
+            // end, which is what tore the model apart
+            modelCount = mesh.size / FLOATS_PER_VERTEX
             builtShape = modelShape
         }
     }
@@ -255,7 +258,10 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                 val z1 = cz + (radius * Math.sin(a1)).toFloat()
                 tri(floatArrayOf(x0, y0, z0), floatArrayOf(x1, y0, z1), floatArrayOf(x1, y1, z1))
                 tri(floatArrayOf(x0, y0, z0), floatArrayOf(x1, y1, z1), floatArrayOf(x0, y1, z0))
+                // flat top, in the same plane as the rim: a cap drawn to a
+                // point above it turned every motor into a spike
                 tri(floatArrayOf(cx, y1, cz), floatArrayOf(x0, y1, z0), floatArrayOf(x1, y1, z1))
+                tri(floatArrayOf(cx, y0, cz), floatArrayOf(x1, y0, z1), floatArrayOf(x0, y0, z0))
             }
         }
 
