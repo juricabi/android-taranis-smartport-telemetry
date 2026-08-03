@@ -238,7 +238,7 @@
         <ListPreference
             app:iconSpaceReserved="false"
                 android:title="Battery cells"
-                android:summary="Divides the pack voltage to show volts per cell. Auto works it out from the first reading.\n%s"
+                android:summary="Divides the pack voltage to show volts per cell. Auto works it out from the pack and asks when a voltage could be two sizes. Set it by hand if you connect on a part used pack, since a low one can look like a smaller full one.\n%s"
                 android:entries="@array/BatteryCells"
                 android:entryValues="@array/BatteryCellValues"
                 android:defaultValue="auto"

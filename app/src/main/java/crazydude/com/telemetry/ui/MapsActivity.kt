@@ -2722,8 +2722,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 .setMessage(
                     "%.1f".format(packVoltage) + " V could be either of these." +
                         10.toChar() + 10.toChar() +
-                        "This only affects the volts per cell reading, and is asked once " +
-                        "per connection. Settings has a fixed cell count if you always fly the same."
+                        "This only affects the volts per cell reading, and is asked once per " +
+                        "connection. If you connect on a part used pack it can read as a " +
+                        "smaller full one — Settings has a fixed cell count for that."
                 )
                 .setItems(labels) { d, which ->
                     detectedCells = options[which]
