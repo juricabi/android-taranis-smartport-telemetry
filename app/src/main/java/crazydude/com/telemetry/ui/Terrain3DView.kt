@@ -169,12 +169,17 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
 
         val last = points[points.size - 1]
         val before = points[Math.max(0, points.size - 4)]
+        // Where the nose is pointing when the model says so, since that differs
+        // from the course over the ground in any wind; the course is the
+        // fallback for links that carry no attitude.
+        val heading = if (hasAttitude) modelHeading else courseBetween(before, last)
         renderer.setModel(
             scene.east(last.lon),
             last.altitudeMsl - scene.originAltitude,
             -scene.north(last.lat),
-            courseBetween(before, last),
-            Math.max(15f, scene.extent / 40f)
+            heading,
+            Math.max(15f, scene.extent / 40f),
+            modelPitch, modelRoll
         )
         if (following) {
             renderer.target = floatArrayOf(
@@ -271,6 +276,19 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
      * one finger drags the ground, two fingers pinch to zoom, twist to turn,
      * and slide together to tilt.
      */
+    private var hasAttitude = false
+    private var modelHeading = 0f
+    private var modelPitch = 0f
+    private var modelRoll = 0f
+
+    /** The model's own attitude, which is worth far more than its shape. */
+    fun setModelAttitude(heading: Float, pitch: Float, roll: Float) {
+        hasAttitude = true
+        modelHeading = heading
+        modelPitch = pitch
+        modelRoll = roll
+    }
+
     /** Which way the phone is pointing, so the arrow means something. */
     fun setMyHeading(degrees: Float) {
         var turn = degrees - myHeading

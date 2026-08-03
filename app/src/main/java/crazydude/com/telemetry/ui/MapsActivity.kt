@@ -192,6 +192,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     @Volatile private var phoneAccuracy = 0f
     private var terrain3D: Terrain3DView? = null
+    private var lastPitch = 0f
+    private var lastRoll = 0f
 
     private lateinit var connectButton: Button
     private lateinit var replayButton: ImageView
@@ -2314,14 +2316,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     override fun onRollData(rollAngle: Float) {
+        lastRoll = rollAngle
         runOnUiThread {
             horizonView.setRoll(rollAngle)
+            terrain3D?.setModelAttitude(lastHeading, lastPitch, lastRoll)
         }
     }
 
     override fun onPitchData(pitchAngle: Float) {
+        lastPitch = pitchAngle
         runOnUiThread {
             horizonView.setPitch(pitchAngle)
+            terrain3D?.setModelAttitude(lastHeading, lastPitch, lastRoll)
         }
     }
 

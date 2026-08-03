@@ -124,6 +124,8 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     @Volatile private var modelY = 0f
     @Volatile private var modelZ = 0f
     @Volatile private var modelHeading = 0f
+    @Volatile private var modelPitch = 0f
+    @Volatile private var modelRoll = 0f
     @Volatile private var modelSize = 40f
 
     /**
@@ -131,9 +133,12 @@ class TerrainRenderer : GLSurfaceView.Renderer {
      * dart drawn to scale would be a speck from any useful distance.
      */
     @Synchronized
-    fun setModel(x: Float, y: Float, z: Float, headingDegrees: Float, size: Float) {
+    fun setModel(x: Float, y: Float, z: Float, headingDegrees: Float, size: Float,
+                 pitchDegrees: Float = 0f, rollDegrees: Float = 0f) {
         modelX = x; modelY = y; modelZ = z
         modelHeading = headingDegrees
+        modelPitch = pitchDegrees
+        modelRoll = rollDegrees
         modelSize = size
         modelVisible = true
         if (modelBuffer == null) modelBuffer = floats(dart())
@@ -524,7 +529,11 @@ class TerrainRenderer : GLSurfaceView.Renderer {
 
         Matrix.setIdentityM(modelMatrix, 0)
         Matrix.translateM(modelMatrix, 0, modelX, modelY, modelZ)
+        // yaw, then pitch, then roll — the order an aircraft's attitude is
+        // built in, so a banked turn looks like a banked turn
         Matrix.rotateM(modelMatrix, 0, -modelHeading, 0f, 1f, 0f)
+        Matrix.rotateM(modelMatrix, 0, modelPitch, 1f, 0f, 0f)
+        Matrix.rotateM(modelMatrix, 0, -modelRoll, 0f, 0f, 1f)
         // undo the vertical exaggeration on the dart itself, or it grows a
         // taller fin the more the ground is stretched
         // held at a size on screen rather than in metres, as the arrow is
