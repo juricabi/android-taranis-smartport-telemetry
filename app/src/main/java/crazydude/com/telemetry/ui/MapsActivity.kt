@@ -1726,10 +1726,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         NetworkPreset("TBS Crossfire / Tracer (UDP)", false, 8888, false),
         NetworkPreset("MAVLink router / ground station (UDP)", false, 14550, false),
         NetworkPreset("Serial to Wi-Fi bridge (TCP)", true, 23, true),
-        // 127.0.0.1 is this phone. Useful when the telemetry source runs on the
-        // phone itself — a MAVLink router or a serial bridge app — or when a
-        // computer forwards a port to it over USB with `adb reverse`.
-        NetworkPreset("This device / localhost (TCP)", true, 8888, false, "127.0.0.1"),
         NetworkPreset("Custom", false, 14550, false)
     )
 
@@ -1851,10 +1847,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             val idx = pos - 1
             if (idx < 0 || idx >= interfaces.size) return
             val iface = interfaces[idx]
-            val fill = if (iface.likelyHotspot) {
-                iface.subnet24()
-            } else {
-                binder.gatewayAddress() ?: iface.subnet24()
+            val fill = when {
+                // this device is a single address, not a subnet to search
+                iface.loopback -> iface.address
+                iface.likelyHotspot -> iface.subnet24()
+                else -> binder.gatewayAddress() ?: iface.subnet24()
             }
             hostField.setText(fill)
             hostField.setSelection(hostField.text.length)

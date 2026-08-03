@@ -30,11 +30,14 @@ object LocalNetworks {
      * access point or the module joined the phone's hotspot. Mobile data never
      * carries telemetry and only gets in the way, so it sinks to the bottom.
      */
-    private fun rank(name: String, hotspot: Boolean): Int = when {
+    private fun rank(name: String, hotspot: Boolean, loopback: Boolean): Int = when {
         name.startsWith("wlan") && !hotspot -> 0
         hotspot -> 1
         name.startsWith("rmnet") || name.startsWith("ccmni") ||
-            name.startsWith("rmnet_data") -> 3
+            name.startsWith("rmnet_data") -> 4
+        // this device: real, occasionally the right answer, but not what
+        // anyone is looking for first
+        loopback -> 3
         else -> 2
     }
 
@@ -44,11 +47,13 @@ object LocalNetworks {
         val address: String,
         val prefix: Int,
         val likelyHotspot: Boolean,
+        val loopback: Boolean,
         val rank: Int
     ) {
         /** What the spinner shows. */
         fun label(): String {
             val kind = when {
+                loopback -> "this device"
                 likelyHotspot -> "hotspot"
                 name.startsWith("wlan") -> "Wi-Fi"
                 name.startsWith("rmnet") || name.startsWith("ccmni") -> "mobile"
@@ -78,18 +83,24 @@ object LocalNetworks {
         try {
             val interfaces = NetworkInterface.getNetworkInterfaces() ?: return out
             for (iface in interfaces) {
-                if (!iface.isUp || iface.isLoopback) continue
+                if (!iface.isUp) continue
+                // Loopback is kept rather than skipped: a telemetry source can
+                // run on the phone itself — a MAVLink router, a serial bridge —
+                // or be forwarded to it over USB with `adb reverse`, and then
+                // this device is genuinely the network to use.
+                val loopback = iface.isLoopback
                 for (ia in iface.interfaceAddresses) {
                     val addr = ia.address
                     if (addr !is Inet4Address) continue
                     val host = addr.hostAddress ?: continue
                     val name = iface.name ?: ""
-                    val hotspot = name.startsWith("ap") || name.startsWith("swlan") ||
-                        name == "wlan1" || host.startsWith("192.168.43.")
+                    val hotspot = !loopback && (name.startsWith("ap") ||
+                        name.startsWith("swlan") || name == "wlan1" ||
+                        host.startsWith("192.168.43."))
                     out.add(
                         Iface(
                             name, host, ia.networkPrefixLength.toInt(), hotspot,
-                            rank(name, hotspot)
+                            loopback, rank(name, hotspot, loopback)
                         )
                     )
                 }
