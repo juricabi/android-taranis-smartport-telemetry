@@ -54,6 +54,15 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
         // tiles rather than drawing nothing, so it goes blurry instead of blank.
         mapView.setMaxZoomLevel((maxZoom + 2).toDouble())
         mapView.setMinZoomLevel(tileSource.minimumZoomLevel.toDouble())
+        // Tiles that are still loading, or that do not exist at this zoom, are
+        // painted with the loading placeholder. Left at its default that is a
+        // white grid, which flashes as white blocks while zooming. Draw nothing
+        // instead and let the dark map background show through.
+        mapView.overlayManager.tilesOverlay.loadingBackgroundColor =
+            android.graphics.Color.TRANSPARENT
+        mapView.overlayManager.tilesOverlay.loadingLineColor =
+            android.graphics.Color.TRANSPARENT
+        mapView.setBackgroundColor(android.graphics.Color.rgb(28, 28, 28))
         for (overlayTileSource in overlayTileSources) {
             val overlayProvider = MapTileProviderBasic(context, overlayTileSource)
             val tilesOverlay = TilesOverlay(overlayProvider, context)
