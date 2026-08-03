@@ -33,6 +33,14 @@ class PrefsFragment : PreferenceFragmentCompat() {
         flightPlanManager = FlightPlanManager(context!!)
 
         preferenceManager.sharedPreferences.registerOnSharedPreferenceChangeListener(listener)
+        // Launched from code rather than from an <intent> in preferences.xml,
+        // which had the release applicationId hardcoded and so could not open
+        // this screen from a debug build at all.
+        findPreference("sensor_display_settings").setOnPreferenceClickListener {
+            startActivity(Intent(context, SensorsActivity::class.java))
+            true
+        }
+
         findPreference("copy_debug_info").setOnPreferenceClickListener {
             context?.let {
                 val clipboardManager =
