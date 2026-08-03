@@ -28,6 +28,11 @@ class Scene3DActivity : Activity() {
         /** Set by whoever opens this screen, read once on the way in. */
         @Volatile
         var pending: List<TerrainScene.TrackPoint>? = null
+
+        const val EXTRA_FOLLOW = "follow"
+
+        /** How often a following view picks up what has arrived. */
+        private const val FOLLOW_INTERVAL_MS = 500L
     }
 
     private lateinit var surface: GLSurfaceView
@@ -39,6 +44,17 @@ class Scene3DActivity : Activity() {
     private var lastY = 0f
     private var lastSpan = 0f
     private var loader: Thread? = null
+
+    private var follow = false
+    private var seenVersion = -1
+    private var loadingTerrain = false
+    private val handler = android.os.Handler()
+    private val poll = object : Runnable {
+        override fun run() {
+            pickUpNewPoints()
+            handler.postDelayed(this, FOLLOW_INTERVAL_MS)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,11 +80,17 @@ class Scene3DActivity : Activity() {
         root.addView(status, statusParams)
         setContentView(root)
 
+        follow = intent.getBooleanExtra(EXTRA_FOLLOW, false)
         val points = pending
         pending = null
         if (points == null || !scene.setTrack(points)) {
             status.text = "No flight to show"
             return
+        }
+        if (follow) {
+            // A following view holds the frame the ground was built in and lets
+            // the flight grow inside it, so the terrain cannot slide underneath.
+            scene.setOrigin(scene.originLat, scene.originLon, scene.originAltitude)
         }
 
         renderer.setTrack(scene.track, scene.shadow)
@@ -94,14 +116,57 @@ class Scene3DActivity : Activity() {
                 renderer.setTrack(scene.track, scene.shadow)
                 status.text = if (scene.tiles.isEmpty()) {
                     "No terrain here — showing the flight alone"
+                } else if (follow) {
+                    "Following"
                 } else {
                     ""
                 }
+                loadingTerrain = false
             }
         })
         worker.name = "terrain-load"
         loader = worker
         worker.start()
+    }
+
+    /**
+     * Take whatever has arrived since last time. Rebuilding the path costs a
+     * few thousand floats, which is nothing beside a frame, so there is no need
+     * to be clever about appending.
+     */
+    private fun pickUpNewPoints() {
+        val version = crazydude.com.telemetry.gl.LiveFlightPath.version
+        if (version == seenVersion) return
+        seenVersion = version
+        val points = crazydude.com.telemetry.gl.LiveFlightPath.snapshot()
+        if (points.size < 2) return
+
+        scene.buildTrack(points)
+        renderer.setTrack(scene.track, scene.shadow)
+
+        // keep the camera on the model, at the height it is flying
+        val last = points[points.size - 1]
+        renderer.target = floatArrayOf(
+            scene.east(last.lon),
+            last.altitudeMsl - scene.originAltitude,
+            -scene.north(last.lat)
+        )
+
+        // flown off the edge of the ground that was built: fetch more
+        if (!loadingTerrain && scene.outsideLoaded(last.lat, last.lon)) {
+            loadingTerrain = true
+            status.text = "Loading more terrain…"
+            val worker = Thread(Runnable {
+                scene.loadTerrain(points, { _, _ -> }, { })
+                runOnUiThread {
+                    renderer.submit(scene.tiles)
+                    status.text = "Following"
+                    loadingTerrain = false
+                }
+            })
+            worker.name = "terrain-extend"
+            worker.start()
+        }
     }
 
     private fun heightOfTrack(): Float {
@@ -153,11 +218,13 @@ class Scene3DActivity : Activity() {
     override fun onResume() {
         super.onResume()
         surface.onResume()
+        if (follow) handler.post(poll)
     }
 
     override fun onPause() {
         super.onPause()
         surface.onPause()
+        handler.removeCallbacks(poll)
     }
 
     override fun onDestroy() {

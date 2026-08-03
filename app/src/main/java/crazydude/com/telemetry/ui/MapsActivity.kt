@@ -83,7 +83,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * the profile and the 3D view need and neither the map nor the polyline
      * keeps. Bounded, so a long session cannot grow without end.
      */
-    private val flightPath = ArrayList<crazydude.com.telemetry.gl.TerrainScene.TrackPoint>()
+    private val flightPath: List<crazydude.com.telemetry.gl.TerrainScene.TrackPoint>
+        get() = crazydude.com.telemetry.gl.LiveFlightPath.snapshot()
     private var lastGpsAltitudeMsl = Float.NaN
 
     @Volatile private var detectedCells = 0
@@ -873,7 +874,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         highestPackVoltage = 0f
         cellsAsked = false
         cellsAnswered = false
-        flightPath.clear()
+        crazydude.com.telemetry.gl.LiveFlightPath.clear()
         lastGpsAltitudeMsl = Float.NaN
         file?.also {
             val progressDialog = ProgressDialog(this)
@@ -2107,7 +2108,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         highestPackVoltage = 0f
         cellsAsked = false
         cellsAnswered = false
-        flightPath.clear()
+        crazydude.com.telemetry.gl.LiveFlightPath.clear()
         lastGpsAltitudeMsl = Float.NaN
         crsfSystem = null
         // else the next link would redraw the old rate under its own table
@@ -2355,13 +2356,17 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         )
     }
 
-    private fun show3DView() {
-        if (flightPath.size < 2) {
+    private fun show3DView(follow: Boolean = false) {
+        if (crazydude.com.telemetry.gl.LiveFlightPath.size() < 2) {
             Toast.makeText(this, "No flight with position and altitude yet", Toast.LENGTH_SHORT).show()
             return
         }
-        Scene3DActivity.pending = ArrayList(flightPath)
-        startActivity(Intent(this, Scene3DActivity::class.java))
+        Scene3DActivity.pending = crazydude.com.telemetry.gl.LiveFlightPath.snapshot()
+        val intent = Intent(this, Scene3DActivity::class.java)
+        // following means keep reading the flight as it arrives, and keep the
+        // camera on the model rather than on the whole track
+        intent.putExtra(Scene3DActivity.EXTRA_FOLLOW, follow)
+        startActivity(intent)
     }
 
     /** Terrain over the flight's area, off the UI thread; [onReady] on it. */
@@ -2390,12 +2395,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private fun rememberForProfile(latitude: Double, longitude: Double) {
         if (lastGpsAltitudeMsl.isNaN()) return
         if (latitude == 0.0 && longitude == 0.0) return
-        if (flightPath.size >= 20000) return
-        flightPath.add(
-            crazydude.com.telemetry.gl.TerrainScene.TrackPoint(
-                latitude, longitude, lastGpsAltitudeMsl
-            )
-        )
+        crazydude.com.telemetry.gl.LiveFlightPath.add(latitude, longitude, lastGpsAltitudeMsl)
     }
 
     //should be called on ui thread
@@ -2740,6 +2740,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             preferenceManager.setMapType(mapType)
             initMap(true)
             dialog.dismiss()
+        }
+
+        // The third dimension is a way of looking at the same ground, so it
+        // belongs on the same button. Following keeps reading the flight as it
+        // arrives; the plain one shows what has been flown so far.
+        builder.setNeutralButton("3D, following") { d, _ ->
+            d.dismiss()
+            show3DView(true)
+        }
+        builder.setPositiveButton("3D, whole flight") { d, _ ->
+            d.dismiss()
+            show3DView(false)
         }
 
         val fMapTypeDialog = builder.create()
@@ -3258,7 +3270,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         runOnUiThread {
             if (!addToEnd) {
                 // rewound: the path is about to be replayed, so drop what it held
-                flightPath.clear()
+                crazydude.com.telemetry.gl.LiveFlightPath.clear()
                 polyLine?.clear()
                 this.lastTraveledDistance = 0.0;
                 lastGPS = Position(0.0,0.0)

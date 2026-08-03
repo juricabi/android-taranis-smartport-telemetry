@@ -42,6 +42,7 @@ class TerrainScene {
         private set
     var originAltitude = 0f
         private set
+    private var originFixed = false
 
     /** Flight path as x, y, z triples in the local frame. */
     var track = FloatArray(0)
@@ -74,6 +75,39 @@ class TerrainScene {
      * Work out the frame from the flight, then build the track arrays. Cheap;
      * no network. Returns false if there is nothing to show.
      */
+    /**
+     * Fix the frame without touching the track.
+     *
+     * A live flight cannot re-centre as it goes: the ground is built once in
+     * this frame, so moving the origin afterwards would slide the terrain out
+     * from under the path.
+     */
+    fun setOrigin(lat: Double, lon: Double, altitude: Float) {
+        originLat = lat
+        originLon = lon
+        originAltitude = altitude
+        originFixed = true
+        minLat = lat; maxLat = lat
+        minLon = lon; maxLon = lon
+    }
+
+    /** Rebuild the path in the frame already chosen. Cheap; call as often as needed. */
+    fun buildTrack(points: List<TrackPoint>) {
+        val out = FloatArray(points.size * 3)
+        var i = 0
+        for (p in points) {
+            out[i++] = east(p.lon)
+            out[i++] = p.altitudeMsl - originAltitude
+            out[i++] = -north(p.lat)
+            if (p.lat < minLat) minLat = p.lat
+            if (p.lat > maxLat) maxLat = p.lat
+            if (p.lon < minLon) minLon = p.lon
+            if (p.lon > maxLon) maxLon = p.lon
+        }
+        track = out
+        buildShadow(points)
+    }
+
     fun setTrack(points: List<TrackPoint>): Boolean {
         if (points.size < 2) return false
         minLat = points[0].lat; maxLat = points[0].lat
@@ -86,9 +120,12 @@ class TerrainScene {
             if (p.lon > maxLon) maxLon = p.lon
             if (p.altitudeMsl < lowest) lowest = p.altitudeMsl
         }
-        originLat = (minLat + maxLat) / 2
-        originLon = (minLon + maxLon) / 2
-        originAltitude = lowest
+        if (!originFixed) {
+            originLat = (minLat + maxLat) / 2
+            originLon = (minLon + maxLon) / 2
+            originAltitude = lowest
+            originFixed = true
+        }
 
         val out = FloatArray(points.size * 3)
         var i = 0
@@ -120,6 +157,9 @@ class TerrainScene {
         val northEdge = maxLat + padLat
         val westEdge = minLon - padLon
         val eastEdge = maxLon + padLon
+
+        loadedMinLat = southEdge; loadedMaxLat = northEdge
+        loadedMinLon = westEdge; loadedMaxLon = eastEdge
 
         Elevation.prefetch(southEdge, westEdge, northEdge, eastEdge, Elevation.TILE_ZOOM,
             { done, total -> onProgress(done, total * 2) },
@@ -247,7 +287,18 @@ class TerrainScene {
         }
     }
 
-    private fun buildShadow(points: List<TrackPoint>) {
+    /** The area the ground was built for, so a live flight can tell when it leaves it. */
+    var loadedMinLat = 0.0; private set
+    var loadedMaxLat = 0.0; private set
+    var loadedMinLon = 0.0; private set
+    var loadedMaxLon = 0.0; private set
+
+    fun outsideLoaded(lat: Double, lon: Double): Boolean {
+        if (loadedMaxLat == loadedMinLat) return true
+        return lat < loadedMinLat || lat > loadedMaxLat || lon < loadedMinLon || lon > loadedMaxLon
+    }
+
+    fun buildShadow(points: List<TrackPoint>) {
         val out = FloatArray(points.size * 3)
         var i = 0
         for (p in points) {
