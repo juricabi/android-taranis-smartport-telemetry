@@ -42,6 +42,7 @@
             android:key="connection_voice_messages"/>
 
     <PreferenceCategory
+            android:layout="@layout/preference_category_title"
             app:iconSpaceReserved="false" android:title="Map markers">
 
         <com.jaredrummler.android.colorpicker.ColorPreferenceCompat
@@ -74,6 +75,7 @@
     </PreferenceCategory>
 
     <PreferenceCategory
+            android:layout="@layout/preference_category_title"
             app:iconSpaceReserved="false" android:title="Route line">
 
         <com.jaredrummler.android.colorpicker.ColorPreferenceCompat
@@ -98,6 +100,7 @@
     </PreferenceCategory>
 
     <PreferenceCategory
+            android:layout="@layout/preference_category_title"
             app:iconSpaceReserved="false" android:title="Flight plans">
 
         <SwitchPreference
@@ -132,6 +135,7 @@
     </PreferenceCategory>
 
     <PreferenceCategory
+            android:layout="@layout/preference_category_title"
             app:iconSpaceReserved="false" android:title="Home line">
 
         <SwitchPreference
@@ -154,6 +158,7 @@
     </PreferenceCategory>
 
     <PreferenceCategory
+            android:layout="@layout/preference_category_title"
             app:iconSpaceReserved="false" android:title="USB Serial">
         <ListPreference
             app:iconSpaceReserved="false"
@@ -167,6 +172,7 @@
     </PreferenceCategory>
 
     <PreferenceCategory
+            android:layout="@layout/preference_category_title"
             app:iconSpaceReserved="false" android:title="Playback">
 
         <SwitchPreference
@@ -190,6 +196,7 @@
 
 
     <PreferenceCategory
+            android:layout="@layout/preference_category_title"
             app:iconSpaceReserved="false" android:title="Sensors">
 
         <Preference
@@ -229,6 +236,7 @@
     </PreferenceCategory>
 
     <PreferenceCategory
+            android:layout="@layout/preference_category_title"
             app:iconSpaceReserved="false" android:title="FlightRadar24 Nearby Aircraft">
 
         <SwitchPreference
@@ -291,6 +299,7 @@
     </PreferenceCategory>
 
     <PreferenceCategory
+            android:layout="@layout/preference_category_title"
             app:iconSpaceReserved="false" android:title="Diagnostics">
         <Preference
             app:iconSpaceReserved="false" android:title="Copy debug info"
