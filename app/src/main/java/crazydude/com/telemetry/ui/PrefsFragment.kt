@@ -162,5 +162,12 @@ class PrefsFragment : PreferenceFragmentCompat() {
     }
 
     private fun updateSummary() {
+        // The cell count is only used to divide a pack voltage, so it means
+        // nothing when the flight controller already reports a single cell.
+        val reportsPack =
+            preferenceManager.sharedPreferences.getString("report_voltage", "Battery") == "Battery"
+        findPreference<ListPreference>("battery_cells")?.let {
+            it.isEnabled = reportsPack
+        }
     }
 }
