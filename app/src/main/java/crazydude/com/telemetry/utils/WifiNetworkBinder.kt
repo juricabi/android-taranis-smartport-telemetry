@@ -41,9 +41,16 @@ class WifiNetworkBinder(context: Context) {
     private var wifiNetwork: Network? = null
     private var boundProcess = false
 
-    /** Find the Wi-Fi network and take the multicast lock. Safe to call twice. */
-    fun acquire() {
-        wifiNetwork = findWifiNetwork()
+    /**
+     * Take the multicast lock and, if asked, find the network to pin sockets to.
+     *
+     * These are two different jobs and only one of them is ever optional. The
+     * lock is what lets broadcast telemetry reach the app at all, so it is
+     * always taken; pinning is about routing and is wrong when the module is a
+     * client of this phone's hotspot, so it is [pinSockets] that decides it.
+     */
+    fun acquire(pinSockets: Boolean = true) {
+        wifiNetwork = if (pinSockets) findWifiNetwork() else null
 
         if (multicastLock == null) {
             try {

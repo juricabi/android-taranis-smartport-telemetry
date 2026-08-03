@@ -171,14 +171,14 @@ class DataService : Service(), DataDecoder.Listener {
             // Pinning to Wi-Fi and holding the multicast lock: without these a
             // transmitter's own access point, which has no internet, loses to
             // mobile data and the broadcast never arrives.
-            // Only when the user left the network on Automatic. Choosing a
-            // specific interface — a hotspot the module joined, say — means the
-            // route is local and forcing Wi-Fi would break it.
-            val binder = if (preferenceManager.getNetworkPinWifi()) {
-                WifiNetworkBinder(this).also { it.acquire() }
-            } else {
-                null
-            }
+            // Always taken, whatever network was chosen: the multicast lock is
+            // what stops Wi-Fi power saving from quietly dropping broadcast
+            // telemetry, and an ExpressLRS backpack and a TBS module in UDP
+            // mode both broadcast. Only the socket *pinning* is conditional —
+            // forcing Wi-Fi is wrong when the module is a client of this
+            // phone's own hotspot.
+            val binder = WifiNetworkBinder(this)
+            binder.acquire(preferenceManager.getNetworkPinWifi())
 
             dataPoller = NetworkDataPoller(
                 useTcp,
