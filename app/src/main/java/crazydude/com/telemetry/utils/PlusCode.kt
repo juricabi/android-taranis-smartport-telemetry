@@ -30,6 +30,8 @@ object PlusCode {
             var lonDigit = Math.floor(adjustedLon / resolution).toInt()
             if (latDigit > 19) latDigit = 19
             if (lonDigit > 19) lonDigit = 19
+            if (latDigit < 0) latDigit = 0
+            if (lonDigit < 0) lonDigit = 0
 
             code.append(ALPHABET[latDigit])
             code.append(ALPHABET[lonDigit])

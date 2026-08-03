@@ -23,6 +23,7 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
     private var consumer: IMyLocationConsumer? = null
     private var accepted: Location? = null
     private var lastBearingPush = 0L
+    private var pushedBearing = -999f
     private var hasBearing = false
 
     override fun startLocationProvider(myLocationConsumer: IMyLocationConsumer?): Boolean {
@@ -37,15 +38,20 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
         gpsProvider.locationUpdateMinTime = 1000
         gpsProvider.locationUpdateMinDistance = 0f
         return gpsProvider.startLocationProvider { location, source ->
-            if (isBetter(location)) {
-                accepted = location
-                myLocationConsumer?.onLocationChanged(injectBearing(location), source)
-            }
+            // osmdroid's provider already ignores network fixes for a while
+            // after a gps one, so take what it gives us; filtering on accuracy
+            // here could latch onto one good fix and freeze the position.
+            accepted = location
+            myLocationConsumer?.onLocationChanged(injectBearing(location), source)
         }
     }
 
     override fun stopLocationProvider() {
         accepted = null
+        hasGravity = false
+        hasGeomagnetic = false
+        hasBearing = false
+        pushedBearing = -999f
         sensorManager.unregisterListener(this)
         gpsProvider.stopLocationProvider()
         consumer = null
@@ -58,17 +64,6 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
     override fun destroy() {
         stopLocationProvider()
         gpsProvider.destroy()
-    }
-
-    // The provider reports both GPS and network fixes. A network fix can be
-    // hundreds of metres wide and would otherwise replace a good GPS one, which
-    // shows up as a large accuracy circle. Keep the more accurate fix unless the
-    // one we are holding has gone stale.
-    private fun isBetter(location: Location?): Boolean {
-        if (location == null) return false
-        val current = accepted ?: return true
-        if (location.accuracy <= current.accuracy) return true
-        return location.time - current.time > 20000
     }
 
     private fun injectBearing(location: Location?): Location? {
@@ -121,8 +116,13 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
                 // the arrow used to turn only when a location update arrived, about
                 // once a second, which looked like it was stepping
                 val now = System.currentTimeMillis()
-                if (now - lastBearingPush > 100) {
+                var moved = ((compassBearing - pushedBearing + 540f) % 360f) - 180f
+                if (moved < 0f) moved = -moved
+                if (now - lastBearingPush > 100 && moved > 1f) {
+                    // redrawing the map on every sample would run all day with
+                    // the phone lying still, so only do it when it has turned
                     lastBearingPush = now
+                    pushedBearing = compassBearing
                     accepted?.let { consumer?.onLocationChanged(injectBearing(Location(it)), this) }
                 }
             }

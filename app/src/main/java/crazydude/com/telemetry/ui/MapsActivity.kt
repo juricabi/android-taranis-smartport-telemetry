@@ -73,7 +73,7 @@ import kotlin.math.roundToInt
 //class MapsActivity : AppCompatActivity(), DataDecoder.Listener {
 class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Listener, SensorTimeoutManager.Listener, Fr24Manager.Listener {
 
-    private var detectedProtocol: String = ""
+    @Volatile private var detectedProtocol: String = ""
     private var detectedCells = 0
 
     companion object {
@@ -670,7 +670,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
         val nl = 10.toChar().toString()
         val plusCode = PlusCode.encode(pos.lat, pos.lon)
-        val coords = "%.6f,%.6f".format(pos.lat, pos.lon)
+        // Locale.US: a comma decimal separator would corrupt the maps link
+        val coords = String.format(java.util.Locale.US, "%.6f,%.6f", pos.lat, pos.lon)
         val mapsUrl = "https://www.google.com/maps/search/?api=1&query=" + coords
 
         val text = StringBuilder()
@@ -685,7 +686,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             text.append(nl).append(nl).append("From you").append(nl)
             text.append("%.0f m".format(results[0]))
             text.append("   bearing ")
-            text.append("%03d".format(bearing.toInt()))
+            text.append("%03d".format(bearing.toInt())).append(" true")
         }
 
         AlertDialog.Builder(this)
@@ -1072,11 +1073,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             DataDecoder.Companion.FlyMode.AUTONOMOUS -> {
                 mode.text = mode.text.toString() + " | Autonomous"
             }
-            DataDecoder.Companion.FlyMode.RATE -> {
+            DataDecoder.Companion.FlyMode.GEO -> {
                 mode.text = mode.text.toString() + " | Rate"
             }
             DataDecoder.Companion.FlyMode.TURTLE -> {
-                mode.text = mode.text.toString() + " | Turle"
+                mode.text = mode.text.toString() + " | Turtle"
             }
             DataDecoder.Companion.FlyMode.RATE -> {
                 mode.text = mode.text.toString() + " | Geo"
@@ -1769,7 +1770,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     private fun formatHeight(v: Float): String {
-        if (v < -100) {
+        if (v < -1000) {
             return "${"%.1f".format(v / 1000)} km"
         } else if (v < -10) {
             return "${"%.0f".format(v)} m"
@@ -2173,8 +2174,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         if (setting != "auto") {
             return setting.toIntOrNull() ?: 1
         }
-        if (detectedCells == 0 && packVoltage > 5f) {
-            var cells = Math.round(packVoltage / 3.85f)
+        if (detectedCells == 0 && packVoltage > 2f) {
+            // divide by the highest a cell can be, so a charged pack is not
+            // mistaken for one with more cells: 25.2V is 6S, not 7S
+            var cells = Math.ceil((packVoltage / 4.35f).toDouble()).toInt()
             if (cells < 1) cells = 1
             if (cells > 8) cells = 8
             detectedCells = cells
@@ -2476,6 +2479,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     override fun onDecoderRestart() {
+        detectedCells = 0
         runOnUiThread {
             this.lastGPS = Position(0.0, 0.0);
             this.hasGPSFix = false;
@@ -2487,11 +2491,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     override fun onProtocolDetected( protocolName: String) {
         detectedProtocol = protocolName
         runOnUiThread {
-            if (protocolName == "GHST") {
+            run {
                 // keep the icon on the side the current layout puts it on
-                val icon = androidx.core.content.ContextCompat.getDrawable(
-                    this, R.drawable.ic_ghst_rate
-                )
+                val iconRes =
+                    if (protocolName == "GHST") R.drawable.ic_ghst_rate else R.drawable.ic_elrs_rate
+                val icon = androidx.core.content.ContextCompat.getDrawable(this, iconRes)
                 if (this.elrsRate.compoundDrawablesRelative[1] != null) {
                     this.elrsRate.setCompoundDrawablesRelativeWithIntrinsicBounds(
                         null, icon, null, null
