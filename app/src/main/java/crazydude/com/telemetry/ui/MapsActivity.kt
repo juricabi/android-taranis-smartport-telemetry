@@ -179,8 +179,32 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var headingPolyline: MapLine? = null
     private var flightPlanLines: MutableList<MapLine> = mutableListOf()
     private var homeLine: MapLine? = null
+    /** The fix being believed, so a worse one cannot take its place. */
+    private var bestPhoneFix: Location? = null
+
+    /**
+     * Both providers are listened to, because indoors the satellites never
+     * answer — but a mast puts you hundreds of metres from where they say, and
+     * one arriving between two good fixes threw the arrow across the field and
+     * back again.
+     *
+     * So: anything when nothing is known, anything once what is known is stale,
+     * and otherwise only a fix at least as accurate as the one in hand.
+     */
+    private fun worthBelieving(fix: Location): Boolean {
+        val held = bestPhoneFix ?: return true
+        val newer = fix.time - held.time
+        if (newer > 20000L) return true
+        if (newer < -20000L) return false
+        if (!fix.hasAccuracy()) return !held.hasAccuracy()
+        if (!held.hasAccuracy()) return true
+        return fix.accuracy <= held.accuracy || fix.provider == held.provider
+    }
+
     private val phoneLocationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
+            if (!worthBelieving(location)) return
+            bestPhoneFix = location
             // kept for the 3D view, which draws the same accuracy circle the map does
             phoneAccuracy = if (location.hasAccuracy()) location.accuracy else 0f
             runOnUiThread {
