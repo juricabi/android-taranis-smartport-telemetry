@@ -117,7 +117,30 @@ class TerrainScene {
     /** The reported height, brought to sea level whichever way it was measured. */
     fun aboveSeaLevel(reported: Float): Float = reported + launchGroundElevation
 
-    fun buildTrack(points: List<TrackPoint>) {
+    /**
+     * Rebuild the path in the frame already chosen.
+     *
+     * Thinned to a few thousand points however long the flight is: a screen
+     * cannot show more, and rebuilding twenty thousand of them twice a second
+     * is work that grows for the whole flight.
+     */
+    fun buildTrack(all: List<TrackPoint>) {
+        val stride = Math.max(1, all.size / 3000)
+        val points = if (stride == 1) {
+            all
+        } else {
+            val thinned = ArrayList<TrackPoint>(all.size / stride + 2)
+            var i = 0
+            while (i < all.size) {
+                thinned.add(all[i])
+                i += stride
+            }
+            // the newest point always, so the model sits where it really is
+            if (thinned.isEmpty() || thinned[thinned.size - 1] !== all[all.size - 1]) {
+                thinned.add(all[all.size - 1])
+            }
+            thinned
+        }
         val out = FloatArray(points.size * 3)
         var i = 0
         for (p in points) {

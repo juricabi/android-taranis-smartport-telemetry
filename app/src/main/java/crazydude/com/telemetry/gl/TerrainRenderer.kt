@@ -70,9 +70,17 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         private const val FLOATS_PER_VERTEX = 8
     }
 
+    /**
+     * A tile living on the graphics card.
+     *
+     * Its geometry is uploaded once. Drawing from a FloatBuffer instead meant
+     * handing the driver every vertex of every tile on every frame — a third of
+     * a million vertices, ten megabytes, sixty times a second — which is what
+     * made the ground feel heavy.
+     */
     private class Tile(
-        val vertices: FloatBuffer,
-        val indices: ShortBuffer,
+        val vertexBuffer: Int,
+        val indexBuffer: Int,
         val count: Int,
         var textureId: Int
     )
@@ -525,8 +533,9 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             if (pending.isEmpty()) return
             meshes = ArrayList(pending)
             pending.clear()
-            for (t in tiles) if (t.textureId != 0) {
-                GLES20.glDeleteTextures(1, intArrayOf(t.textureId), 0)
+            for (t in tiles) {
+                if (t.textureId != 0) GLES20.glDeleteTextures(1, intArrayOf(t.textureId), 0)
+                GLES20.glDeleteBuffers(2, intArrayOf(t.vertexBuffer, t.indexBuffer), 0)
             }
             tiles.clear()
         }
@@ -548,9 +557,20 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                     GLES20.GL_CLAMP_TO_EDGE)
                 GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
             }
+            val ids = IntArray(2)
+            GLES20.glGenBuffers(2, ids, 0)
+            val vertices = floats(mesh.vertices)
+            GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, ids[0])
+            GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, mesh.vertices.size * 4, vertices,
+                GLES20.GL_STATIC_DRAW)
+            val indices = shorts(mesh.indices)
+            GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, ids[1])
+            GLES20.glBufferData(GLES20.GL_ELEMENT_ARRAY_BUFFER, mesh.indices.size * 2, indices,
+                GLES20.GL_STATIC_DRAW)
+            GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
+            GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, 0)
             synchronized(this) {
-                tiles.add(Tile(floats(mesh.vertices), shorts(mesh.indices),
-                    mesh.indices.size, texture))
+                tiles.add(Tile(ids[0], ids[1], mesh.indices.size, texture))
             }
         }
     }
@@ -578,16 +598,15 @@ class TerrainRenderer : GLSurfaceView.Renderer {
 
         val snapshot: List<Tile>
         synchronized(this) { snapshot = ArrayList(tiles) }
+        val stride = FLOATS_PER_VERTEX * 4
         for (tile in snapshot) {
-            val stride = FLOATS_PER_VERTEX * 4
-            tile.vertices.position(0)
-            GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, stride, tile.vertices)
+            GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, tile.vertexBuffer)
+            GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, tile.indexBuffer)
+            GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, stride, 0)
             GLES20.glEnableVertexAttribArray(aPosition)
-            tile.vertices.position(3)
-            GLES20.glVertexAttribPointer(aTexture, 2, GLES20.GL_FLOAT, false, stride, tile.vertices)
+            GLES20.glVertexAttribPointer(aTexture, 2, GLES20.GL_FLOAT, false, stride, 3 * 4)
             GLES20.glEnableVertexAttribArray(aTexture)
-            tile.vertices.position(5)
-            GLES20.glVertexAttribPointer(aNormal, 3, GLES20.GL_FLOAT, false, stride, tile.vertices)
+            GLES20.glVertexAttribPointer(aNormal, 3, GLES20.GL_FLOAT, false, stride, 5 * 4)
             GLES20.glEnableVertexAttribArray(aNormal)
 
             if (tile.textureId != 0) {
@@ -597,14 +616,17 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             } else {
                 GLES20.glUniform1f(uHasTexture, 0f)
             }
-            tile.indices.position(0)
             GLES20.glDrawElements(GLES20.GL_TRIANGLES, tile.count,
-                GLES20.GL_UNSIGNED_SHORT, tile.indices)
+                GLES20.GL_UNSIGNED_SHORT, 0)
 
             GLES20.glDisableVertexAttribArray(aPosition)
             GLES20.glDisableVertexAttribArray(aTexture)
             GLES20.glDisableVertexAttribArray(aNormal)
         }
+        // everything after this draws from ordinary buffers, which a bound
+        // vertex buffer would silently override
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
+        GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, 0)
         GLES20.glDisable(GLES20.GL_POLYGON_OFFSET_FILL)
     }
 
