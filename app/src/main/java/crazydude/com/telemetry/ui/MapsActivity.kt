@@ -2427,6 +2427,19 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             )
         )
         view.setModelShape(preferenceManager.getModelType())
+        // the same overlays the map carries, from the same settings
+        view.setOverlaySettings(
+            preferenceManager.isHomeLineEnabled(), preferenceManager.getHomeLineColor(),
+            preferenceManager.isHeadingLineEnabled(), preferenceManager.getHeadLineColor(),
+            preferenceManager.getFlightPlanColor()
+        )
+        if (preferenceManager.isFlightPlansEnabled()) {
+            val plans = FlightPlanManager(this).getPlans()
+                .filter { it.visible && it.waypoints.size >= 2 }
+                .map { it.waypoints }
+            view.setFlightPlans(plans)
+        }
+        view.setTraffic(lastAirplanes)
         view.onFollowingLost = { setFollowMode(false) }
         setFollowMode(true)
         view.start(
@@ -3935,7 +3948,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         map?.invalidate()
     }
 
+    private var lastAirplanes: List<Fr24Manager.AirplaneInfo> = emptyList()
+
     override fun onAirplanesUpdated(airplanes: List<Fr24Manager.AirplaneInfo>) {
+        lastAirplanes = airplanes
+        runOnUiThread { terrain3D?.setTraffic(airplanes) }
         val currentIds = airplanes.map { it.flightId }.toSet()
 
         // Remove stale markers

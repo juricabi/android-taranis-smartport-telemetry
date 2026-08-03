@@ -193,6 +193,8 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
             )
         }
 
+        rebuildOverlays()
+
         if (!loadingTerrain && scene.nearEdge(last.lat, last.lon)) {
             loadingTerrain = true
             status.text = "Loading more terrain…"
@@ -290,6 +292,119 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     private var modelHeading = 0f
     private var modelPitch = 0f
     private var modelRoll = 0f
+
+    // ------------------------------------------------- what the map also draws
+
+    private var flightPlans: List<List<crazydude.com.telemetry.maps.Position>> = emptyList()
+    private var flightPlanColor = 0
+    private var traffic: List<crazydude.com.telemetry.manager.Fr24Manager.AirplaneInfo> = emptyList()
+    private var homeLineOn = false
+    private var headingLineOn = false
+    private var homeLineColor = 0
+    private var headingLineColor = 0
+
+    fun setOverlaySettings(homeLine: Boolean, homeColor: Int,
+                           headingLine: Boolean, headingColor: Int, planColor: Int) {
+        homeLineOn = homeLine
+        homeLineColor = homeColor
+        headingLineOn = headingLine
+        headingLineColor = headingColor
+        flightPlanColor = planColor
+        rebuildOverlays()
+    }
+
+    fun setFlightPlans(plans: List<List<crazydude.com.telemetry.maps.Position>>) {
+        flightPlans = plans
+        rebuildOverlays()
+    }
+
+    /** Real aircraft, at the altitude they are actually flying at. */
+    fun setTraffic(airplanes: List<crazydude.com.telemetry.manager.Fr24Manager.AirplaneInfo>) {
+        traffic = airplanes
+        rebuildOverlays()
+    }
+
+    private fun colorOf(argb: Int): FloatArray = floatArrayOf(
+        ((argb shr 16) and 0xFF) / 255f,
+        ((argb shr 8) and 0xFF) / 255f,
+        (argb and 0xFF) / 255f,
+        Math.max(0.35f, ((argb ushr 24) and 0xFF) / 255f))
+
+    private fun rebuildOverlays() {
+        val sets = ArrayList<TerrainRenderer.LineSet>()
+        val model = LiveFlightPath.latest()
+
+        // the line home, which on a map goes to the phone
+        if (homeLineOn && model != null && !myLat.isNaN() && !myLon.isNaN()) {
+            val ground = scene.groundAt(myLat, myLon)
+            if (ground != null) {
+                val c = colorOf(homeLineColor)
+                sets.add(TerrainRenderer.LineSet(floatArrayOf(
+                    scene.east(model.lon), model.altitudeMsl - scene.originAltitude,
+                    -scene.north(model.lat),
+                    scene.east(myLon), ground - scene.originAltitude, -scene.north(myLat)),
+                    c[0], c[1], c[2], c[3], true, 3f, false))
+            }
+        }
+
+        // where it is heading, a kilometre of it
+        if (headingLineOn && model != null && hasAttitude) {
+            val radians = Math.toRadians(modelHeading.toDouble())
+            val x = scene.east(model.lon)
+            val y = model.altitudeMsl - scene.originAltitude
+            val z = -scene.north(model.lat)
+            val c = colorOf(headingLineColor)
+            sets.add(TerrainRenderer.LineSet(floatArrayOf(
+                x, y, z,
+                x + (1000.0 * Math.sin(radians)).toFloat(), y,
+                z - (1000.0 * Math.cos(radians)).toFloat()),
+                c[0], c[1], c[2], c[3], true, 2f, false))
+        }
+
+        // imported plans, laid on the ground they cross
+        val planColor = colorOf(flightPlanColor)
+        for (plan in flightPlans) {
+            if (plan.size < 2) continue
+            val points = FloatArray(plan.size * 3)
+            var i = 0
+            for (p in plan) {
+                val ground = scene.groundAt(p.lat, p.lon)
+                points[i++] = scene.east(p.lon)
+                points[i++] = (ground ?: scene.originAltitude) - scene.originAltitude
+                points[i++] = -scene.north(p.lat)
+            }
+            sets.add(TerrainRenderer.LineSet(points, planColor[0], planColor[1], planColor[2],
+                planColor[3], true, 4f, true))
+        }
+
+        // Traffic, at the height it is actually flying: a post from the ground
+        // up to the aircraft, which is the thing a flat map cannot show you.
+        if (traffic.isNotEmpty()) {
+            val posts = FloatArray(traffic.size * 6)
+            val marks = FloatArray(traffic.size * 12)
+            var p = 0
+            var m = 0
+            for (plane in traffic) {
+                val lat = plane.lat.toDouble()
+                val lon = plane.lon.toDouble()
+                val ground = scene.groundAt(lat, lon) ?: scene.originAltitude
+                val x = scene.east(lon)
+                val z = -scene.north(lat)
+                val top = plane.altMeters - scene.originAltitude
+                posts[p++] = x; posts[p++] = ground - scene.originAltitude; posts[p++] = z
+                posts[p++] = x; posts[p++] = top.toFloat(); posts[p++] = z
+                val arm = Math.max(40f, scene.extent / 12f)
+                marks[m++] = x - arm; marks[m++] = top.toFloat(); marks[m++] = z
+                marks[m++] = x + arm; marks[m++] = top.toFloat(); marks[m++] = z
+                marks[m++] = x; marks[m++] = top.toFloat(); marks[m++] = z - arm
+                marks[m++] = x; marks[m++] = top.toFloat(); marks[m++] = z + arm
+            }
+            sets.add(TerrainRenderer.LineSet(posts, 1f, 1f, 1f, 0.35f, false, 2f, false))
+            sets.add(TerrainRenderer.LineSet(marks, 1f, 0.6f, 0.1f, 0.95f, false, 3f, false))
+        }
+
+        renderer.setOverlays(sets)
+    }
 
     /** Quad or plane, from the setting; the map marker follows the same one. */
     fun setModelShape(shape: String) {

@@ -117,6 +117,29 @@ class TerrainRenderer : GLSurfaceView.Renderer {
 
     @Volatile var trackColor = floatArrayOf(1f, 0.85f, 0.1f, 1f)
 
+    /** Anything else worth drawing as lines: home, heading, plans, traffic. */
+    class LineSet(
+        val vertices: FloatArray,
+        val red: Float, val green: Float, val blue: Float, val alpha: Float,
+        val strip: Boolean,
+        val width: Float,
+        val onGround: Boolean
+    )
+
+    private class DrawnSet(val buffer: FloatBuffer, val count: Int, val set: LineSet)
+
+    private var overlays: List<DrawnSet> = emptyList()
+
+    @Synchronized
+    fun setOverlays(sets: List<LineSet>) {
+        val drawn = ArrayList<DrawnSet>()
+        for (set in sets) {
+            if (set.vertices.size < 6) continue
+            drawn.add(DrawnSet(floats(set.vertices), set.vertices.size / 3, set))
+        }
+        overlays = drawn
+    }
+
     private var markerBuffer: FloatBuffer? = null
     private var markerCount = 0
 
@@ -582,6 +605,22 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         synchronized(this) { marker = markerBuffer; mCount = markerCount }
         // the track and the model are up in the air, so they go back to the
         // plain matrix
+        GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
+
+        val extras: List<DrawnSet>
+        synchronized(this) { extras = overlays }
+        for (extra in extras) {
+            GLES20.glUniformMatrix4fv(uMvp, 1, false,
+                if (extra.set.onGround) liftMvp else mvp, 0)
+            extra.buffer.position(0)
+            GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, extra.buffer)
+            GLES20.glUniform4f(uColor, extra.set.red, extra.set.green, extra.set.blue,
+                extra.set.alpha)
+            GLES20.glLineWidth(extra.set.width)
+            GLES20.glDrawArrays(
+                if (extra.set.strip) GLES20.GL_LINE_STRIP else GLES20.GL_LINES,
+                0, extra.count)
+        }
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
 
         val mine: FloatBuffer?
