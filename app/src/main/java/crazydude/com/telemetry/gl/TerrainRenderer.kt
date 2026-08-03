@@ -112,8 +112,12 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     @Volatile var maxDistance = 3000f
     @Volatile var target = floatArrayOf(0f, 0f, 0f)
 
-    /** Height is exaggerated a little, or a hill reads as flat from above. */
-    @Volatile var verticalScale = 1.4f
+    /**
+     * No exaggeration. Heights were stretched by nearly half to make hills
+     * read from above, which also made every flight look half again as high as
+     * it was — and a height you cannot trust is worse than a flat looking hill.
+     */
+    @Volatile var verticalScale = 1.0f
 
     @Volatile var trackColor = floatArrayOf(1f, 0.85f, 0.1f, 1f)
 
@@ -712,8 +716,10 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         Matrix.rotateM(modelMatrix, 0, -modelRoll, 0f, 0f, 1f)
         // undo the vertical exaggeration on the dart itself, or it grows a
         // taller fin the more the ground is stretched
-        // held at a size on screen rather than in metres, as the arrow is
-        val drawSize = Math.max(modelSize, distance * 0.02f)
+        // Held at a size on screen rather than in metres — a model drawn to
+        // scale is invisible from anywhere useful — but a good deal smaller
+        // than it was, which made a quad look the size of a hangar.
+        val drawSize = Math.max(3f, distance * 0.008f)
         Matrix.scaleM(modelMatrix, 0, drawSize, drawSize / verticalScale, drawSize)
         Matrix.multiplyMM(modelMvp, 0, mvp, 0, modelMatrix, 0)
 
