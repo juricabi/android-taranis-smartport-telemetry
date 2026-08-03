@@ -637,7 +637,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val plans = FlightPlanManager(this).getPlans()
         for (plan in plans) {
             if (!plan.visible || plan.waypoints.size < 2) continue
-            val line = map?.addPolyline(4f, preferenceManager.getFlightPlanColor(), *plan.waypoints.toTypedArray())
+            // a plan that has been given a colour keeps it, so several plans can
+            // be told apart; the rest follow the setting
+            val color = if (plan.color == FlightPlanManager.DEFAULT_COLOR) {
+                preferenceManager.getFlightPlanColor()
+            } else {
+                plan.color
+            }
+            val line = map?.addPolyline(4f, color, *plan.waypoints.toTypedArray())
             if (line != null) {
                 flightPlanLines.add(line)
             }

@@ -14,7 +14,8 @@ class FlightPlanManager(private val context: Context) {
     companion object {
         private const val PLANS_DIR = "flight_plans"
         private const val INDEX_FILE = "plans_index.json"
-        private const val DEFAULT_COLOR = 0x664488FF.toInt() // semi-transparent blue
+        /** Means "no colour of its own": such a plan follows the setting. */
+        const val DEFAULT_COLOR = 0x664488FF.toInt()
     }
 
     data class FlightPlan(

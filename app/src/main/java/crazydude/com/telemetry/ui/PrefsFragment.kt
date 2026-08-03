@@ -137,9 +137,33 @@ class PrefsFragment : PreferenceFragmentCompat() {
             .show()
     }
 
+    // Named colours rather than a picker: telling two plans apart is the whole
+    // job, and these read the same on satellite imagery as on a map.
+    private val planColorNames = arrayOf(
+        "Default", "Blue", "Red", "Green", "Yellow", "Orange", "Magenta", "White"
+    )
+    private val planColorValues = intArrayOf(
+        FlightPlanManager.DEFAULT_COLOR,
+        0xCC2196F3.toInt(), 0xCCF44336.toInt(), 0xCC4CAF50.toInt(), 0xCCFFEB3B.toInt(),
+        0xCCFF9800.toInt(), 0xCCE040FB.toInt(), 0xCCFFFFFF.toInt()
+    )
+
+    private fun showFlightPlanColorDialog(plan: FlightPlanManager.FlightPlan) {
+        val checked = planColorValues.indexOfFirst { it == plan.color }
+        AlertDialog.Builder(context!!)
+            .setTitle(plan.name)
+            .setSingleChoiceItems(planColorNames, checked) { d, which ->
+                flightPlanManager.updatePlanColor(plan.id, planColorValues[which])
+                Toast.makeText(context, planColorNames[which], Toast.LENGTH_SHORT).show()
+                d.dismiss()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     private fun showFlightPlanOptionsDialog(plan: FlightPlanManager.FlightPlan) {
         val visibilityLabel = if (plan.visible) "Hide" else "Show"
-        val options = arrayOf(visibilityLabel, "Delete")
+        val options = arrayOf(visibilityLabel, "Color", "Delete")
         AlertDialog.Builder(context!!)
             .setTitle(plan.name)
             .setItems(options) { _, which ->
@@ -149,6 +173,9 @@ class PrefsFragment : PreferenceFragmentCompat() {
                         Toast.makeText(context, if (!plan.visible) "Plan shown" else "Plan hidden", Toast.LENGTH_SHORT).show()
                     }
                     1 -> {
+                        showFlightPlanColorDialog(plan)
+                    }
+                    2 -> {
                         AlertDialog.Builder(context!!)
                             .setTitle("Delete ${plan.name}?")
                             .setPositiveButton("Delete") { _, _ ->
