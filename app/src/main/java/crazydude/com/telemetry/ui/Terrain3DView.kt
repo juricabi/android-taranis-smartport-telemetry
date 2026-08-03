@@ -154,6 +154,10 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
                 seenVersion = -1
                 renderer.setTrack(scene.track, scene.shadow)
                 pickUpNewPoints()
+                // and the plans and traffic in their own right: they are worth
+                // seeing over bare ground, and the flight is what was waited
+                // for above — with nothing flying, nothing drew them at all
+                rebuildOverlays()
                 showMyLocation()
                 status.text = when {
                     scene.tiles.isEmpty() -> "No terrain here"
