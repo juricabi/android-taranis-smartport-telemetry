@@ -2362,6 +2362,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     private fun show3DView() {
         val intent = Intent(this, Scene3DActivity::class.java)
+        // where you are standing, marked in the scene
+        map?.getMyLocation()?.let {
+            intent.putExtra(Scene3DActivity.EXTRA_MY_LAT, it.lat)
+            intent.putExtra(Scene3DActivity.EXTRA_MY_LON, it.lon)
+        }
 
         if (crazydude.com.telemetry.gl.LiveFlightPath.size() >= 2) {
             Scene3DActivity.pending = crazydude.com.telemetry.gl.LiveFlightPath.snapshot()

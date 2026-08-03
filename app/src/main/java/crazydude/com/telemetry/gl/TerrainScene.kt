@@ -27,11 +27,21 @@ class TerrainScene {
     )
 
     companion object {
-        /** Vertices across one tile. 65 gives 64 cells, about 600m apart at zoom 12. */
-        private const val GRID = 65
+        /** Vertices across one tile: 129 gives 128 cells, about 13m at zoom 14. */
+        private const val GRID = 129
 
-        /** Two zoom levels in on the imagery: a 1024px face for a tile of ground. */
+        /**
+         * Ground tiles at zoom 14 are about 1.7km across, so a texture two
+         * levels in is roughly 1.7m per pixel. Three levels would be sharper
+         * and four times the memory, which a phone will not thank us for.
+         */
         private const val IMAGERY_DETAIL = 2
+
+        /** Preferred ground detail, dropped a level at a time if that is too many tiles. */
+        private const val PREFERRED_ZOOM = 14
+
+        /** Textures are 4MB each, so this is the real budget. */
+        private const val MAX_TILES = 16
 
         private const val METRES_PER_DEGREE_LAT = 111320.0
     }
@@ -150,9 +160,11 @@ class TerrainScene {
     fun loadTerrain(points: List<TrackPoint>,
                     onProgress: (Int, Int) -> Unit,
                     onTerrainReady: () -> Unit) {
-        // a margin, so the flight is not sitting on the very edge of the ground
-        val padLat = Math.max(0.01, (maxLat - minLat) * 0.25)
-        val padLon = Math.max(0.01, (maxLon - minLon) * 0.25)
+        // Roughly two kilometres of ground around the flight, so there is
+        // somewhere to look when the camera swings out, and a hill beyond the
+        // flight is still part of the picture.
+        val padLat = Math.max(0.02, (maxLat - minLat) * 0.5)
+        val padLon = Math.max(0.03, (maxLon - minLon) * 0.5)
         val southEdge = minLat - padLat
         val northEdge = maxLat + padLat
         val westEdge = minLon - padLon
@@ -161,7 +173,15 @@ class TerrainScene {
         loadedMinLat = southEdge; loadedMaxLat = northEdge
         loadedMinLon = westEdge; loadedMaxLon = eastEdge
 
-        Elevation.prefetch(southEdge, westEdge, northEdge, eastEdge, Elevation.TILE_ZOOM,
+        // As much detail as the area allows: drop a zoom level at a time until
+        // the tile count is something a phone can hold.
+        var z = PREFERRED_ZOOM
+        while (z > 9 && tileCount(southEdge, westEdge, northEdge, eastEdge, z) > MAX_TILES) {
+            z--
+        }
+        zoom = z
+
+        Elevation.prefetch(southEdge, westEdge, northEdge, eastEdge, z,
             { done, total -> onProgress(done, total * 2) },
             { _, _ -> })
         onTerrainReady()
@@ -170,7 +190,6 @@ class TerrainScene {
         // and this way something is on screen while the textures arrive
         buildShadow(points)
 
-        val z = Elevation.TILE_ZOOM
         val x0 = Elevation.tileX(westEdge, z)
         val x1 = Elevation.tileX(eastEdge, z)
         val y0 = Elevation.tileY(northEdge, z)
@@ -287,6 +306,19 @@ class TerrainScene {
         }
     }
 
+    /** The detail the ground was built at, chosen from how much area it covers. */
+    var zoom = PREFERRED_ZOOM
+        private set
+
+    private fun tileCount(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
+                          z: Int): Int {
+        val x0 = Elevation.tileX(minLon, z)
+        val x1 = Elevation.tileX(maxLon, z)
+        val y0 = Elevation.tileY(maxLat, z)
+        val y1 = Elevation.tileY(minLat, z)
+        return (Math.abs(x1 - x0) + 1) * (Math.abs(y1 - y0) + 1)
+    }
+
     /** The area the ground was built for, so a live flight can tell when it leaves it. */
     var loadedMinLat = 0.0; private set
     var loadedMaxLat = 0.0; private set
@@ -298,11 +330,13 @@ class TerrainScene {
         return lat < loadedMinLat || lat > loadedMaxLat || lon < loadedMinLon || lon > loadedMaxLon
     }
 
+    fun groundAt(lat: Double, lon: Double): Float? = Elevation.elevationAt(lat, lon, zoom)
+
     fun buildShadow(points: List<TrackPoint>) {
         val out = FloatArray(points.size * 3)
         var i = 0
         for (p in points) {
-            val ground = Elevation.elevationAt(p.lat, p.lon)
+            val ground = Elevation.elevationAt(p.lat, p.lon, zoom)
             out[i++] = east(p.lon)
             out[i++] = if (ground != null) ground - originAltitude else 0f
             out[i++] = -north(p.lat)

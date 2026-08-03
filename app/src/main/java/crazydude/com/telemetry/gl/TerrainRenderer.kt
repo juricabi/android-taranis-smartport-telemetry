@@ -103,6 +103,67 @@ class TerrainRenderer : GLSurfaceView.Renderer {
 
     @Volatile var trackColor = floatArrayOf(1f, 0.85f, 0.1f, 1f)
 
+    private var markerBuffer: FloatBuffer? = null
+    private var markerCount = 0
+
+    private var modelBuffer: FloatBuffer? = null
+    private var modelCount = 0
+    private val modelMatrix = FloatArray(16)
+    private val modelMvp = FloatArray(16)
+    @Volatile private var modelVisible = false
+    @Volatile private var modelX = 0f
+    @Volatile private var modelY = 0f
+    @Volatile private var modelZ = 0f
+    @Volatile private var modelHeading = 0f
+    @Volatile private var modelSize = 40f
+
+    /**
+     * Where the model is and which way it is going. Size is in metres, since a
+     * dart drawn to scale would be a speck from any useful distance.
+     */
+    @Synchronized
+    fun setModel(x: Float, y: Float, z: Float, headingDegrees: Float, size: Float) {
+        modelX = x; modelY = y; modelZ = z
+        modelHeading = headingDegrees
+        modelSize = size
+        modelVisible = true
+        if (modelBuffer == null) modelBuffer = floats(dart())
+        modelCount = 18
+    }
+
+    /** A dart: nose forward along -z, two wings and a fin, eighteen vertices. */
+    private fun dart(): FloatArray {
+        val nose = floatArrayOf(0f, 0f, -1f)
+        val left = floatArrayOf(-0.6f, 0f, 0.7f)
+        val right = floatArrayOf(0.6f, 0f, 0.7f)
+        val top = floatArrayOf(0f, 0.4f, 0.5f)
+        val tail = floatArrayOf(0f, 0f, 0.35f)
+        val faces = arrayOf(
+            nose, left, top,
+            nose, top, right,
+            nose, right, tail,
+            nose, tail, left,
+            left, right, top,
+            left, tail, right
+        )
+        val out = FloatArray(faces.size * 3)
+        var i = 0
+        for (f in faces) {
+            out[i++] = f[0]; out[i++] = f[1]; out[i++] = f[2]
+        }
+        return out
+    }
+
+    /** A post at a place worth seeing from the air, such as where you are standing. */
+    @Synchronized
+    fun setMarker(x: Float, groundY: Float, z: Float, height: Float) {
+        markerBuffer = floats(floatArrayOf(x, groundY, z, x, groundY + height, z))
+        markerCount = 2
+    }
+
+    /** Ground height at a point in the local frame, so the camera can stay above it. */
+    @Volatile var groundUnderCamera: ((Float, Float) -> Float?)? = null
+
     private var surfaceWidth = 1
     private var surfaceHeight = 1
 
@@ -180,8 +241,12 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val az = Math.toRadians(azimuth.toDouble())
         val el = Math.toRadians(elevation.toDouble().coerceIn(3.0, 87.0))
         val eyeX = target[0] + (distance * Math.cos(el) * Math.sin(az)).toFloat()
-        val eyeY = target[1] + (distance * Math.sin(el)).toFloat()
+        var eyeY = target[1] + (distance * Math.sin(el)).toFloat()
         val eyeZ = target[2] + (distance * Math.cos(el) * Math.cos(az)).toFloat()
+        // never under the ground: the terrain is opaque from below and the view
+        // becomes a meaningless slab
+        val floorY = groundUnderCamera?.invoke(eyeX, eyeZ)
+        if (floorY != null && eyeY < floorY + 30f) eyeY = floorY + 30f
         Matrix.setLookAtM(view, 0, eyeX, eyeY, eyeZ, target[0], target[1], target[2], 0f, 1f, 0f)
 
         // the exaggeration lives in the matrix, so nothing has to be rebuilt
@@ -306,6 +371,19 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glUniform4f(uColor, 1f, 1f, 1f, 0.25f)
             GLES20.glDrawArrays(GLES20.GL_LINES, 0, dCount)
         }
+        drawModel(aPosition, uMvp, uColor)
+
+        val marker: FloatBuffer?
+        val mCount: Int
+        synchronized(this) { marker = markerBuffer; mCount = markerCount }
+        if (marker != null && mCount > 1) {
+            marker.position(0)
+            GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, marker)
+            GLES20.glUniform4f(uColor, 0.2f, 0.8f, 1f, 1f)
+            GLES20.glLineWidth(6f)
+            GLES20.glDrawArrays(GLES20.GL_LINES, 0, mCount)
+            GLES20.glDrawArrays(GLES20.GL_POINTS, 1, 1)
+        }
         if (track != null && tCount > 1) {
             track.position(0)
             GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, track)
@@ -314,6 +392,28 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glDrawArrays(GLES20.GL_LINE_STRIP, 0, tCount)
         }
         GLES20.glDisableVertexAttribArray(aPosition)
+    }
+
+    private fun drawModel(aPosition: Int, uMvp: Int, uColor: Int) {
+        val buffer: FloatBuffer?
+        synchronized(this) { buffer = if (modelVisible) modelBuffer else null }
+        if (buffer == null || modelCount < 3) return
+
+        Matrix.setIdentityM(modelMatrix, 0)
+        Matrix.translateM(modelMatrix, 0, modelX, modelY, modelZ)
+        Matrix.rotateM(modelMatrix, 0, -modelHeading, 0f, 1f, 0f)
+        // undo the vertical exaggeration on the dart itself, or it grows a
+        // taller fin the more the ground is stretched
+        Matrix.scaleM(modelMatrix, 0, modelSize, modelSize / verticalScale, modelSize)
+        Matrix.multiplyMM(modelMvp, 0, mvp, 0, modelMatrix, 0)
+
+        GLES20.glUniformMatrix4fv(uMvp, 1, false, modelMvp, 0)
+        buffer.position(0)
+        GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, buffer)
+        GLES20.glUniform4f(uColor, 1f, 0.25f, 0.15f, 1f)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, modelCount)
+        // back to the plain matrix for the lines that follow
+        GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
     }
 
     private fun program(vertexSource: String, fragmentSource: String): Int {
