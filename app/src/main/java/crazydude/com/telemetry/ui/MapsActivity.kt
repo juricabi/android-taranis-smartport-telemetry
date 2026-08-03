@@ -53,8 +53,11 @@ import crazydude.com.telemetry.maps.Position
 import crazydude.com.telemetry.maps.osm.OsmMapWrapper
 import crazydude.com.telemetry.utils.GeoUtils
 import crazydude.com.telemetry.utils.PlusCode
+import crazydude.com.telemetry.protocol.ProtocolFactory
 import crazydude.com.telemetry.protocol.decoder.DataDecoder
 import crazydude.com.telemetry.protocol.pollers.LogPlayer
+import crazydude.com.telemetry.utils.LocalNetworks
+import crazydude.com.telemetry.utils.WifiNetworkBinder
 import crazydude.com.telemetry.service.DataService
 import kotlinx.android.synthetic.main.top_layout.*
 import kotlinx.android.synthetic.main.view_map.*
@@ -134,6 +137,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         private const val CONNTYPE_BT = 1
         private const val CONNTYPE_BLE = 2
         private const val CONNTYPE_USB = 3
+        private const val CONNTYPE_NET = 4
     }
 
     enum class RequestWritePermissionSequenceType {
@@ -251,6 +255,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var lastConnectionType = CONNTYPE_NONE;
     private var lastBluetoothDevice: BluetoothDevice? = null;
     private var reconnectOnFailure = false;
+
+    // what a network reconnect needs to repeat; there is no device object to
+    // hold on to as there is for Bluetooth
+    private var lastNetworkHost = ""
+    private var lastNetworkPort = 0
+    private var lastNetworkUseTcp = false
 
     private val serviceConnection: ServiceConnection = object : ServiceConnection {
         override fun onServiceDisconnected(p0: ComponentName?) {
@@ -692,9 +702,19 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         AlertDialog.Builder(this)
             .setTitle("Find my quad")
             .setMessage(text.toString())
-            .setPositiveButton("Open in Maps") { _, _ ->
+            // Directions rather than a plain view: the point of this dialog is
+            // walking to a model that is lying in a field, and the directions
+            // screen shows the location as well. This is what the menu called
+            // "Show route to UAV", now that the menu no longer carries it.
+            .setPositiveButton("Route") { _, _ ->
+                val daddr = "%.7f,%.7f".format(Locale.US, pos.lat, pos.lon)
                 try {
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(mapsUrl)))
+                    startActivity(
+                        Intent(
+                            Intent.ACTION_VIEW,
+                            Uri.parse("http://maps.google.com/maps?daddr=" + daddr)
+                        )
+                    )
                 } catch (e: ActivityNotFoundException) {
                     Toast.makeText(this, "No maps app found", Toast.LENGTH_LONG).show()
                 }
@@ -1153,7 +1173,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         var items = arrayOf(
             "Bluetooth",
             "Bluetooth LE",
-            "USB Serial"
+            "USB Serial",
+            getString(R.string.network)
         )
 
         if (showcaseView.hasFired()) {
@@ -1178,6 +1199,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                         0 -> connectBluetooth()
                         1 -> connectBluetoothLE()
                         2 -> connectUSB()
+                        3 -> connectNetwork()
                     }
                 }
                 .setTitle("Choose connection method")
@@ -1650,6 +1672,21 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
     }
 
+    private fun reconnectToNetwork() {
+        if (lastConnectionType != CONNTYPE_NET || lastNetworkPort == 0) {
+            return
+        }
+        if (preferenceManager.getConnectionVoiceMessagesEnabled()) {
+            soundPool!!.play(reconnectingSoundId, 1f, 1f, 0, 0, 1f)
+        }
+        startDataService()
+        dataService?.let {
+            connectButton.text = getString(R.string.reconnecting)
+            connectButton.isEnabled = false
+            it.connect(lastNetworkHost, lastNetworkPort, lastNetworkUseTcp)
+        }
+    }
+
     private fun connectToUSBDevice(
         port: UsbSerialPort,
         connection: UsbDeviceConnection
@@ -1660,6 +1697,256 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             connectButton.text = getString(R.string.connecting)
             connectButton.isEnabled = false
             it.connect(port, connection)
+        }
+    }
+
+    /**
+     * Where the telemetry is coming from, for the presets.
+     *
+     * The two that matter are ExpressLRS, which broadcasts MAVLink to UDP 14550
+     * so there is nothing to address, and TBS Crossfire, whose WiFi module is a
+     * server on TCP 8888 and can be switched to UDP on the module itself. Both
+     * ports are configurable at their end, so nothing here is fixed — a preset
+     * only fills the fields in.
+     */
+    private class NetworkPreset(
+        val label: String,
+        val useTcp: Boolean,
+        val port: Int,
+        val useGateway: Boolean
+    )
+
+    // The port each preset fills in is shown in the port field the moment it is
+    // picked, so repeating it in the name is noise.
+    private val networkPresets = listOf(
+        NetworkPreset("ExpressLRS backpack", false, 14550, false),
+        NetworkPreset("TBS Crossfire / Tracer — TCP", true, 8888, true),
+        NetworkPreset("TBS Crossfire / Tracer — UDP", false, 8888, false),
+        NetworkPreset("MAVLink router / ground station", false, 14550, false),
+        NetworkPreset("Serial to Wi-Fi bridge", true, 23, true),
+        NetworkPreset("Custom", false, 14550, false)
+    )
+
+    private fun connectNetwork() {
+        val binder = WifiNetworkBinder(this)
+        val view = layoutInflater.inflate(R.layout.dialog_network, null)
+
+        val presetSpinner = view.findViewById<Spinner>(R.id.network_preset)
+        val transportSpinner = view.findViewById<Spinner>(R.id.network_transport)
+        val protocolSpinner = view.findViewById<Spinner>(R.id.network_protocol)
+        val hostField = view.findViewById<EditText>(R.id.network_host)
+        val hostLabel = view.findViewById<TextView>(R.id.network_host_label)
+        val portField = view.findViewById<EditText>(R.id.network_port)
+        val wifiStatus = view.findViewById<TextView>(R.id.network_wifi_status)
+        val hint = view.findViewById<TextView>(R.id.network_hint)
+        val interfaceSpinner = view.findViewById<Spinner>(R.id.network_interface)
+        val findButton = view.findViewById<Button>(R.id.network_find)
+
+        val transports = arrayOf("UDP listen", "TCP client")
+
+        presetSpinner.adapter = ArrayAdapter(
+            this, android.R.layout.simple_spinner_dropdown_item,
+            networkPresets.map { it.label })
+        transportSpinner.adapter = ArrayAdapter(
+            this, android.R.layout.simple_spinner_dropdown_item, transports)
+        protocolSpinner.adapter = ArrayAdapter(
+            this, android.R.layout.simple_spinner_dropdown_item, ProtocolFactory.choices)
+
+        // Which network to work on. The phone can be on two at once — mobile
+        // data plus a hotspot that the module has joined — and in that case the
+        // module is a client of this phone, so the gateway is the phone itself
+        // and tells us nothing about where the module is.
+        val interfaces = LocalNetworks.list()
+        val interfaceLabels = ArrayList<String>()
+        interfaceLabels.add(getString(R.string.network_interface_auto))
+        interfaces.forEach { interfaceLabels.add(it.label()) }
+        interfaceSpinner.adapter = ArrayAdapter(
+            this, android.R.layout.simple_spinner_dropdown_item, interfaceLabels)
+
+        // Whether we are on Wi-Fi and what it is called are two different
+        // questions on a modern Android: the network is visible through
+        // ConnectivityManager, but the SSID needs location permission and
+        // location switched on. Treating an unreadable name as "no Wi-Fi"
+        // would put a wrong warning in front of someone whose setup is fine.
+        val ssid = binder.ssid()
+        val hotspot = interfaces.firstOrNull { it.likelyHotspot }
+        wifiStatus.text = when {
+            // A hotspot is not a Network as far as ConnectivityManager is
+            // concerned, so asking it whether we are "on Wi-Fi" says no even
+            // though the module is happily connected to this phone.
+            hotspot != null -> "Sharing a hotspot on " + hotspot.address
+            !binder.hasWifi() -> getString(R.string.network_no_wifi)
+            ssid != null -> getString(R.string.network_on_wifi, ssid)
+            else -> getString(R.string.network_on_wifi_unknown)
+        }
+
+        // A UDP listen binds a local port and never needs the module's address,
+        // which is the whole reason the UDP presets are offered first.
+        fun updateHostEnabled() {
+            val tcp = transportSpinner.selectedItemPosition == 1
+            hostField.isEnabled = tcp
+            hostLabel.isEnabled = tcp
+            // Greying the field out on its own only raises the question "why
+            // can I not type here" — so the label answers it.
+            hostLabel.text = if (tcp) {
+                getString(R.string.network_host)
+            } else {
+                getString(R.string.network_host_unused)
+            }
+            hostField.hint = if (tcp) {
+                getString(R.string.network_host_hint)
+            } else {
+                getString(R.string.network_host_hint_udp)
+            }
+            findButton.isEnabled = tcp
+            hint.text = if (tcp) {
+                getString(R.string.network_hint_tcp)
+            } else {
+                getString(R.string.network_hint_udp)
+            }
+        }
+
+        fun applyPreset(index: Int) {
+            val preset = networkPresets[index]
+            transportSpinner.setSelection(if (preset.useTcp) 1 else 0)
+            portField.setText(preset.port.toString())
+            if (preset.useGateway) {
+                val gateway = binder.gatewayAddress()
+                if (gateway != null) hostField.setText(gateway)
+            }
+            updateHostEnabled()
+        }
+
+        // restore what was used last
+        val savedPreset = preferenceManager.getNetworkPreset()
+        transportSpinner.setSelection(if (preferenceManager.getNetworkUseTcp()) 1 else 0)
+        portField.setText(preferenceManager.getNetworkPort().toString())
+        val savedHost = preferenceManager.getNetworkHost()
+        hostField.setText(if (savedHost.isEmpty()) (binder.gatewayAddress() ?: "") else savedHost)
+        protocolSpinner.setSelection(
+            ProtocolFactory.choices.indexOf(preferenceManager.getNetworkProtocol())
+                .let { if (it < 0) 0 else it })
+        if (savedPreset in networkPresets.indices) presetSpinner.setSelection(savedPreset)
+        if (!preferenceManager.getNetworkPinWifi() && interfaces.isNotEmpty()) {
+            // reopen on the interface the user picked last time, where it still exists
+            val hotspotIndex = interfaces.indexOfFirst { it.likelyHotspot }
+            if (hotspotIndex >= 0) interfaceSpinner.setSelection(hotspotIndex + 1)
+        }
+        updateHostEnabled()
+
+        // A Spinner delivers its current selection to a newly attached listener,
+        // and whether that happens at all depends on the layout pass — so a
+        // one-shot "ignore the first callback" flag either swallows the user's
+        // first real choice or lets the initial one through. Comparing against
+        // what was set programmatically is not timing dependent: the echo has
+        // the same position and does nothing, a real change does not.
+        var appliedPreset = presetSpinner.selectedItemPosition
+        presetSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                if (pos == appliedPreset) return
+                appliedPreset = pos
+                applyPreset(pos)
+            }
+        }
+        transportSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                updateHostEnabled()
+            }
+        }
+
+        // Finding a module that joined this phone's hotspot: there is no
+        // gateway to ask, so ask every address on the subnet whether it is
+        // serving telemetry on the chosen port.
+        findButton.setOnClickListener {
+            val chosen = interfaceSpinner.selectedItemPosition - 1
+            val iface = if (chosen >= 0 && chosen < interfaces.size) {
+                interfaces[chosen]
+            } else {
+                interfaces.firstOrNull { it.likelyHotspot }
+                    ?: interfaces.firstOrNull { it.name.startsWith("wlan") }
+                    ?: interfaces.firstOrNull()
+            }
+            val port = portField.text.toString().trim().toIntOrNull() ?: 0
+            if (iface == null || port !in 1..65535) {
+                Toast.makeText(this, "Pick a network and a valid port first", Toast.LENGTH_LONG)
+                    .show()
+                return@setOnClickListener
+            }
+            findButton.isEnabled = false
+            hint.text = getString(R.string.network_searching)
+            AsyncTask.execute {
+                LocalNetworks.scan(iface, port, 300) { hits ->
+                    runOnUiThread {
+                        findButton.isEnabled = true
+                        if (hits.isEmpty()) {
+                            hint.text = getString(R.string.network_found_none)
+                        } else {
+                            hostField.setText(hits[0])
+                            hint.text = if (hits.size == 1) {
+                                "Found " + hits[0]
+                            } else {
+                                "Found " + hits.joinToString(", ") + " — using the first"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        this.showDialog(
+            AlertDialog.Builder(this)
+                .setTitle(R.string.network_title)
+                .setView(view)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.network_connect) { _, _ ->
+                    val useTcp = transportSpinner.selectedItemPosition == 1
+                    val port = portField.text.toString().trim().toIntOrNull() ?: 0
+                    val host = hostField.text.toString().trim()
+
+                    if (port !in 1..65535) {
+                        Toast.makeText(this, "Port must be between 1 and 65535", Toast.LENGTH_LONG)
+                            .show()
+                        return@setPositiveButton
+                    }
+                    if (useTcp && host.isEmpty()) {
+                        Toast.makeText(this, "TCP needs the module's address", Toast.LENGTH_LONG)
+                            .show()
+                        return@setPositiveButton
+                    }
+
+                    // "Automatic" is position 0; anything else is an explicit
+                    // interface, which means do not force the socket onto Wi-Fi
+                    preferenceManager.setNetworkPinWifi(
+                        interfaceSpinner.selectedItemPosition == 0)
+                    preferenceManager.setNetworkPreset(presetSpinner.selectedItemPosition)
+                    preferenceManager.setNetworkUseTcp(useTcp)
+                    preferenceManager.setNetworkHost(host)
+                    preferenceManager.setNetworkPort(port)
+                    preferenceManager.setNetworkProtocol(
+                        ProtocolFactory.choices[protocolSpinner.selectedItemPosition])
+
+                    connectToNetwork(host, port, useTcp)
+                }
+                .create())
+    }
+
+    private fun connectToNetwork(host: String, port: Int, useTcp: Boolean) {
+        // connect() clears this before the chooser opens, so every transport
+        // has to set it again or it becomes silently non-reconnectable
+        lastConnectionType = CONNTYPE_NET;
+        lastNetworkHost = host
+        lastNetworkPort = port
+        lastNetworkUseTcp = useTcp
+        reconnectionStartTime = 0;
+        reconnectOnFailure = false;
+
+        startDataService()
+        dataService?.let {
+            connectButton.text = getString(R.string.connecting)
+            connectButton.isEnabled = false
+            it.connect(host, port, useTcp)
         }
     }
 
@@ -2298,20 +2585,38 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     fun tryReconnect() {
-        if (!preferenceManager.getReconnectionEnabled()) {
-            return;
-        }
-
         runOnUiThread {
-            if ((lastConnectionType == CONNTYPE_BT) || (lastConnectionType == CONNTYPE_BLE)) {
+            val isBluetooth =
+                (lastConnectionType == CONNTYPE_BT) || (lastConnectionType == CONNTYPE_BLE)
+            val isNetwork = lastConnectionType == CONNTYPE_NET
+
+            // Each transport has its own switch. They are not the same event:
+            // someone may want the radio link retried but not a Wi-Fi one that
+            // would keep chasing an access point they have walked away from.
+            val enabled = when {
+                isBluetooth -> preferenceManager.getReconnectionEnabled()
+                isNetwork -> preferenceManager.getNetworkReconnectionEnabled()
+                else -> false
+            }
+
+            if (enabled) {
                 if (reconnectionStartTime == 0L) {
                     reconnectionStartTime = System.currentTimeMillis()
                 }
 
-                if ((System.currentTimeMillis() - reconnectionStartTime) < 21000) {
+                // A dropped network link takes longer to come back than a
+                // Bluetooth one: the transmitter may be rebooting and the phone
+                // has to re-associate with its access point before anything can
+                // be reached at all.
+                val window = if (isNetwork) 60000 else 21000
+
+                if ((System.currentTimeMillis() - reconnectionStartTime) < window) {
                     AsyncTask.execute {
                         Thread.sleep(5000)
-                            runOnUiThread {
+                        runOnUiThread {
+                            if (isNetwork) {
+                                reconnectToNetwork()
+                            } else {
                                 reconnectToBluetoothDevice()
                             }
                         }
@@ -2319,6 +2624,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 }
             }
         }
+    }
 
     private fun switchToReplayMode() {
         setFollowMode(true);
@@ -2372,7 +2678,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     private fun switchToConnectedState() {
         replayButton.visibility = View.GONE
-        menuButton.show()
+        // The menu is for replay: log rename, delete, export, playback length.
+        // While connected it only ever offered "copy UAV location" and "show
+        // route to UAV", and both of those are in the Find my quad button now,
+        // so showing it here was two round buttons for one job.
+        menuButton.hide()
         connectButton.text = getString(R.string.disconnect)
         connectButton.isEnabled = true
         mode.text = "Connected"
