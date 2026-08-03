@@ -73,9 +73,17 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     private val ticker = Handler()
     private val poll = object : Runnable {
         override fun run() {
+            // Opened with nowhere to stand — no fix from the model, none from
+            // the phone. Rather than stay black until the map type is changed
+            // and back, start as soon as either turns up. A flight only counts
+            // if it is live: one left in memory from earlier is not a reason.
             if (!started) {
-                LiveFlightPath.latest()?.let {
-                    start(LiveFlightPath.snapshot(), it.lat, it.lon, myLat, myLon, myAccuracy)
+                val live = if (flightShown) LiveFlightPath.latest() else null
+                when {
+                    live != null -> start(LiveFlightPath.snapshot(), live.lat, live.lon,
+                        myLat, myLon, myAccuracy)
+                    !myLat.isNaN() && !myLon.isNaN() ->
+                        start(emptyList(), myLat, myLon, myLat, myLon, myAccuracy)
                 }
             }
             pickUpNewPoints()
@@ -223,8 +231,10 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
      * thread for the buttons that were meant to control it.
      */
     fun onNewPoint() {
-        if (!started || !terrainReady) return
+        // Noted whether or not there is anywhere to draw it yet: this is what
+        // tells a view that opened with nothing that a flight is under way.
         flightShown = true
+        if (!started || !terrainReady) return
         placeModel()
     }
 
