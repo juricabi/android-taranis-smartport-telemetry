@@ -396,19 +396,42 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
                 c[0], c[1], c[2], c[3], true, 2f, false))
         }
 
-        // imported plans, laid on the ground they cross, each in its own colour
+        // Imported plans, draped over the ground they cross, each in its own
+        // colour. Only the corners are given, and a straight line between two of
+        // them a kilometre apart passes under every rise in between — which is
+        // what buried the plan whenever the camera came down near the horizon.
         for (entry in flightPlans) {
             val plan = entry.first
             if (plan.size < 2) continue
             val planColor = colorOf(entry.second)
-            val points = FloatArray(plan.size * 3)
-            var i = 0
-            for (p in plan) {
-                val ground = scene.groundAt(p.lat, p.lon)
-                points[i++] = scene.east(p.lon)
-                points[i++] = (ground ?: scene.originAltitude) - scene.originAltitude
-                points[i++] = -scene.north(p.lat)
+            val draped = ArrayList<Float>(plan.size * 30)
+
+            fun layOnGround(lat: Double, lon: Double) {
+                val ground = scene.groundAt(lat, lon)
+                draped.add(scene.east(lon))
+                draped.add((ground ?: scene.originAltitude) - scene.originAltitude)
+                draped.add(-scene.north(lat))
             }
+
+            layOnGround(plan[0].lat, plan[0].lon)
+            for (leg in 1 until plan.size) {
+                val from = plan[leg - 1]
+                val to = plan[leg]
+                val dx = scene.east(to.lon) - scene.east(from.lon)
+                val dz = scene.north(to.lat) - scene.north(from.lat)
+                val length = Math.sqrt((dx * dx + dz * dz).toDouble())
+                // a point every twenty metres or so, which is about as fine as
+                // the ground itself is known
+                val steps = Math.min(128, Math.max(1, Math.round(length / 20.0).toInt()))
+                for (step in 1..steps) {
+                    val part = step.toDouble() / steps
+                    layOnGround(from.lat + (to.lat - from.lat) * part,
+                        from.lon + (to.lon - from.lon) * part)
+                }
+            }
+
+            val points = FloatArray(draped.size)
+            for (i in draped.indices) points[i] = draped[i]
             sets.add(TerrainRenderer.LineSet(points, planColor[0], planColor[1], planColor[2],
                 planColor[3], true, 4f, true))
         }
