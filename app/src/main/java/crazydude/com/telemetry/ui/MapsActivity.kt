@@ -1365,7 +1365,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // view would be left without the arrow the map is showing
             for (provider in arrayOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
                 try {
-                    lm.requestLocationUpdates(provider, 1000L, 1f, phoneLocationListener)
+                    // no distance filter: a phone lying still never moves the
+                    // metre that was being asked for, so after the first fix it
+                    // heard nothing more and the accuracy ring stayed the size
+                    // of whatever it started with
+                    lm.requestLocationUpdates(provider, 1000L, 0f, phoneLocationListener)
                 } catch (e: Exception) {
                     // a phone without that provider; the other one still runs
                 }

@@ -460,7 +460,12 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
             -scene.north(myLat), myHeading
         )
 
-        if (myAccuracy < 1f) return
+        // an unknown accuracy is not a small one: drop the ring rather than
+        // leave the last one it had lying there
+        if (myAccuracy < 1f) {
+            renderer.setAccuracyCircle(FloatArray(0))
+            return
+        }
         val metresPerDegreeLon = 111320.0 * Math.cos(Math.toRadians(myLat))
         val ring = FloatArray(CIRCLE_SEGMENTS * 3)
         var i = 0
