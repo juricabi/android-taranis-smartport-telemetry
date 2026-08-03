@@ -21,6 +21,7 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
     private var hasGravity = false
     private var hasGeomagnetic = false
     private var consumer: IMyLocationConsumer? = null
+    private var accepted: Location? = null
 
     override fun startLocationProvider(myLocationConsumer: IMyLocationConsumer?): Boolean {
         consumer = myLocationConsumer
@@ -30,12 +31,19 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
         sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
         }
+        // ask for frequent updates so a GPS fix replaces the first coarse one quickly
+        gpsProvider.locationUpdateMinTime = 1000
+        gpsProvider.locationUpdateMinDistance = 0f
         return gpsProvider.startLocationProvider { location, source ->
-            myLocationConsumer?.onLocationChanged(injectBearing(location), source)
+            if (isBetter(location)) {
+                accepted = location
+                myLocationConsumer?.onLocationChanged(injectBearing(location), source)
+            }
         }
     }
 
     override fun stopLocationProvider() {
+        accepted = null
         sensorManager.unregisterListener(this)
         gpsProvider.stopLocationProvider()
         consumer = null
@@ -48,6 +56,17 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
     override fun destroy() {
         stopLocationProvider()
         gpsProvider.destroy()
+    }
+
+    // The provider reports both GPS and network fixes. A network fix can be
+    // hundreds of metres wide and would otherwise replace a good GPS one, which
+    // shows up as a large accuracy circle. Keep the more accurate fix unless the
+    // one we are holding has gone stale.
+    private fun isBetter(location: Location?): Boolean {
+        if (location == null) return false
+        val current = accepted ?: return true
+        if (location.accuracy <= current.accuracy) return true
+        return location.time - current.time > 20000
     }
 
     private fun injectBearing(location: Location?): Location? {
