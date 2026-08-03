@@ -1,6 +1,9 @@
 package crazydude.com.telemetry.maps.osm
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import crazydude.com.telemetry.R
 import android.os.Bundle
 import android.preference.PreferenceManager
 import crazydude.com.telemetry.maps.MapLine
@@ -57,10 +60,24 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
             mapView.overlayManager.add(tilesOverlay)
         }
         mapView.overlayManager.add(DeadbandRotationGestureOverlay(mapView))
+        myLocationNewOverlay.setDirectionArrow(
+            bitmapFrom(R.drawable.ic_pos_dot, 16),
+            bitmapFrom(R.drawable.ic_pos_arrow, 22)
+        )
         mapView.overlayManager.add(myLocationNewOverlay)
         val mapController: IMapController = mapView.controller
         mapController.setZoom(4.toDouble())
         callback()
+    }
+
+    private fun bitmapFrom(resId: Int, dp: Int): Bitmap {
+        val d = context.resources.getDrawable(resId).mutate()
+        var px = (context.resources.displayMetrics.density * dp).toInt()
+        if (px < 1) px = 1
+        val bmp = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
+        d.setBounds(0, 0, px, px)
+        d.draw(Canvas(bmp))
+        return bmp
     }
 
     override fun initialized() : Boolean {

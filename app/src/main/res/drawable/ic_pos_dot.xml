@@ -1,0 +1,12 @@
+<!-- Stationary position marker, shown when no heading is available. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+        android:width="16dp"
+        android:height="16dp"
+        android:viewportWidth="24.0"
+        android:viewportHeight="24.0">
+    <path
+        android:fillColor="#FF29B6F6"
+        android:strokeColor="#CC102030"
+        android:strokeWidth="2"
+        android:pathData="M12,12m-7,0a7,7 0,1 1,14 0a7,7 0,1 1,-14 0"/>
+</vector>

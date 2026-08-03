@@ -1,0 +1,14 @@
+<!-- Heading arrow for the phone's own position. Soft blue with a dark edge,
+     so it reads on both map and satellite imagery without glaring white. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+        android:width="22dp"
+        android:height="22dp"
+        android:viewportWidth="24.0"
+        android:viewportHeight="24.0">
+    <path
+        android:fillColor="#FF29B6F6"
+        android:strokeColor="#CC102030"
+        android:strokeWidth="1.6"
+        android:strokeLineJoin="round"
+        android:pathData="M12,3 L18.5,20 L12,16.2 L5.5,20 Z"/>
+</vector>
