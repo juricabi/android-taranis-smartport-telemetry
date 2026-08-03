@@ -42,7 +42,9 @@ class PreferenceManager(context: Context) {
             SensorSetting("Downlink Antena RSSI, dbm", 15, "top", false ),
             SensorSetting("AirSpeed", 5, "bottom", false),
             SensorSetting("Vertical Speed", 6, "bottom", false),
-            SensorSetting("Cell Voltage", 16, "top", false ),
+            // shown, because with "voltage reported by telemetry" set to Cell
+            // this is the only battery reading there is
+            SensorSetting("Cell Voltage", 16, "top", true ),
             SensorSetting("Altitude above MSL", 7, "bottom", false),
             SensorSetting("Throttle", 8, "bottom", false),
             SensorSetting("Telemetry rate", 17, "top", false )

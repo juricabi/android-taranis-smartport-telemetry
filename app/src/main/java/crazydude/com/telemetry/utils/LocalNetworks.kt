@@ -8,28 +8,15 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /**
- * The networks this phone is actually on, and a way to find a telemetry module
- * sitting on one of them.
+ * The networks this phone is actually on, and a way to find a module on one.
  *
- * [WifiNetworkBinder] asks ConnectivityManager, which answers "which network is
- * this device a client of". That is the right question when the phone has
- * joined a transmitter's access point, and the wrong one when the phone is
- * *running* the access point: a hotspot is not a Network, so it is invisible
- * there, and mobile data is simultaneously the default route.
- *
- * Enumerating the interfaces directly sees both, which is what makes it
- * possible to say "the module is on my hotspot, on that subnet, go and look for
- * it there".
+ * Interfaces are enumerated directly rather than asked of ConnectivityManager,
+ * because a hotspot this phone is running is not a Network there and would be
+ * invisible.
  */
 object LocalNetworks {
 
-    /**
-     * How useful an interface is for telemetry, lowest first.
-     *
-     * Wi-Fi is where a module lives, whether the phone joined the module's
-     * access point or the module joined the phone's hotspot. Mobile data never
-     * carries telemetry and only gets in the way, so it sinks to the bottom.
-     */
+    /** How useful an interface is for telemetry, lowest first. */
     private fun rank(name: String, hotspot: Boolean, loopback: Boolean): Int = when {
         name.startsWith("wlan") && !hotspot -> 0
         hotspot -> 1
@@ -67,13 +54,8 @@ object LocalNetworks {
     }
 
     /**
-     * Every interface that is up, not loopback and has an IPv4 address.
-     *
-     * The hotspot guess is only for labelling. Vendors name the interface
-     * anything from ap0 to swlan0 to wlan1, so the name is a hint and the
-     * address range is the better clue — Android hands out 192.168.43.x by
-     * default, and the phone itself takes the .1. Nothing depends on the guess
-     * being right: the user picks from the list either way.
+     * Every interface that is up and has an IPv4 address. The hotspot guess is
+     * only for labelling: vendors name these anything from ap0 to wlan1.
      */
     fun list(excludeInterfaces: Set<String> = emptySet()): List<Iface> {
         val out = ArrayList<Iface>()
@@ -81,15 +63,10 @@ object LocalNetworks {
             val interfaces = NetworkInterface.getNetworkInterfaces() ?: return out
             for (iface in interfaces) {
                 if (!iface.isUp) continue
-                // Mobile data is left out rather than listed and ignored. A
-                // module can never be on it: the carrier NATs the phone, there
-                // is no reachable local subnet, and offering it only invites
-                // someone to pick it and wonder why nothing is found.
+                // mobile data is left out: the carrier NATs the phone, so a
+                // module can never be on it
                 if (excludeInterfaces.contains(iface.name)) continue
-                // Loopback is kept rather than skipped: a telemetry source can
-                // run on the phone itself — a MAVLink router, a serial bridge —
-                // or be forwarded to it over USB with `adb reverse`, and then
-                // this device is genuinely the network to use.
+                // loopback is kept: a router or bridge can run on the phone
                 val loopback = iface.isLoopback
                 for (ia in iface.interfaceAddresses) {
                     val addr = ia.address
@@ -119,15 +96,12 @@ object LocalNetworks {
     }
 
     /**
-     * Look for something answering on [port] across the interface's /24.
+     * Look for something answering on [port] across the interface's /24 - the
+     * only way to find a module that joined this phone's hotspot, where the
+     * gateway address is the phone itself.
      *
-     * This is the honest way to find a module that joined the phone's hotspot:
-     * the phone is the gateway there, so the gateway address is the phone
-     * itself and tells you nothing. Asking every address on the subnet whether
-     * it is serving telemetry answers the question directly.
-     *
-     * Runs its own threads and calls [onResult] on the caller's thread, so the
-     * caller must not be the main thread.
+     * Runs its own threads and calls back on the caller's, which must not be
+     * the main thread.
      */
     fun scan(
         iface: Iface,
@@ -143,7 +117,8 @@ object LocalNetworks {
         }
         val found = java.util.Collections.synchronizedList(ArrayList<String>())
         val done = java.util.concurrent.atomic.AtomicInteger(0)
-        val total = 254
+        // one of the 254 is this phone, which is skipped below
+        val total = 253
         val pool = Executors.newFixedThreadPool(32)
         try {
             for (host in 1..254) {

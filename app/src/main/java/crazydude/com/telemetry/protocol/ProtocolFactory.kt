@@ -3,25 +3,14 @@ package crazydude.com.telemetry.protocol
 import crazydude.com.telemetry.protocol.decoder.DataDecoder
 
 /**
- * Turning a detected protocol into a live one, in a single place.
- *
- * Every poller used to carry its own copy of the same forty line `when` — four
- * copies of it — which is four places to forget about when a protocol is added,
- * and four places for the display names to drift apart.
- *
- * The names returned here are exactly the strings the pollers have always
- * passed to [DataDecoder.Listener.onProtocolDetected], so nothing the user sees
- * changes.
+ * Turning a detected protocol into a live one, in a single place rather than a
+ * copy of the same `when` in each of the four pollers.
  */
 object ProtocolFactory {
 
     /**
-     * A fresh decoder of the same kind as [detected], bound to [listener].
-     * Null for anything unrecognised, which every caller treats as a failed
-     * detection.
-     *
-     * The subclasses are all siblings of [Protocol] — MAVLink v2 does not
-     * extend v1 — so the order of these branches carries no meaning.
+     * A fresh decoder of the same kind as [detected], or null if unrecognised.
+     * These are all siblings, so branch order carries no meaning.
      */
     fun create(detected: Protocol?, listener: DataDecoder.Listener): Protocol? = when (detected) {
         is FrSkySportProtocol -> FrSkySportProtocol(listener)

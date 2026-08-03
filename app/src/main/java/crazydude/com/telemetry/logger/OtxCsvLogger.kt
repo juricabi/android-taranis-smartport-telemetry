@@ -160,6 +160,10 @@ class OtxCsvLogger : DataDecoder.Listener {
     override fun onConnectionFailed() {
         fileWriter?.close()
         fileWriter = null
+        // the timer thread is not a daemon, so a failed attempt would leave one
+        // parked for the life of the process, and a reconnect loop leaves many
+        timer.cancel()
+        timer.purge()
     }
 
     override fun onFuelData(fuel: Int) {

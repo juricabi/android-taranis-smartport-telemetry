@@ -11,21 +11,13 @@ import java.net.DatagramSocket
 import java.net.Socket
 
 /**
- * Pins telemetry sockets to the Wi-Fi network and keeps broadcast traffic
- * flowing.
+ * Pins telemetry sockets to Wi-Fi, and holds a multicast lock.
  *
- * Both matter, and both fail silently when they are missing:
+ * Both fail silently when missing: without the pin, a transmitter's own access
+ * point loses to mobile data as the default route; without the lock, Wi-Fi
+ * power saving drops the broadcasts an ExpressLRS backpack sends.
  *
- *  - **Routing.** When the phone joins a transmitter's own access point there
- *    is no internet on it, so Android keeps mobile data as the default route
- *    and sends the app's packets out over the cellular interface, where nothing
- *    is listening. The connection looks established and no data ever arrives.
- *  - **Broadcast.** An ExpressLRS backpack *broadcasts* its telemetry rather
- *    than addressing the phone. Wi-Fi power saving filters broadcast frames
- *    unless something holds a multicast lock.
- *
- * Everything here is best effort: if a lock or a bind is refused the socket is
- * still usable, it simply may not receive on some devices, so nothing throws.
+ * All best effort - nothing here throws.
  */
 class WifiNetworkBinder(context: Context) {
 
@@ -42,12 +34,8 @@ class WifiNetworkBinder(context: Context) {
     private var boundProcess = false
 
     /**
-     * Take the multicast lock and, if asked, find the network to pin sockets to.
-     *
-     * These are two different jobs and only one of them is ever optional. The
-     * lock is what lets broadcast telemetry reach the app at all, so it is
-     * always taken; pinning is about routing and is wrong when the module is a
-     * client of this phone's hotspot, so it is [pinSockets] that decides it.
+     * The lock is always taken; pinning is wrong when the module is a client of
+     * this phone's own hotspot, so [pinSockets] decides that part.
      */
     fun acquire(pinSockets: Boolean = true) {
         wifiNetwork = if (pinSockets) findWifiNetwork() else null
@@ -139,10 +127,8 @@ class WifiNetworkBinder(context: Context) {
     }
 
     /**
-     * The DHCP gateway, which is the single most useful default this dialog
-     * can offer: when the phone joins a transmitter's own access point, the
-     * gateway *is* the transmitter — 10.0.0.1 for an ExpressLRS backpack — so
-     * nobody has to be told an address to type.
+     * The DHCP gateway: when the phone joins a transmitter's access point, the
+     * gateway is the transmitter, so nobody has to be told what to type.
      */
     fun gatewayAddress(): String? {
         return try {
@@ -160,11 +146,8 @@ class WifiNetworkBinder(context: Context) {
     }
 
     /**
-     * The names of the interfaces carrying mobile data.
-     *
-     * Asked of the system rather than guessed from the name, because rmnet,
-     * ccmni, pdp and clat are all vendor conventions and a wrong guess would
-     * hide a network someone needs.
+     * The interfaces carrying mobile data, asked of the system rather than
+     * guessed: rmnet, ccmni, pdp and clat are all vendor conventions.
      */
     fun cellularInterfaceNames(): Set<String> {
         val names = HashSet<String>()
@@ -186,10 +169,13 @@ class WifiNetworkBinder(context: Context) {
         val manager = connectivity ?: return null
         try {
             for (network in manager.allNetworks) {
-                val caps = manager.getNetworkCapabilities(network)
-                if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
-                    return network
-                }
+                val caps = manager.getNetworkCapabilities(network) ?: continue
+                if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) continue
+                // A VPN reports the transports of whatever it runs over, so it
+                // looks like Wi-Fi here; pinning the socket into the tunnel
+                // sends the telemetry somewhere it can never arrive.
+                if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) continue
+                return network
             }
         } catch (e: Exception) {
             Log.w(TAG, "cannot enumerate networks: " + e.message)

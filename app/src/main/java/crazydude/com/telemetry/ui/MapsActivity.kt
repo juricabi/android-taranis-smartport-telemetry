@@ -720,7 +720,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             text.append("%03d".format(bearing.toInt())).append(" true")
         }
 
-        AlertDialog.Builder(this)
+        // via showDialog like every other map dialog, or it drops fullscreen
+        showDialog(AlertDialog.Builder(this)
             .setTitle("Find my quad")
             .setMessage(text.toString())
             // Directions rather than a plain view: the point of this dialog is
@@ -756,7 +757,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     ClipData.newPlainText("Location", plusCode + " (" + coords + ")")
                 Toast.makeText(this, "Copied " + plusCode, Toast.LENGTH_LONG).show()
             }
-            .show()
+            .create())
     }
 
     private fun showDirectionsToCurrentLocation() {
@@ -1115,13 +1116,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 mode.text = mode.text.toString() + " | Autonomous"
             }
             DataDecoder.Companion.FlyMode.GEO -> {
-                mode.text = mode.text.toString() + " | Rate"
+                mode.text = mode.text.toString() + " | Geo"
             }
             DataDecoder.Companion.FlyMode.TURTLE -> {
                 mode.text = mode.text.toString() + " | Turtle"
             }
             DataDecoder.Companion.FlyMode.RATE -> {
-                mode.text = mode.text.toString() + " | Geo"
+                mode.text = mode.text.toString() + " | Rate"
             }
             DataDecoder.Companion.FlyMode.ANGLE_HOLD -> {
                 mode.text = mode.text.toString() + " | Angle Hold"
@@ -1653,6 +1654,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
 
     private fun connectToBluetoothDevice(device: BluetoothDevice, isBLE: Boolean) {
+        clearCrsfSystem()
         if ( isBLE ) {
             lastConnectionType = CONNTYPE_BLE;
         }
@@ -1718,6 +1720,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         port: UsbSerialPort,
         connection: UsbDeviceConnection
     ) {
+        clearCrsfSystem()
         lastConnectionType = CONNTYPE_USB;
         startDataService()
         dataService?.let {
@@ -1767,8 +1770,15 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     )
 
     private fun connectNetwork() {
+        // as the Bluetooth and BLE paths do: without it a network session
+        // silently records nothing while both logging switches say "on"
+        if (preferenceManager.isLoggingEnabled()) {
+            if (!requestWritePermission(RequestWritePermissionSequenceType.CONNECT)) return
+        }
+
         val binder = WifiNetworkBinder(this)
         val view = layoutInflater.inflate(R.layout.dialog_network, null)
+        var dialogOpen = true
 
         val presetSpinner = view.findViewById<Spinner>(R.id.network_preset)
         val transportSpinner = view.findViewById<Spinner>(R.id.network_transport)
@@ -1967,12 +1977,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             }
             val findLabel = findButton.text
             findButton.isEnabled = false
+
             findButton.text = getString(R.string.network_searching_short)
             hint.text = getString(R.string.network_searching, iface.subnet24() + "x")
 
             AsyncTask.execute {
                 LocalNetworks.scan(iface, port, 300, { done, total ->
                     runOnUiThread {
+                        if (!dialogOpen || isFinishing) return@runOnUiThread
                         hint.text = getString(
                             R.string.network_searching_progress,
                             iface.subnet24() + "x", done, total
@@ -1980,6 +1992,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     }
                 }) { hits ->
                     runOnUiThread {
+                        // the scan outlives the dialog, so a late result must
+                        // not put a chooser up over the map
+                        if (!dialogOpen || isFinishing) return@runOnUiThread
                         findButton.isEnabled = true
                         findButton.text = findLabel
                         when {
@@ -2013,6 +2028,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
         this.showDialog(
             AlertDialog.Builder(this)
+                .setOnDismissListener { dialogOpen = false }
                 .setTitle(R.string.network_title)
                 .setView(view)
                 .setNegativeButton(android.R.string.cancel, null)
@@ -2643,9 +2659,22 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             return setting.toIntOrNull() ?: 1
         }
         if (detectedCells == 0 && packVoltage > 2f) {
-            // divide by the highest a cell can be, so a charged pack is not
-            // mistaken for one with more cells: 25.2V is 6S, not 7S
+            // The fewest cells that could hold this voltage, since a cell cannot
+            // exceed about 4.35V: 25.2V must be at least 6S, never 7S.
             var cells = Math.ceil((packVoltage / 4.35f).toDouble()).toInt()
+            // Then round up to a pack people actually fly. 5S and 7S are rare
+            // enough that the guess is better spent elsewhere, and this is what
+            // makes a part-used pack come out right: a 6S at 3.6V/cell is 21.6V,
+            // which the line above sizes as 5S and would then report as a full
+            // 4.32V per cell. Erring towards more cells errs towards a lower
+            // reading, which is the safe direction to be wrong in — and anyone
+            // flying 5S or 7S can say so in the settings.
+            for (common in intArrayOf(1, 2, 3, 4, 6, 8)) {
+                if (common >= cells) {
+                    cells = common
+                    break
+                }
+            }
             if (cells < 1) cells = 1
             if (cells > 8) cells = 8
             detectedCells = cells
@@ -2668,11 +2697,23 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     this.lastCellVoltage = perCell
                 }
             } else {
-                // reported value is one cell; the pack is not shown because
-                // multiplying one cell by an assumed count is a guess
+                // reported value is one cell
                 this.sensorTimeoutManager.onCellVoltageData(voltage)
                 this.cell_voltage.text = "${"%.2f".format(voltage)} V"
                 this.lastCellVoltage = voltage
+
+                // The pack figure is only shown when the user has said how many
+                // cells there are, because multiplying by a guessed count would
+                // be inventing a number. Without this the voltage widget — the
+                // one on screen by default — simply stayed blank for anyone
+                // whose flight controller reports per cell.
+                val setting = preferenceManager.getBatteryCells()
+                val cells = if (setting == "auto") 0 else (setting.toIntOrNull() ?: 0)
+                if (cells > 0) {
+                    val pack = voltage * cells
+                    this.sensorTimeoutManager.onVBATData(pack)
+                    this.voltage.text = "${"%.2f".format(pack)} V"
+                }
             }
         }
     }
@@ -2795,6 +2836,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     AsyncTask.execute {
                         Thread.sleep(5000)
                         runOnUiThread {
+                            // reconnecting from a dead Activity re-binds the
+                            // service to it, leaving the live screen deaf
+                            if (isFinishing || isDestroyed) return@runOnUiThread
                             if (isNetwork) {
                                 reconnectToNetwork()
                             } else {
@@ -3062,6 +3106,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     override fun onGPSData(latitude: Double, longitude: Double) {
         this.sensorTimeoutManager.onGPSData(latitude, longitude);
         runOnUiThread {
+            // on every fix, not only a moved one: a quad on the ground repeats
+            // its position, and the retry below would never come round again
+            tryCreateMarker()
+
             if (Position(latitude, longitude) != lastGPS) {
                 var d = 0.0;
                 if (this.lastGPS.lat != 0.0 && this.lastGPS.lon != 0.0) {
@@ -3070,7 +3118,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     )
                 }
                 lastGPS = Position(latitude, longitude)
-                if (latitude != 0.0 || longitude != 0.0) {
+                // live link only: a replayed log comes through here too, and
+                // would overwrite where the model was actually last seen
+                if ((latitude != 0.0 || longitude != 0.0) && logPlayer == null) {
                     lastKnownGPS = lastGPS
                     lastKnownGPSAt = System.currentTimeMillis()
                 }

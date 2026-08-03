@@ -21,29 +21,18 @@ import java.net.SocketException
 import java.net.SocketTimeoutException
 
 /**
- * Telemetry over the network, from a TCP server or a UDP sender.
+ * Telemetry over the network: UDP, TCP either way round, or a WebSocket.
  *
- * Both of the things people actually fly with are covered:
+ * The protocol is detected from the bytes as on every other transport, so
+ * whatever the module puts on the socket is understood — CRSF from a serial
+ * bridge, MAVLink from a backpack.
  *
- *  - an **ExpressLRS TX backpack** with Telemetry set to WiFi, which
- *    *broadcasts* MAVLink to UDP 14550, so nothing needs to be addressed
- *  - a **TBS Crossfire/Tracer WiFi module**, which is a *server* on TCP 8888 by
- *    default and can be switched to UDP on the module
+ * Threading matches the other pollers: one thread of its own, connection state
+ * posted to the main thread, telemetry callbacks on the poller thread.
  *
- * Neither is assumed to carry MAVLink. A TBS transmitter in Serial Bridge mode
- * puts CRSF on the same socket, and in MAVLink Emulator mode it synthesises
- * MAVLink from a Betaflight quad that never spoke it — so the bytes go through
- * the same [ProtocolDetector] the other transports use, and any protocol the
- * app already understands works here for free.
- *
- * Threading follows the existing pollers exactly: everything happens on this
- * class's own thread, connection state is posted to the main thread, and the
- * per byte telemetry callbacks are delivered on the poller thread, which is
- * where they have always come from.
- *
- * A quiet link is never taken for a dead one. A module with no receiver bound
- * says nothing for long stretches and looks exactly like one that has lost
- * power, so only the far end closing, or an error, ends a connection.
+ * A quiet link is never taken for a dead one — a module with no receiver bound
+ * looks exactly like one that lost power, so only a close or an error ends a
+ * connection.
  */
 class NetworkDataPoller(
     private val mode: Int,
@@ -63,37 +52,22 @@ class NetworkDataPoller(
         /** Dial out: a TBS WiFi module or a serial-to-WiFi bridge is a server. */
         const val MODE_TCP_CLIENT = 1
 
-        /**
-         * Wait for the other end to dial in.
-         *
-         * The remaining common shape: mavlink-router's tcp server, and bridges
-         * configured to push rather than serve. Without it those setups have no
-         * way to reach the app at all.
-         */
+        /** Wait for the other end to dial in: mavlink-router, pushing bridges. */
         const val MODE_TCP_SERVER = 2
 
         /**
-         * A TBS Crossfire WiFi module's CRSF WebSocket, ws://<ip>/ws.
-         *
-         * Worth having as its own transport because it is the only way into
-         * that module that works on every firmware: the MQTT path its own phone
-         * app uses needs a broker running in the app and is broken on 3.20,
-         * while /ws served CRSF on 2.25, 3.0, 3.10 and 3.20 alike. What comes
-         * out of it is ordinary CRSF, so the existing decoder handles it.
+         * A TBS Crossfire WiFi module's CRSF WebSocket - the only way into that
+         * module that works on every firmware, unlike the MQTT path its own app
+         * uses.
          */
         const val MODE_WEBSOCKET = 3
 
         private const val RECEIVE_TIMEOUT_MS = 1000
+        private const val HANDSHAKE_TIMEOUT_MS = 8000
         private const val ANNOUNCE_EVERY_MS = 1000L
         private const val MAX_PEERS = 4
 
-        /**
-         * A datagram is delivered whole or truncated — there is no reading the
-         * rest of it later. So the receive buffer is a full datagram's worth
-         * rather than a stream sized one: a sender that packs several MAVLink
-         * messages into one packet would otherwise have the tail silently cut
-         * off, which does not look like packet loss, it looks like corruption.
-         */
+        /** A datagram arrives whole or truncated, so hold the largest one. */
         private const val DATAGRAM_BUFFER = 65535
 
         private const val MAX_FRAME = 1 shl 20
@@ -116,19 +90,18 @@ class NetworkDataPoller(
 
         /**
          * A MAVLink v1 HEARTBEAT from a ground station: length 9, sysid 255,
-         * compid 190, msgid 0, type GCS. Only used to announce ourselves.
+         * compid 190, msgid 0, type GCS, ending in its two byte checksum.
+         * Only used to announce ourselves; a receiver that checks the checksum
+         * before registering a sender would drop it without one.
          */
         private val HEARTBEAT = byteArrayOf(
             0xFE.toByte(), 9, 0, 0xFF.toByte(), 0xBE.toByte(), 0,
-            0, 0, 0, 0, 6, 8, 0xC0.toByte(), 0, 0, 0
+            0, 0, 0, 0, 6, 8, 0xC0.toByte(), 0, 0,
+            0x99.toByte(), 0x53
         )
     }
 
-    /**
-     * Fresh per connection: ProtocolDetector never resets its hit counters, so
-     * a reused one would latch whatever it half-recognised during a failed
-     * attempt.
-     */
+    /** Fresh per connection: the detector never resets its hit counters. */
     private val detector = ProtocolDetector(object : ProtocolDetector.Callback {
         override fun onProtocolDetected(protocol: Protocol?) {
             // The detector keeps firing on every byte once something has two
@@ -152,19 +125,12 @@ class NetworkDataPoller(
     private var connectedOnce = false
 
     /** Exactly one of onDisconnected/onConnectionFailed must ever be sent. */
-    @Volatile
-    private var finished = false
+    private val finished = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /**
-     * Asked to stop.
-     *
-     * A flag of our own rather than the thread's interrupt status, because the
-     * interrupt status is not ours alone: this thread runs the app's telemetry
-     * callbacks, and anything down there that catches InterruptedException
-     * clears the flag on the way past. While data was arriving the loop was
-     * spending its time inside those callbacks, so the interrupt could be
-     * swallowed before the loop ever looked at it and the connection would not
-     * let go.
+     * Asked to stop. Ours rather than the thread's interrupt status, which the
+     * telemetry callbacks this thread runs can swallow - and did, leaving a
+     * busy link impossible to disconnect.
      */
     @Volatile
     private var stopping = false
@@ -179,14 +145,9 @@ class NetworkDataPoller(
     private var udpSocket: DatagramSocket? = null
 
     /**
-     * Everyone we have heard from on this socket.
-     *
-     * Taken from QGroundControl, which adds the sender of every datagram to its
-     * session targets and then talks to all of them. It matters because the
-     * address field is deliberately empty for a UDP listen — there is nothing
-     * to type when a module broadcasts — and a source that wants to be spoken
-     * to would otherwise never hear from us. Once anything arrives we know
-     * where it came from, so we can keep it alive.
+     * Everyone we have heard from, as QGroundControl does it: a UDP listen has
+     * no address to type, so the sender of an arriving datagram is the only
+     * address we will ever have for talking back.
      */
     private val peers = LinkedHashSet<Pair<InetAddress, Int>>()
 
@@ -232,7 +193,7 @@ class NetworkDataPoller(
         // socket out from under the read.
         val buffer = ByteArray(BUFFER)
         val input = socket.getInputStream()
-        while (!stopping && !finished) {
+        while (!stopping && !finished.get()) {
             // -1 is a clean close by the far end. The Bluetooth poller never
             // has to handle this because RFCOMM throws instead, but a TCP peer
             // that goes away politely would otherwise spin here forever.
@@ -256,7 +217,7 @@ class NetworkDataPoller(
         runOnMainThread(Runnable { listener.onConnected() })
 
         server.soTimeout = RECEIVE_TIMEOUT_MS
-        while (!stopping && !finished) {
+        while (!stopping && !finished.get()) {
             val client = try {
                 server.accept()
             } catch (e: SocketTimeoutException) {
@@ -267,7 +228,7 @@ class NetworkDataPoller(
             val buffer = ByteArray(BUFFER)
             val input = client.getInputStream()
             try {
-                while (!stopping && !finished) {
+                while (!stopping && !finished.get()) {
                     val size = input.read(buffer)
                     if (size < 0) break
                     feed(buffer, 0, size)
@@ -306,9 +267,16 @@ class NetworkDataPoller(
         out.write(request.toByteArray())
         out.flush()
 
+        // before the handshake read, not after: a peer that accepts and then
+        // says nothing would otherwise block here forever, with no terminal
+        // callback and the button stuck on "Connecting..."
+        socket.soTimeout = HANDSHAKE_TIMEOUT_MS
+
         val input = socket.getInputStream()
         val status = readHandshake(input)
-        if (!status.contains(" 101")) {
+        // the status line only: an ordinary error page can carry " 101" in its
+        // headers, and its body would then be parsed as frames
+        if (!status.substringBefore(crlf).contains(" 101 ")) {
             // not a WebSocket endpoint: fail rather than feed HTML to a decoder
             finish()
             return
@@ -321,13 +289,11 @@ class NetworkDataPoller(
         // socket opens and stays silent forever.
         writeFrame(out, OPCODE_BINARY, DEVICE_PING)
 
-        // Without this the repeat ping below could never fire on the module it
-        // exists for: a silent module means readFrame blocks, and the timer is
-        // only ever looked at between frames.
+        // shorter now: the repeat ping below cannot fire while readFrame blocks
         socket.soTimeout = RECEIVE_TIMEOUT_MS
 
         var lastPing = System.currentTimeMillis()
-        while (!stopping && !finished) {
+        while (!stopping && !finished.get()) {
             // Ask again now and then: the first ping is answered only if the
             // module was ready for it, and the name it replies with is what
             // tells a Crossfire from an ExpressLRS.
@@ -380,18 +346,10 @@ class NetworkDataPoller(
     }
 
     /**
-     * Read exactly [n] bytes.
-     *
-     * The socket has a receive timeout on it, which is a problem here: a frame
-     * arrives in as many pieces as the network feels like, so a timeout part
-     * way through one means nothing is wrong and the rest is still coming. Give
-     * up then and the bytes already taken are lost from a stream that has no
-     * way to resynchronise — every frame after it would be read at the wrong
-     * offset.
-     *
-     * So a timeout is only ever allowed to escape at a frame boundary, before
-     * any of the frame has been read, which is the one moment where "nothing
-     * arrived" is a complete and true answer. [mayTimeOut] marks that call.
+     * Read exactly [n] bytes. A timeout part way through a frame means the rest
+     * is still coming, and giving up would lose bytes the stream cannot
+     * resynchronise from - so it may only escape at a frame boundary, which is
+     * what [mayTimeOut] marks.
      */
     private fun readFully(input: InputStream, n: Int, mayTimeOut: Boolean = false): ByteArray? {
         val out = ByteArray(n)
@@ -401,7 +359,7 @@ class NetworkDataPoller(
                 input.read(out, read, n - read)
             } catch (e: SocketTimeoutException) {
                 if (read == 0 && mayTimeOut) throw e
-                if (stopping || finished) return null
+                if (stopping || finished.get()) return null
                 continue
             }
             if (r < 0) return null
@@ -429,7 +387,7 @@ class NetworkDataPoller(
         }
         // a server must not mask, but tolerate it rather than desynchronise
         val mask = if (masked) readFully(input, 4) ?: return null else null
-        if (length > MAX_FRAME) return null
+        if (length < 0 || length > MAX_FRAME) return null
         val payload = readFully(input, length.toInt()) ?: return null
         if (mask != null) {
             for (i in payload.indices) {
@@ -476,7 +434,7 @@ class NetworkDataPoller(
         udpSocket = socket
         socket.reuseAddress = true
         socket.broadcast = true
-        binder?.bind(socket)
+        if (!isLoopback(host)) binder?.bind(socket)
         socket.bind(InetSocketAddress(port))
 
         // Room for a burst to sit in while we are busy decoding the last one.
@@ -505,7 +463,7 @@ class NetworkDataPoller(
         var lastAnnounce = 0L
         val buffer = ByteArray(DATAGRAM_BUFFER)
         val packet = DatagramPacket(buffer, buffer.size)
-        while (!stopping && !finished) {
+        while (!stopping && !finished.get()) {
             val now = System.currentTimeMillis()
             if (now - lastAnnounce >= ANNOUNCE_EVERY_MS) {
                 lastAnnounce = now
@@ -528,14 +486,8 @@ class NetworkDataPoller(
     }
 
     /**
-     * Say hello, so a sender that unicasts back to whoever spoke first knows
-     * where to send.
-     *
-     * A MAVLink heartbeat rather than an empty datagram. Zero length datagrams
-     * are legal and cost nothing to send, but plenty of firmware never sees
-     * them: the receive loop treats a length of zero as nothing to do and the
-     * sender is never registered. A heartbeat is what a ground station sends
-     * anyway, so anything expecting a GCS recognises it.
+     * Remember a sender so we can talk back to it. A heartbeat rather than an
+     * empty datagram, because plenty of firmware ignores a zero length one.
      */
     private fun rememberPeer(address: InetAddress?, senderPort: Int) {
         if (address == null || senderPort <= 0) return
@@ -555,23 +507,37 @@ class NetworkDataPoller(
         }
     }
 
-    /**
-     * Say hello to the configured address and to everyone we have heard from.
-     *
-     * A source that broadcasts does not need any of this. One that unicasts
-     * only to whoever spoke to it does, and for those the address field is
-     * usually empty because there was nothing to type — so the sender learned
-     * from an arriving datagram is the only address we will ever have.
-     */
+    /** Say hello, for a source that only unicasts back to whoever spoke to it. */
+    /** Resolved once: getByName can block for seconds, and this runs every second. */
+    private var announceHost: InetAddress? = null
+    private var announceHostResolved = false
+
     private fun announce() {
         val socket = udpSocket ?: return
+
+        // Only while the stream might be MAVLink. Once it is known to be
+        // something else, this is a ground station heartbeat being written into
+        // a link that never asked for one — and a TBS module in bridge mode puts
+        // whatever arrives straight onto the CRSF serial link.
+        val live = selectedProtocol
+        if (live != null && live !is crazydude.com.telemetry.protocol.MAVLinkProtocol &&
+            live !is crazydude.com.telemetry.protocol.MAVLink2Protocol
+        ) {
+            return
+        }
+
         val targets = ArrayList<Pair<InetAddress, Int>>()
-        if (host.isNotEmpty()) {
-            try {
-                targets.add(Pair(InetAddress.getByName(host), port))
-            } catch (e: IOException) {
-                // an unresolvable address is not worth failing the connection
+        if (host.isNotEmpty() && !isLoopback(host)) {
+            if (!announceHostResolved) {
+                announceHostResolved = true
+                announceHost = try {
+                    InetAddress.getByName(host)
+                } catch (e: IOException) {
+                    // an unresolvable address is not worth failing the connection
+                    null
+                }
             }
+            announceHost?.let { targets.add(Pair(it, port)) }
         }
         synchronized(peers) { targets.addAll(peers) }
         // Nobody to talk to yet is a perfectly ordinary state: it means nothing
@@ -615,14 +581,9 @@ class NetworkDataPoller(
         listener.commit()
     }
 
-    /**
-     * The single exit. Whether this was a failure or a disconnect is decided by
-     * whether the connection ever came up, exactly as the Bluetooth poller
-     * decides it — the caller does not get to say.
-     */
+    /** The single exit; failure or disconnect is decided by whether it came up. */
     private fun finish() {
-        if (finished) return
-        finished = true
+        if (!finished.compareAndSet(false, true)) return
         closeQuietly()
         try {
             logFile?.close()
@@ -658,11 +619,7 @@ class NetworkDataPoller(
         Handler(Looper.getMainLooper()).post { runnable.run() }
     }
 
-    /**
-     * Called on the main thread by DataService, so it must not block. Closing
-     * the socket is what unblocks the reading thread — interrupting it is not
-     * enough, because a blocking socket read ignores interruption.
-     */
+    /** Main thread, so it must not block: closing the socket unblocks the reader. */
     override fun disconnect() {
         stopping = true
         thread.interrupt()

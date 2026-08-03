@@ -174,7 +174,13 @@ class DataService : Service(), DataDecoder.Listener {
             Toast.makeText(this, "Failed to open the telemetry log", Toast.LENGTH_LONG).show()
             null
         }
-        createLogger()
+        // inside the same guard: this opens a file in the same directory, so it
+        // fails for the same reasons
+        try {
+            createLogger()
+        } catch (e: Exception) {
+            logListener = null
+        }
 
         // Pinning to Wi-Fi and holding the multicast lock: without these a
         // transmitter's own access point, which has no internet, loses to
@@ -199,13 +205,18 @@ class DataService : Service(), DataDecoder.Listener {
     }
 
     private fun createLogger() {
-        if (preferenceManager.isCSVLoggingEnabled()
+        // Always replaced, never left behind. A logger from a previous
+        // connection has had its timer cancelled, and starting it again throws
+        // "Timer already cancelled" the moment the next link comes up.
+        logListener = if (preferenceManager.isCSVLoggingEnabled()
             && ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.WRITE_EXTERNAL_STORAGE
             ) == PackageManager.PERMISSION_GRANTED
         ) {
-            logListener = OtxCsvLogger()
+            OtxCsvLogger()
+        } else {
+            null
         }
     }
 

@@ -144,47 +144,58 @@ https://github.com/iNavFlight/inav/blob/135456936834ab4129e6ed540038b2e88dcb3c44
             Protocol.FLYMODE -> {
                 data.rawData?.let {
                     val stringLength = it.indexOfFirst { it == 0x00.toByte() }
-                    val flightMode = String(it, 1, stringLength-1 )
+                    // A frame with no terminator is malformed; reading past it
+                    // would throw, and an exception here takes the link down.
+                    if (stringLength < 2) return@let
+                    val reported = String(it, 1, stringLength - 1)
+
+                    // Betaflight marks a disarmed quad by putting an asterisk
+                    // after the mode name, so a quad sitting on the bench sends
+                    // "ACRO*". That matched none of the names below, so nothing
+                    // was reported at all and the readout kept whatever it last
+                    // said — showing "Armed | Acro" for a disarmed quad.
+                    val armed = !reported.endsWith("*")
+                    val flightMode = if (armed) reported else reported.dropLast(1)
 
                     when (flightMode) {
                         "AIR", "ACRO" -> {
-                            listener.onFlyModeData(true, false, Companion.FlyMode.ACRO, null)
+                            listener.onFlyModeData(armed, false, Companion.FlyMode.ACRO, null)
                         }
                         "!FS!" -> {
-                            listener.onFlyModeData(true, false, Companion.FlyMode.FAILSAFE, null)
+                            listener.onFlyModeData(armed, false, Companion.FlyMode.FAILSAFE, null)
                         }
                         "MANU" -> {
-                            listener.onFlyModeData(true, false, Companion.FlyMode.MANUAL, null)
+                            listener.onFlyModeData(armed, false, Companion.FlyMode.MANUAL, null)
                         }
                         "RTH" -> {
-                            listener.onFlyModeData(true, false, Companion.FlyMode.RTH, null)
+                            listener.onFlyModeData(armed, false, Companion.FlyMode.RTH, null)
                         }
                         "WRTH" -> {
-                            listener.onFlyModeData(true, false, Companion.FlyMode.WAYPOINT, Companion.FlyMode.RTH)
+                            listener.onFlyModeData(armed, false, Companion.FlyMode.WAYPOINT, Companion.FlyMode.RTH)
                         }
                         "HOLD", "LOTR" -> {
-                            listener.onFlyModeData(true, false, Companion.FlyMode.LOITER, null)
+                            listener.onFlyModeData(armed, false, Companion.FlyMode.LOITER, null)
                         }
                         "HRST" -> {
-                            listener.onFlyModeData(true, false, Companion.FlyMode.HOME_RESET, null)
+                            listener.onFlyModeData(armed, false, Companion.FlyMode.HOME_RESET, null)
                         }
                         "3CRS","CRUZ" -> {
-                            listener.onFlyModeData(true, false, Companion.FlyMode.CRUISE3D, null)
+                            listener.onFlyModeData(armed, false, Companion.FlyMode.CRUISE3D, null)
                         }
                         "CRS", "CRSH" -> {
-                            listener.onFlyModeData(true, false, Companion.FlyMode.CRUISE, null)
+                            listener.onFlyModeData(armed, false, Companion.FlyMode.CRUISE, null)
                         }
                         "AH" -> {
-                            listener.onFlyModeData(true, false, Companion.FlyMode.ALTHOLD, null)
+                            listener.onFlyModeData(armed, false, Companion.FlyMode.ALTHOLD, null)
                         }
                         "WP" -> {
-                            listener.onFlyModeData(true, false, Companion.FlyMode.WAYPOINT, null)
+                            listener.onFlyModeData(armed, false, Companion.FlyMode.WAYPOINT, null)
                         }
                         "ANGL", "STAB" -> {
-                            listener.onFlyModeData(true, false, Companion.FlyMode.ANGLE, null)
+                            listener.onFlyModeData(armed, false, Companion.FlyMode.ANGLE, null)
                         }
                         "HOR" -> {
-                            listener.onFlyModeData(true, false, Companion.FlyMode.HORIZON, null)
+                            listener.onFlyModeData(armed, false, Companion.FlyMode.HORIZON, null)
                         }
                         "WAIT" -> {
                             listener.onFlyModeData(false, false, Companion.FlyMode.WAIT, null)
@@ -208,6 +219,10 @@ https://github.com/iNavFlight/inav/blob/135456936834ab4129e6ed540038b2e88dcb3c44
                             listener.onFlyModeData(false, false, Companion.FlyMode.ACRO, null)
                         }
                         else -> {
+                            // An unknown mode name is still worth reporting the
+                            // arming state for, rather than leaving the readout
+                            // on the previous mode indefinitely.
+                            listener.onFlyModeData(armed, false, null, null)
                             Log.d("CrsfData", "Bad mode $flightMode")
                         }
                     }

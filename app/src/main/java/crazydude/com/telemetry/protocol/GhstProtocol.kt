@@ -127,8 +127,13 @@ class GhstProtocol : Protocol {
                 dataDecoder.decodeData(Protocol.Companion.TelemetryData(FUEL, u16le(data, 5) * 10))
             }
             GPS_PRIMARY -> {
-                val latitude = s32le(data, 1) / 10
-                val longitude = s32le(data, 5) / 10
+                // Degrees times ten million, which is what CRSF sends too, and
+                // what the rest of this app expects. EdgeTX divides these by
+                // ten, but only to reach its own internal millionths — copying
+                // that here put every Ghost fix a tenth of the way from the
+                // equator to where it actually was.
+                val latitude = s32le(data, 1)
+                val longitude = s32le(data, 5)
                 val altitude = s16le(data, 9)
 
                 dataDecoder.decodeData(Protocol.Companion.TelemetryData(GPS_LATITUDE, latitude))
