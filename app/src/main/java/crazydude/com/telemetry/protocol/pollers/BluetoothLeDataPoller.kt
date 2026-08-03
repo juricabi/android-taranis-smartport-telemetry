@@ -135,64 +135,19 @@ class BluetoothLeDataPoller(
                                                             }
                                                         }
                                                     }
-                                                when (protocol) {
-                                                    is FrSkySportProtocol -> {
-                                                        selectedProtocol =
-                                                            FrSkySportProtocol(
-                                                                listener
-                                                            )
-                                                        listener?.onProtocolDetected("FrSky")
-                                                    }
-
-                                                    is CrsfProtocol -> {
-                                                        selectedProtocol =
-                                                            CrsfProtocol(
-                                                                listener
-                                                            )
-                                                        listener?.onProtocolDetected("CRSF")
-                                                    }
-
-                                                    is GhstProtocol -> {
-                                                        selectedProtocol =
-                                                            GhstProtocol(
-                                                                listener
-                                                            )
-                                                        listener?.onProtocolDetected("GHST")
-                                                    }
-
-                                                    is LTMProtocol -> {
-                                                        selectedProtocol =
-                                                            LTMProtocol(
-                                                                listener
-                                                            )
-                                                        listener?.onProtocolDetected("LTM")
-                                                    }
-
-                                                    is MAVLinkProtocol -> {
-                                                        selectedProtocol =
-                                                            MAVLinkProtocol(
-                                                                listener
-                                                            )
-                                                        listener?.onProtocolDetected("Mavlink v1")
-                                                    }
-
-                                                    is MAVLink2Protocol -> {
-                                                        selectedProtocol =
-                                                            MAVLink2Protocol(
-                                                                listener
-                                                            )
-                                                        listener?.onProtocolDetected("Mavlink v2")
-                                                    }
-
-                                                    is LinkTestProtocol -> {
-                                                        selectedProtocol =
-                                                            LinkTestProtocol(
-                                                                listener
-                                                            )
-                                                        listener?.onProtocolDetected("Link Test")
-                                                    }
-
+                                                // A protocol the factory does not
+                                                // know used to fall straight through
+                                                // this switch, leaving the lateinit
+                                                // selectedProtocol unassigned while
+                                                // serviceSelected was set anyway —
+                                                // the next notification then threw
+                                                // UninitializedPropertyAccessException.
+                                                val live = ProtocolFactory.create(protocol, listener)
+                                                if (live == null) {
+                                                    return
                                                 }
+                                                selectedProtocol = live
+                                                listener.onProtocolDetected(ProtocolFactory.nameOf(live))
                                                 serviceSelected = true
                                                 runOnMainThread(Runnable {
                                                     listener.onConnected()

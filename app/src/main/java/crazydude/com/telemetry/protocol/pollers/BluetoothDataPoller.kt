@@ -34,65 +34,13 @@ class BluetoothDataPoller(
                     ProtocolDetector(object :
                         ProtocolDetector.Callback {
                         override fun onProtocolDetected(protocol: Protocol?) {
-                            when (protocol) {
-                                is FrSkySportProtocol -> {
-                                    selectedProtocol =
-                                        FrSkySportProtocol(
-                                            listener
-                                        )
-                                    listener?.onProtocolDetected("FrSky")
-                                }
-
-                                is CrsfProtocol -> {
-                                    selectedProtocol =
-                                        CrsfProtocol(
-                                            listener
-                                        )
-                                    listener?.onProtocolDetected("CRSF")
-                                }
-
-                                is GhstProtocol -> {
-                                    selectedProtocol =
-                                        GhstProtocol(
-                                            listener
-                                        )
-                                    listener?.onProtocolDetected("GHST")
-                                }
-
-                                is LTMProtocol -> {
-                                    selectedProtocol =
-                                        LTMProtocol(
-                                            listener
-                                        )
-                                    listener?.onProtocolDetected("LTM")
-                                }
-
-                                is MAVLinkProtocol -> {
-                                    selectedProtocol =
-                                        MAVLinkProtocol(
-                                            listener
-                                        )
-                                    listener?.onProtocolDetected("Mavlink v1")
-                                }
-
-                                is MAVLink2Protocol -> {
-                                    selectedProtocol = MAVLink2Protocol(
-                                        listener
-                                    )
-                                    listener?.onProtocolDetected("Mavlink v2")
-                                }
-
-                                is LinkTestProtocol -> {
-                                    selectedProtocol = LinkTestProtocol(
-                                        listener
-                                    )
-                                    listener?.onProtocolDetected("Link Test")
-                                }
-
-                                else -> {
-                                    thread.interrupt()
-                                }
+                            val live = ProtocolFactory.create(protocol, listener)
+                            if (live == null) {
+                                thread.interrupt()
+                                return
                             }
+                            selectedProtocol = live
+                            listener.onProtocolDetected(ProtocolFactory.nameOf(live))
                         }
                     })
                 val buffer = ByteArray(1024)
