@@ -8,4 +8,5 @@
     <color name="colorRoute">#FF673AB7</color>
     <color name="colorFlightPlan">#664488FF</color>
     <color name="colorHomeLine">#FFFF9800</color>
+    <color name="settingsBackground">#FFFFFF</color>
 </resources>
