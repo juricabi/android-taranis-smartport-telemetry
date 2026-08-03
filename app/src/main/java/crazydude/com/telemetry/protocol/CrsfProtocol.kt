@@ -275,8 +275,18 @@ class CrsfProtocol : Protocol {
                 }
                 BAROALT_SENSOR.toByte() -> {
                     if (inputData.size == BAROALT_PACKET_LEN) {
-                        val altitude = data.short  //encoded into int16
-                        dataDecoder.decodeData(Protocol.Companion.TelemetryData(ALTITUDE, altitude.toInt()))
+                        // Metres when the top bit is set, decimetres offset by
+                        // ten thousand otherwise — the two cases EdgeTX handles
+                        // in crossfire.cpp. Unpacked here, where the frame is
+                        // known: the GPS frame feeds the same reading in plain
+                        // metres, so nothing downstream can tell them apart.
+                        val raw = data.short.toInt() and 0xFFFF
+                        val metres = if ((raw and 0x8000) != 0) {
+                            raw and 0x7FFF
+                        } else {
+                            (raw - 10000) / 10
+                        }
+                        dataDecoder.decodeData(Protocol.Companion.TelemetryData(ALTITUDE, metres))
                     }
                 }
             }

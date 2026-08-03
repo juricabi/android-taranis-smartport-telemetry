@@ -721,7 +721,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // Held at a size on screen rather than in metres — a model drawn to
         // scale is invisible from anywhere useful — but a good deal smaller
         // than it was, which made a quad look the size of a hangar.
-        val drawSize = Math.max(6f, Math.round(distance * 0.018f).toFloat())
+        val drawSize = Math.max(20f, Math.round(distance * 0.045f).toFloat())
         Matrix.scaleM(modelMatrix, 0, drawSize, drawSize / verticalScale, drawSize)
         Matrix.multiplyMM(modelMvp, 0, mvp, 0, modelMatrix, 0)
 

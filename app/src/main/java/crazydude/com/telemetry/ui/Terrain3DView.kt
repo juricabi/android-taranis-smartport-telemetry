@@ -136,7 +136,9 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
 
         val worker = Thread(Runnable {
             scene.loadTerrain(flight,
-                { done, total -> post { status.text = "Loading terrain… $done of $total" } },
+                // deliberately silent: a count that changed on every tile read
+                // as a flicker in the corner of the screen
+                { _, _ -> },
                 { post { renderer.setTrack(scene.track, scene.shadow) } })
             post {
                 renderer.submit(scene.tiles)
@@ -202,7 +204,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
 
         if (!loadingTerrain && scene.nearEdge(last.lat, last.lon)) {
             loadingTerrain = true
-            status.text = "Loading more terrain…"
+            status.text = ""
             val worker = Thread(Runnable {
                 scene.loadTerrain(points, { _, _ -> }, { })
                 post {

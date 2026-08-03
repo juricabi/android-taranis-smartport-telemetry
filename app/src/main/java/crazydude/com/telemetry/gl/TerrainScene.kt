@@ -264,41 +264,46 @@ class TerrainScene {
      * missing.
      */
     private fun resolveAltitudeReference(points: List<TrackPoint>) {
-        // Once only. Ground is fetched again whenever the model nears the edge
-        // of what is built, and answering this a second time — from a different
-        // first point, by then in mid air — moved the origin under tiles that
-        // had already been built against the old one. The terrain then sat in a
-        // different frame from everything else, which is what put the whole
-        // flight underneath it.
-        if (altitudeResolved) return
         if (points.isEmpty()) return
-        altitudeResolved = true
-        var launchGround: Float? = null
-        var reportedThere = 0f
-        for (p in points) {
-            val ground = Elevation.elevationAt(p.lat, p.lon, zoom)
-            if (ground != null) {
-                launchGround = ground
-                reportedThere = p.altitudeMsl
-                break
-            }
-        }
-        val ground = launchGround ?: return
 
-        // Sixty metres of slack: a fix is good to a few metres vertically and
-        // the tiles are thirty metre data, so anything inside that is the same
-        // number measured the same way.
-        altitudeIsAboveLaunch = Math.abs(reportedThere - ground) > 60f
-        originAltitude = if (altitudeIsAboveLaunch) {
-            // heights are above the launch point, so the ground there is the
-            // sea level the whole flight is missing
-            var lowest = points[0].altitudeMsl
-            for (p in points) if (p.altitudeMsl < lowest) lowest = p.altitudeMsl
-            lowest + ground
-        } else {
-            originAltitude
+        // A model cannot fly below the ground.
+        //
+        // That is the whole test, and it is the only one that holds. Comparing
+        // a single reading against the terrain under it does not: a model
+        // seventy metres above a field a hundred metres up reads as a plausible
+        // seventy metres above the sea, and the flight ends up buried.
+        //
+        // So take the lowest height reported anywhere on the flight and the
+        // lowest ground beneath it. If the reports go well below the ground,
+        // they are not sea level heights — they are measured from the launch,
+        // and the ground under the launch is what they are missing.
+        var lowestReported = points[0].altitudeMsl
+        var lowestGround = Float.NaN
+        var groundAtStart = Float.NaN
+        for (p in points) {
+            if (p.altitudeMsl < lowestReported) lowestReported = p.altitudeMsl
+            val ground = Elevation.elevationAt(p.lat, p.lon, zoom) ?: continue
+            if (groundAtStart.isNaN()) groundAtStart = ground
+            if (lowestGround.isNaN() || ground < lowestGround) lowestGround = ground
         }
-        launchGroundElevation = if (altitudeIsAboveLaunch) ground else 0f
+        if (lowestGround.isNaN()) return
+
+        // thirty metres of slack for the terrain data, which is thirty metre
+        // data, and for a fix that is only good to a few metres vertically
+        val aboveLaunch = lowestReported < lowestGround - 30f
+        val newOrigin = if (aboveLaunch) lowestReported + groundAtStart else lowestReported
+
+        // Only the answer matters, not the exact origin. The lowest point of a
+        // flight keeps dropping as it descends, and following that would move
+        // the frame — and rebuild every tile in it — every few seconds. The
+        // origin is only a reference; where it sits is arbitrary.
+        if (altitudeResolved && aboveLaunch == altitudeIsAboveLaunch) return
+        altitudeResolved = true
+        altitudeIsAboveLaunch = aboveLaunch
+        launchGroundElevation = if (aboveLaunch) groundAtStart else 0f
+        originAltitude = newOrigin
+        built.clear()
+        builtZoom = -1
     }
 
     /** Added to every reported altitude when they are measured from the launch. */
