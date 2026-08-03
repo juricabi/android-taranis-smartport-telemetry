@@ -2369,13 +2369,26 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         crazydude.com.telemetry.utils.Elevation.init(this)
         val view = AltitudeProfileView(this)
         val points = ArrayList<AltitudeProfileView.Point>(flightPath.size)
+        // Betaflight reports height above the arming point once armed, so the
+        // ground under the launch is what those heights are missing before they
+        // can be drawn against terrain. Worked out the same way the 3D view
+        // works it out: from the ground at the first fix.
+        val lift = launchGroundLift()
         for (p in flightPath) {
-            points.add(AltitudeProfileView.Point(p.lat, p.lon, p.altitudeMsl))
+            points.add(AltitudeProfileView.Point(p.lat, p.lon, p.altitudeMsl + lift))
         }
         view.setTrack(points)
         view.minimumHeight = (resources.displayMetrics.density * 220).toInt()
 
-        fetchTerrainFor(flightPath) { view.terrainUpdated() }
+        fetchTerrainFor(flightPath) {
+            val settled = launchGroundLift()
+            val updated = ArrayList<AltitudeProfileView.Point>(flightPath.size)
+            for (p in flightPath) {
+                updated.add(AltitudeProfileView.Point(p.lat, p.lon, p.altitudeMsl + settled))
+            }
+            view.setTrack(updated)
+            view.terrainUpdated()
+        }
 
         this.showDialog(
             AlertDialog.Builder(this)
@@ -2384,6 +2397,22 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 .setPositiveButton("Close", null)
                 .create()
         )
+    }
+
+    /**
+     * What to add to reported altitudes so they are above sea level.
+     *
+     * Zero when they already are. Non zero when the first fix reads nothing
+     * like the ground beneath it, which means they are measured from where the
+     * model armed.
+     */
+    private fun launchGroundLift(): Float {
+        for (p in flightPath) {
+            val ground = crazydude.com.telemetry.utils.Elevation.elevationAt(p.lat, p.lon)
+                ?: continue
+            return if (Math.abs(p.altitudeMsl - ground) > 60f) ground else 0f
+        }
+        return 0f
     }
 
     private fun show3DView() {

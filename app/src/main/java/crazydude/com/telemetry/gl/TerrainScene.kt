@@ -109,12 +109,15 @@ class TerrainScene {
     }
 
     /** Rebuild the path in the frame already chosen. Cheap; call as often as needed. */
+    /** The reported height, brought to sea level whichever way it was measured. */
+    fun aboveSeaLevel(reported: Float): Float = reported + launchGroundElevation
+
     fun buildTrack(points: List<TrackPoint>) {
         val out = FloatArray(points.size * 3)
         var i = 0
         for (p in points) {
             out[i++] = east(p.lon)
-            out[i++] = p.altitudeMsl - originAltitude
+            out[i++] = aboveSeaLevel(p.altitudeMsl) - originAltitude
             out[i++] = -north(p.lat)
             if (p.lat < minLat) minLat = p.lat
             if (p.lat > maxLat) maxLat = p.lat
@@ -148,7 +151,7 @@ class TerrainScene {
         var i = 0
         for (p in points) {
             out[i++] = east(p.lon)
-            out[i++] = p.altitudeMsl - originAltitude
+            out[i++] = aboveSeaLevel(p.altitudeMsl) - originAltitude
             // north is -z, so the view looks the way a map does with north up
             out[i++] = -north(p.lat)
         }
@@ -188,11 +191,11 @@ class TerrainScene {
         while (z > 9 && tileCount(southEdge, westEdge, northEdge, eastEdge, z) > MAX_TILES) {
             z--
         }
-        zoom = z
-
         Elevation.prefetch(southEdge, westEdge, northEdge, eastEdge, z,
             { done, total -> onProgress(done, total * 2) },
             { _, _ -> })
+        zoom = z
+        resolveAltitudeReference(points)
         onTerrainReady()
 
         // ground first, imagery second: the shape matters more than the picture,
@@ -234,6 +237,58 @@ class TerrainScene {
     }
 
     private fun tileKey(x: Int, y: Int): Long = (x.toLong() shl 32) or (y.toLong() and 0xFFFFFFFFL)
+
+    /** True when the altitudes turned out to be measured from the launch point. */
+    var altitudeIsAboveLaunch = false
+        private set
+
+    /**
+     * Work out what the reported altitude is measured from.
+     *
+     * It cannot be assumed. Betaflight sends height above sea level while the
+     * model is disarmed and height above the arming point once it is armed, so
+     * the same field means two different things within one flight, and drawing
+     * the second against sea level terrain would bury the model a hundred
+     * metres underground.
+     *
+     * The ground answers it: at the first fix we know what the terrain there
+     * is, so if the reported altitude is nothing like it, the reports are
+     * measured from the launch and the ground under it is what they are
+     * missing.
+     */
+    private fun resolveAltitudeReference(points: List<TrackPoint>) {
+        if (points.isEmpty()) return
+        var launchGround: Float? = null
+        var reportedThere = 0f
+        for (p in points) {
+            val ground = Elevation.elevationAt(p.lat, p.lon, zoom)
+            if (ground != null) {
+                launchGround = ground
+                reportedThere = p.altitudeMsl
+                break
+            }
+        }
+        val ground = launchGround ?: return
+
+        // Sixty metres of slack: a fix is good to a few metres vertically and
+        // the tiles are thirty metre data, so anything inside that is the same
+        // number measured the same way.
+        altitudeIsAboveLaunch = Math.abs(reportedThere - ground) > 60f
+        originAltitude = if (altitudeIsAboveLaunch) {
+            // heights are above the launch point, so the ground there is the
+            // sea level the whole flight is missing
+            var lowest = points[0].altitudeMsl
+            for (p in points) if (p.altitudeMsl < lowest) lowest = p.altitudeMsl
+            lowest + ground
+        } else {
+            originAltitude
+        }
+        launchGroundElevation = if (altitudeIsAboveLaunch) ground else 0f
+    }
+
+    /** Added to every reported altitude when they are measured from the launch. */
+    var launchGroundElevation = 0f
+        private set
 
     private fun tileLon(x: Int, z: Int): Double = x.toDouble() / (1 shl z) * 360.0 - 180.0
 

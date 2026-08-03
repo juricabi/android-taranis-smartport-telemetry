@@ -142,7 +142,12 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
                 renderer.submit(scene.tiles)
                 renderer.setTrack(scene.track, scene.shadow)
                 showMyLocation()
-                status.text = if (scene.tiles.isEmpty()) "No terrain here" else ""
+                status.text = when {
+                    scene.tiles.isEmpty() -> "No terrain here"
+                    // worth saying, since it changes what the height means
+                    scene.altitudeIsAboveLaunch -> "Heights are above launch"
+                    else -> ""
+                }
                 loadingTerrain = false
             }
         })
@@ -179,7 +184,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         val heading = if (hasAttitude) modelHeading else courseBetween(before, last)
         renderer.setModel(
             scene.east(last.lon),
-            last.altitudeMsl - scene.originAltitude,
+            scene.aboveSeaLevel(last.altitudeMsl) - scene.originAltitude,
             -scene.north(last.lat),
             heading,
             Math.max(15f, scene.extent / 40f),
@@ -188,7 +193,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         if (following) {
             renderer.target = floatArrayOf(
                 scene.east(last.lon),
-                last.altitudeMsl - scene.originAltitude,
+                scene.aboveSeaLevel(last.altitudeMsl) - scene.originAltitude,
                 -scene.north(last.lat)
             )
         }
@@ -339,7 +344,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
             if (ground != null) {
                 val c = colorOf(homeLineColor)
                 sets.add(TerrainRenderer.LineSet(floatArrayOf(
-                    scene.east(model.lon), model.altitudeMsl - scene.originAltitude,
+                    scene.east(model.lon), scene.aboveSeaLevel(model.altitudeMsl) - scene.originAltitude,
                     -scene.north(model.lat),
                     scene.east(myLon), ground - scene.originAltitude, -scene.north(myLat)),
                     c[0], c[1], c[2], c[3], true, 3f, false))
@@ -350,7 +355,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         if (headingLineOn && model != null && hasAttitude) {
             val radians = Math.toRadians(modelHeading.toDouble())
             val x = scene.east(model.lon)
-            val y = model.altitudeMsl - scene.originAltitude
+            val y = scene.aboveSeaLevel(model.altitudeMsl) - scene.originAltitude
             val z = -scene.north(model.lat)
             val c = colorOf(headingLineColor)
             sets.add(TerrainRenderer.LineSet(floatArrayOf(
