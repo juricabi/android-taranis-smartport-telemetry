@@ -28,10 +28,25 @@ class OsmMarker(icon: Int, color: Int?, position: Position, private val mapView:
         return LayerDrawable(arrayOf(outline, body))
     }
 
+    /**
+     * The bubble osmdroid gives every marker, kept aside rather than thrown
+     * away: it is put back only for a marker that has something to say.
+     */
+    private val bubble = marker.infoWindow
+
     init {
         marker.icon = buildIcon(icon, color)
         marker.position = position.toGeoPoint()
+        // Tapping the model used to open an empty bubble, because every marker
+        // gets one whether or not it has a title. Only the aircraft from
+        // FlightRadar have anything to put in one.
+        marker.infoWindow = null
         mapView.overlayManager.add(marker)
+    }
+
+    private fun showBubbleIfWorthIt() {
+        val hasSomethingToSay = !marker.title.isNullOrEmpty() || !marker.snippet.isNullOrEmpty()
+        marker.infoWindow = if (hasSomethingToSay) bubble else null
     }
 
     fun updateForMapOrientation() {
@@ -50,11 +65,17 @@ class OsmMarker(icon: Int, color: Int?, position: Position, private val mapView:
 
     override var title: String
         get() = marker.title ?: ""
-        set(value) { marker.title = value }
+        set(value) {
+            marker.title = value
+            showBubbleIfWorthIt()
+        }
 
     override var snippet: String
         get() = marker.snippet ?: ""
-        set(value) { marker.snippet = value }
+        set(value) {
+            marker.snippet = value
+            showBubbleIfWorthIt()
+        }
 
     override fun setIcon(icon: Int, color: Int) {
         marker.icon = buildIcon(icon, color)
