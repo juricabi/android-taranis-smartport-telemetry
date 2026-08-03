@@ -9,8 +9,8 @@
         <item name="colorControlNormal">@color/settingsTextSecondary</item>
         <item name="android:windowBackground">@color/settingsBackground</item>
         <item name="android:colorBackground">@color/settingsBackground</item>
-        <item name="android:textColorPrimary">@color/settingsTextPrimary</item>
-        <item name="android:textColorSecondary">@color/settingsTextSecondary</item>
+        <item name="android:textColorPrimary">@color/settings_text_primary</item>
+        <item name="android:textColorSecondary">@color/settings_text_secondary</item>
         <item name="android:disabledAlpha">0.35</item>
         <item name="preferenceTheme">@style/PreferenceThemeOverlay</item>
     </style>

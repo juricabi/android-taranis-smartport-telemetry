@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A plain colour has no disabled state, so a disabled row would look exactly
+     like an enabled one. The alpha is baked into the colour rather than using
+     android:alpha, which needs a newer platform than this app supports. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_enabled="false" android:color="#59ECECEC" />
+    <item android:color="#ECECEC" />
+</selector>
