@@ -1218,7 +1218,29 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val drivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager)
         val driver = drivers.firstOrNull()
         if (driver == null) {
-            Toast.makeText(this, "No valid usb driver has been found", Toast.LENGTH_SHORT).show()
+            // Three different problems used to share one message. Naming what is
+            // actually attached says which one it is: nothing plugged in at all,
+            // or a radio sitting in Joystick or Storage mode instead of serial.
+            val attached = usbManager.deviceList.values
+            val message = if (attached.isEmpty()) {
+                "No USB device attached. Check the cable supports data, and that the " +
+                    "phone is not also plugged into a computer."
+            } else {
+                val names = StringBuilder()
+                for (device in attached) {
+                    if (names.isNotEmpty()) names.append(", ")
+                    names.append(String.format("%04x:%04x", device.vendorId, device.productId))
+                }
+                "Attached (" + names + ") but not a serial port. On EdgeTX choose " +
+                    "USB Serial (VCP) rather than Joystick or Storage."
+            }
+            this.showDialog(
+                AlertDialog.Builder(this)
+                    .setTitle("No serial device")
+                    .setMessage(message)
+                    .setPositiveButton("OK", null)
+                    .create()
+            )
         } else {
             val connection = usbManager.openDevice(driver.device)
             if (connection != null) {
