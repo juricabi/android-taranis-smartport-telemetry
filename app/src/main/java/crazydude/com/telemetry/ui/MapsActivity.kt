@@ -141,7 +141,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     enum class RequestWritePermissionSequenceType {
-        NONE, CONNECT, RENAME, DELETE, EXPORT_GPX, EXPORT_KML
+        NONE, CONNECT, RENAME, DELETE, LOG_PICKER, EXPORT_GPX, EXPORT_KML
     }
 
     private var map: MapWrapper? = null
@@ -445,29 +445,22 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             showFindMyQuad()
         }
 
-        // Copying the location and routing to the model used to be here as
-        // well; they are on the Find my quad button now, which is where someone
-        // looking for their model actually goes.
+        // What is left is what needs a log already open. Renaming, deleting and
+        // copying the model location all moved to where they belong: the first
+        // two to the log picker, which is the only place that lists logs, and
+        // the last to the Find my quad button.
         menuButton.setOnClickListener {
-            val option2 = "Rename Log";
-            val option3 = "Delete Log";
             val option4 = "Export GPX file...";
             val option5 = "Export KML file...";
             val option6 = "Set playback duration..."
 
-            val options = arrayOf(option2, option3, option4, option5, option6)
+            val options = arrayOf(option4, option5, option6)
 
             this.showDialog( AlertDialog.Builder(this)
             .setTitle("Select an action")
             .setItems(options) { dialog: DialogInterface, which: Int ->
                 val selectedOption = options[which]
                 when (selectedOption) {
-                    option2 -> {
-                        showRenameLogDialog()
-                    }
-                    option3 -> {
-                        showDeleteLogDialog()
-                    }
                     option4 -> {
                         showExportGPXDialog()
                     }
@@ -814,10 +807,19 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                             lastFileDialogSelection = files[i].name
                             startReplay(files[i])
                         }
+                        .setNegativeButton("Delete all") { d, _ ->
+                            d.dismiss()
+                            showDeleteAllLogsDialog(files)
+                        }
                         .create();
 
                     dialog.setOnShowListener {
                         val alertDialog = it as AlertDialog
+                        alertDialog.listView.setOnItemLongClickListener { _, _, position, _ ->
+                            dialog.dismiss()
+                            showLogActionsDialog(files[position])
+                            true
+                        }
                         if ( lastFileDialogSelectionIndex != -1) {
                             val centerY = alertDialog.listView.height / 2 // Calculate the center position vertically
                             alertDialog.listView.smoothScrollToPositionFromTop(lastFileDialogSelectionIndex, centerY)
@@ -2099,6 +2101,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     when (requestWritePermissionSequence) {
                         RequestWritePermissionSequenceType.CONNECT -> connect()
                         RequestWritePermissionSequenceType.DELETE -> showDeleteLogDialog()
+                        RequestWritePermissionSequenceType.LOG_PICKER -> replay()
                         RequestWritePermissionSequenceType.RENAME -> showRenameLogDialog()
                         RequestWritePermissionSequenceType.EXPORT_GPX -> showExportGPXDialog()
                         RequestWritePermissionSequenceType.EXPORT_KML -> showExportKMLDialog1()
@@ -3306,10 +3309,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         polyLine?.commitPoints(maxCount)
     }
 
-    fun showRenameLogDialog() {
+    fun showRenameLogDialog(fileName: String? = null) {
         if (!requestWritePermission(RequestWritePermissionSequenceType.RENAME)) return;
 
-        val currentFileName = replayFileString ?: "";
+        val currentFileName = fileName ?: replayFileString ?: "";
         val editText = EditText(this)
         editText.setText(currentFileName)
 
@@ -3339,21 +3342,96 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             val csvNewFile = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), csvNewFileName)
             csvCurrentFile.renameTo(csvNewFile)
 
-            replayFileString = newFileName;
+            if (currentFileName == replayFileString) {
+                replayFileString = newFileName;
+            }
         } else {
             Toast.makeText(this, "Failed to rename log.", Toast.LENGTH_SHORT).show()
         }
     }
 
 
-    fun showDeleteLogDialog() {
+    /** Long press a log in the picker: what can be done to that one log. */
+    private fun showLogActionsDialog(file: File) {
+        val actions = arrayOf("Rename", "Delete")
+        this.showDialog(
+            AlertDialog.Builder(this)
+                .setTitle(file.nameWithoutExtension)
+                .setItems(actions) { d, which ->
+                    d.dismiss()
+                    when (which) {
+                        0 -> showRenameLogDialog(file.name)
+                        1 -> showDeleteLogDialog(file.name)
+                    }
+                }
+                .create()
+        )
+    }
+
+    /**
+     * Clear out the recordings. Named with the count and the space they take,
+     * because "delete all" on its own is not enough to decide by, and this
+     * cannot be undone.
+     */
+    private fun showDeleteAllLogsDialog(files: List<File>) {
+        if (files.isEmpty()) {
+            Toast.makeText(this, "No logs to delete", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (!requestWritePermission(RequestWritePermissionSequenceType.LOG_PICKER)) return
+
+        val megabytes = files.sumByDouble { it.length().toDouble() } / (1024 * 1024)
+        this.showDialog(
+            AlertDialog.Builder(this)
+                .setTitle("Delete all logs")
+                .setMessage(
+                    "Delete all " + files.size + " logs (" + "%.1f".format(megabytes) +
+                        " MB)?" + 10.toChar() + 10.toChar() +
+                        "This cannot be undone. Any CSV files recorded alongside them go too."
+                )
+                .setPositiveButton("Delete all") { d, _ ->
+                    deleteAllLogs(files)
+                    d.dismiss()
+                }
+                .setNegativeButton("Cancel") { d, _ -> d.dismiss() }
+                .create()
+        )
+    }
+
+    private fun deleteAllLogs(files: List<File>) {
+        var deleted = 0
+        for (file in files) {
+            if (file.delete()) {
+                deleted++
+                // the CSV recorded alongside it, as deleting one log does
+                File(file.parentFile, replaceExtension(file.name, ".csv")).delete()
+            }
+        }
+        val failed = files.size - deleted
+        val message = if (failed == 0) {
+            "Deleted " + deleted + " logs"
+        } else {
+            "Deleted " + deleted + " logs, " + failed + " could not be removed"
+        }
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+
+        lastFileDialogSelection = ""
+        lastFileDialogSelectionIndex = -1
+        if (replayFileString != null) {
+            switchToIdleState()
+            replayFileString = null
+        }
+    }
+
+    fun showDeleteLogDialog(fileName: String? = null) {
         if (!requestWritePermission(RequestWritePermissionSequenceType.DELETE)) return;
 
+        val target = fileName ?: replayFileString ?: ""
         this.showDialog( AlertDialog.Builder(this)
         .setTitle("Delete Log")
-        .setMessage("Are you sure you want to delete this log?")
+        .setMessage("Delete " + target + "?")
         .setPositiveButton("Delete") { dialog: DialogInterface, which: Int ->
-            deleteLog(replayFileString ?: "")
+            deleteLog(target)
             dialog.dismiss()
         }
         .setNegativeButton("Cancel") { dialog: DialogInterface, which: Int ->
@@ -3372,8 +3450,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             val currentFileCSV = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), csvFileName)
             currentFileCSV.delete();
 
-            switchToIdleState()
-            replayFileString = null
+            if (fileName == replayFileString) {
+                switchToIdleState()
+                replayFileString = null
+            }
         } else {
             Toast.makeText(this, "Failed to delete log.", Toast.LENGTH_SHORT).show()
         }
