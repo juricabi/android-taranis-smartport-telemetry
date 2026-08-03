@@ -33,8 +33,6 @@ object LocalNetworks {
     private fun rank(name: String, hotspot: Boolean, loopback: Boolean): Int = when {
         name.startsWith("wlan") && !hotspot -> 0
         hotspot -> 1
-        name.startsWith("rmnet") || name.startsWith("ccmni") ||
-            name.startsWith("rmnet_data") -> 4
         // this device: real, occasionally the right answer, but not what
         // anyone is looking for first
         loopback -> 3
@@ -56,7 +54,6 @@ object LocalNetworks {
                 loopback -> "this device"
                 likelyHotspot -> "hotspot"
                 name.startsWith("wlan") -> "Wi-Fi"
-                name.startsWith("rmnet") || name.startsWith("ccmni") -> "mobile"
                 else -> name
             }
             return "$kind — $address"
@@ -78,12 +75,17 @@ object LocalNetworks {
      * default, and the phone itself takes the .1. Nothing depends on the guess
      * being right: the user picks from the list either way.
      */
-    fun list(): List<Iface> {
+    fun list(excludeInterfaces: Set<String> = emptySet()): List<Iface> {
         val out = ArrayList<Iface>()
         try {
             val interfaces = NetworkInterface.getNetworkInterfaces() ?: return out
             for (iface in interfaces) {
                 if (!iface.isUp) continue
+                // Mobile data is left out rather than listed and ignored. A
+                // module can never be on it: the carrier NATs the phone, there
+                // is no reachable local subnet, and offering it only invites
+                // someone to pick it and wonder why nothing is found.
+                if (excludeInterfaces.contains(iface.name)) continue
                 // Loopback is kept rather than skipped: a telemetry source can
                 // run on the phone itself — a MAVLink router, a serial bridge —
                 // or be forwarded to it over USB with `adb reverse`, and then

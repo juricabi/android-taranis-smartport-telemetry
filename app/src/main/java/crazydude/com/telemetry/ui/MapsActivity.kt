@@ -1755,7 +1755,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // data plus a hotspot that the module has joined — and in that case the
         // module is a client of this phone, so the gateway is the phone itself
         // and tells us nothing about where the module is.
-        val interfaces = LocalNetworks.list()
+        val interfaces = LocalNetworks.list(binder.cellularInterfaceNames())
         val interfaceLabels = ArrayList<String>()
         interfaceLabels.add(getString(R.string.network_interface_auto))
         interfaces.forEach { interfaceLabels.add(it.label()) }

@@ -152,6 +152,29 @@ class WifiNetworkBinder(context: Context) {
         }
     }
 
+    /**
+     * The names of the interfaces carrying mobile data.
+     *
+     * Asked of the system rather than guessed from the name, because rmnet,
+     * ccmni, pdp and clat are all vendor conventions and a wrong guess would
+     * hide a network someone needs.
+     */
+    fun cellularInterfaceNames(): Set<String> {
+        val names = HashSet<String>()
+        val manager = connectivity ?: return names
+        try {
+            for (network in manager.allNetworks) {
+                val caps = manager.getNetworkCapabilities(network) ?: continue
+                if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) continue
+                val link = manager.getLinkProperties(network) ?: continue
+                link.interfaceName?.let { names.add(it) }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "cannot identify mobile interfaces: " + e.message)
+        }
+        return names
+    }
+
     private fun findWifiNetwork(): Network? {
         val manager = connectivity ?: return null
         try {
