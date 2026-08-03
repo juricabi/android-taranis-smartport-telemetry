@@ -1,13 +1,13 @@
 <!--
-    "ELRS RATE".
+    "CRSF RATE", shown when the transmitter identifies itself as a Crossfire or
+    a Tracer in its CRSF DEVICE_INFO frame.
 
-    One of a family of three marks (ic_ghst_rate,
-    ic_elrs_rate, ic_xf_rate) drawn on the same grid: 240x240, stroke width 9, the system name on the top
-    row (y 30..90) and RATE beneath (y 130..190), in four 40 wide columns at
-    x 20, 73, 126 and 179.
+    Same grid as ic_ghst_rate: 240x240, stroke width 9, wordmark on the top row
+    (y 30..90) and RATE beneath (y 130..190), four 40 wide columns at x 20, 73,
+    126 and 179 — so the three marks read as one family.
 
-    Which one is showing says whose numbering the rate beside it follows, since
-    the same mode number means a different rate on each system.
+    It earns its place because mode 2 is 150Hz here and 50Hz on ExpressLRS: the
+    icon is what says which table the number on screen came from.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
@@ -16,33 +16,33 @@
     android:viewportHeight="240">
 
     <path
-        android:name="E"
+        android:name="C"
         android:strokeColor="#fff"
         android:strokeWidth="9"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M60,30 L20,30 L20,90 L60,90 M20,60 L48,60"/>
-    <path
-        android:name="L"
-        android:strokeColor="#fff"
-        android:strokeWidth="9"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M73,30 L73,90 L113,90"/>
+        android:pathData="M60,30 L20,30 L20,90 L60,90"/>
     <path
         android:name="R"
         android:strokeColor="#fff"
         android:strokeWidth="9"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M126,90 L126,30 L166,30 L166,60 L126,60 M144,60 L166,90"/>
+        android:pathData="M73,90 L73,30 L113,30 L113,60 L73,60 M91,60 L113,90"/>
     <path
         android:name="S"
         android:strokeColor="#fff"
         android:strokeWidth="9"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M219,30 L179,30 L179,60 L219,60 L219,90 L179,90"/>
+        android:pathData="M166,30 L126,30 L126,60 L166,60 L166,90 L126,90"/>
+    <path
+        android:name="F"
+        android:strokeColor="#fff"
+        android:strokeWidth="9"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M179,90 L179,30 L219,30 M179,60 L207,60"/>
 
     <path
         android:name="R2"
@@ -66,7 +66,7 @@
         android:strokeLineJoin="round"
         android:pathData="M126,130 L166,130 M146,130 L146,190"/>
     <path
-        android:name="E2"
+        android:name="E"
         android:strokeColor="#fff"
         android:strokeWidth="9"
         android:strokeLineCap="round"

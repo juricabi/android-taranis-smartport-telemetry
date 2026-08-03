@@ -2047,6 +2047,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     private fun clearCrsfSystem() {
         crsfSystem = null
+        // else the next link would redraw the old rate under its own table
+        lastRfMode = null
     }
 
     private fun connectToNetwork(host: String, port: Int, mode: Int) {
@@ -2524,6 +2526,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
         if (system != null && system != crsfSystem) {
             crsfSystem = system
+            // The name arrives after the link is already up, so a rate may
+            // already be on screen — under the wrong system's table and beside
+            // the wrong mark. Both are redone now that the system is known.
+            runOnUiThread {
+                applyRateIcon()
+                lastRfMode?.let { renderRate(it) }
+            }
         }
     }
 
@@ -2538,22 +2547,27 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     override fun onElrsModeModeData(mode: Int) {
         this.sensorTimeoutManager.onElrsModeModeData(mode);
+        lastRfMode = mode
+        runOnUiThread { renderRate(mode) }
+    }
+
+    /** The last RF mode seen, so the reading can be redrawn if the system changes. */
+    private var lastRfMode: Int? = null
+
+    private fun renderRate(mode: Int) {
         if (detectedProtocol == "GHST") {
-            runOnUiThread {
-                this.elrsRate.text = GHST_RF_PROFILES.getOrNull(mode) ?: mode.toString()
-            }
+            this.elrsRate.text = GHST_RF_PROFILES.getOrNull(mode) ?: mode.toString()
             return
         }
-        // A Crossfire or Tracer numbers these differently, so use its own table
-        // and say which system the number came from.
+        // A Crossfire or Tracer numbers these differently, so use its own table.
+        // The icon beside it is what says which system it is, so the number does
+        // not repeat it — there is little enough room on the bar as it is.
         val system = crsfSystem
         if (system == "XF" || system == "TRACER") {
-            runOnUiThread {
-                this.elrsRate.text = system.substring(0, 2) + " " + crossfireRate(mode)
-            }
+            this.elrsRate.text = crossfireRate(mode)
             return
         }
-        runOnUiThread {
+        run {
             when (mode) {
                 13 -> this.elrsRate.text = "F1000"
                 12 -> this.elrsRate.text = "F500"
@@ -2959,14 +2973,37 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
+    /**
+     * The mark shown beside the rate: whose numbering the reading follows.
+     *
+     * GHST and ExpressLRS already had one each. A Crossfire needs its own,
+     * because the same mode number means a different rate on each system and
+     * the icon is the fastest way to see which table is in use.
+     */
+    private fun rateIconRes(): Int {
+        val system = crsfSystem
+        return when {
+            detectedProtocol == "GHST" -> R.drawable.ic_ghst_rate
+            system == "XF" || system == "TRACER" -> R.drawable.ic_xf_rate
+            else -> R.drawable.ic_elrs_rate
+        }
+    }
+
+    private fun applyRateIcon() {
+        val icon = androidx.core.content.ContextCompat.getDrawable(this, rateIconRes())
+        if (this.elrsRate.compoundDrawablesRelative[1] != null) {
+            this.elrsRate.setCompoundDrawablesRelativeWithIntrinsicBounds(null, icon, null, null)
+        } else {
+            this.elrsRate.setCompoundDrawablesRelativeWithIntrinsicBounds(icon, null, null, null)
+        }
+    }
+
     override fun onProtocolDetected( protocolName: String) {
         detectedProtocol = protocolName
         runOnUiThread {
             run {
                 // keep the icon on the side the current layout puts it on
-                val iconRes =
-                    if (protocolName == "GHST") R.drawable.ic_ghst_rate else R.drawable.ic_elrs_rate
-                val icon = androidx.core.content.ContextCompat.getDrawable(this, iconRes)
+                val icon = androidx.core.content.ContextCompat.getDrawable(this, rateIconRes())
                 if (this.elrsRate.compoundDrawablesRelative[1] != null) {
                     this.elrsRate.setCompoundDrawablesRelativeWithIntrinsicBounds(
                         null, icon, null, null
