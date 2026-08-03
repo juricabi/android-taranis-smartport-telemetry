@@ -33,6 +33,10 @@ class Scene3DActivity : Activity() {
         const val EXTRA_LON = "lon"
         const val EXTRA_MY_LAT = "myLat"
         const val EXTRA_MY_LON = "myLon"
+        const val EXTRA_MY_ACCURACY = "myAccuracy"
+
+        /** Enough segments that the ring reads as a circle from any distance. */
+        private const val CIRCLE_SEGMENTS = 64
 
         /** How often the view picks up what has arrived. */
         private const val FOLLOW_INTERVAL_MS = 500L
@@ -228,6 +232,26 @@ class Scene3DActivity : Activity() {
         renderer.setMarker(
             scene.east(lon), ground - scene.originAltitude, -scene.north(lat), 40f
         )
+
+        // The same accuracy ring the map draws, laid on the ground rather than
+        // flat: on a slope a flat circle would float at one end and bury itself
+        // at the other.
+        val accuracy = intent.getFloatExtra(EXTRA_MY_ACCURACY, 0f)
+        if (accuracy < 1f) return
+        val metresPerDegreeLon = 111320.0 * Math.cos(Math.toRadians(lat))
+        val ring = FloatArray(CIRCLE_SEGMENTS * 3)
+        var i = 0
+        for (step in 0 until CIRCLE_SEGMENTS) {
+            val angle = 2.0 * Math.PI * step / CIRCLE_SEGMENTS
+            val pointLat = lat + accuracy * Math.cos(angle) / 111320.0
+            val pointLon = lon + accuracy * Math.sin(angle) / metresPerDegreeLon
+            val h = scene.groundAt(pointLat, pointLon) ?: ground
+            ring[i++] = scene.east(pointLon)
+            // a metre up, so it is not fighting the ground it lies on
+            ring[i++] = h - scene.originAltitude + 1f
+            ring[i++] = -scene.north(pointLat)
+        }
+        renderer.setAccuracyCircle(ring)
     }
 
     /** Course over the ground, in degrees from north, which is which way it points. */

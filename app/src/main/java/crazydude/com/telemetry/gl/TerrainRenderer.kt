@@ -154,6 +154,21 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         return out
     }
 
+    private var circleBuffer: FloatBuffer? = null
+    private var circleCount = 0
+
+    /** The accuracy ring, already laid on the ground by whoever built it. */
+    @Synchronized
+    fun setAccuracyCircle(ring: FloatArray) {
+        if (ring.size < 9) {
+            circleBuffer = null
+            circleCount = 0
+            return
+        }
+        circleBuffer = floats(ring)
+        circleCount = ring.size / 3
+    }
+
     /** A post at a place worth seeing from the air, such as where you are standing. */
     @Synchronized
     fun setMarker(x: Float, groundY: Float, z: Float, height: Float) {
@@ -376,6 +391,16 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val marker: FloatBuffer?
         val mCount: Int
         synchronized(this) { marker = markerBuffer; mCount = markerCount }
+        val ring: FloatBuffer?
+        val rCount: Int
+        synchronized(this) { ring = circleBuffer; rCount = circleCount }
+        if (ring != null && rCount > 2) {
+            ring.position(0)
+            GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, ring)
+            GLES20.glUniform4f(uColor, 0.2f, 0.6f, 1f, 0.9f)
+            GLES20.glLineWidth(3f)
+            GLES20.glDrawArrays(GLES20.GL_LINE_LOOP, 0, rCount)
+        }
         if (marker != null && mCount > 1) {
             marker.position(0)
             GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, marker)

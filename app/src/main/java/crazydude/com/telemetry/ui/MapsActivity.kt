@@ -179,11 +179,17 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var flightPlanLines: MutableList<MapLine> = mutableListOf()
     private var homeLine: MapLine? = null
     private val phoneLocationListener = object : LocationListener {
-        override fun onLocationChanged(location: Location) { runOnUiThread { updateHomeLine() } }
+        override fun onLocationChanged(location: Location) {
+            // kept for the 3D view, which draws the same accuracy circle the map does
+            phoneAccuracy = if (location.hasAccuracy()) location.accuracy else 0f
+            runOnUiThread { updateHomeLine() }
+        }
         override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
         override fun onProviderEnabled(provider: String) {}
         override fun onProviderDisabled(provider: String) {}
     }
+
+    @Volatile private var phoneAccuracy = 0f
 
     private lateinit var connectButton: Button
     private lateinit var replayButton: ImageView
@@ -2366,6 +2372,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         map?.getMyLocation()?.let {
             intent.putExtra(Scene3DActivity.EXTRA_MY_LAT, it.lat)
             intent.putExtra(Scene3DActivity.EXTRA_MY_LON, it.lon)
+            intent.putExtra(Scene3DActivity.EXTRA_MY_ACCURACY, phoneAccuracy)
         }
 
         if (crazydude.com.telemetry.gl.LiveFlightPath.size() >= 2) {
