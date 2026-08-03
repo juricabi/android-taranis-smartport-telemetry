@@ -41,11 +41,11 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             precision mediump float;
             uniform sampler2D uTexture;
             uniform float uHasTexture;
+            uniform vec3 uBase;
             varying vec2 vTexture;
             varying float vShade;
             void main() {
-                vec3 base = mix(vec3(0.45, 0.44, 0.40),
-                                texture2D(uTexture, vTexture).rgb, uHasTexture);
+                vec3 base = mix(uBase, texture2D(uTexture, vTexture).rgb, uHasTexture);
                 gl_FragColor = vec4(base * vShade, 1.0);
             }
         """
@@ -188,84 +188,114 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     @Volatile var modelShape = "quad"
     private var builtShape = ""
 
-    private fun mesh(faces: Array<FloatArray>): FloatArray {
-        val out = FloatArray(faces.size * 3)
-        var i = 0
-        for (f in faces) {
-            out[i++] = f[0]; out[i++] = f[1]; out[i++] = f[2]
+    /**
+     * Geometry in the layout the ground uses: position, an unused pair of
+     * texture coordinates, and a normal. The normal is what the light reads,
+     * and is the whole difference between a model and a silhouette.
+     */
+    private class Solid {
+        val out = ArrayList<Float>()
+
+        fun tri(a: FloatArray, b: FloatArray, c: FloatArray) {
+            val ux = b[0] - a[0]; val uy = b[1] - a[1]; val uz = b[2] - a[2]
+            val vx = c[0] - a[0]; val vy = c[1] - a[1]; val vz = c[2] - a[2]
+            var nx = uy * vz - uz * vy
+            var ny = uz * vx - ux * vz
+            var nz = ux * vy - uy * vx
+            val len = Math.sqrt((nx * nx + ny * ny + nz * nz).toDouble()).toFloat()
+            if (len > 0.00001f) { nx /= len; ny /= len; nz /= len }
+            for (p in arrayOf(a, b, c)) {
+                out.add(p[0]); out.add(p[1]); out.add(p[2])
+                out.add(0f); out.add(0f)
+                out.add(nx); out.add(ny); out.add(nz)
+            }
         }
-        return out
+
+        /** A box, from its two opposite corners. */
+        fun box(x0: Float, y0: Float, z0: Float, x1: Float, y1: Float, z1: Float) {
+            val a = floatArrayOf(x0, y0, z0); val b = floatArrayOf(x1, y0, z0)
+            val c = floatArrayOf(x1, y0, z1); val d = floatArrayOf(x0, y0, z1)
+            val e = floatArrayOf(x0, y1, z0); val f = floatArrayOf(x1, y1, z0)
+            val g = floatArrayOf(x1, y1, z1); val h = floatArrayOf(x0, y1, z1)
+            tri(e, f, g); tri(e, g, h)
+            tri(a, d, c); tri(a, c, b)
+            tri(a, b, f); tri(a, f, e)
+            tri(d, h, g); tri(d, g, c)
+            tri(a, e, h); tri(a, h, d)
+            tri(b, c, g); tri(b, g, f)
+        }
+
+        /** A box laid along a direction in the ground plane: an arm, or a wing. */
+        fun arm(dirX: Float, dirZ: Float, from: Float, to: Float,
+                halfWidth: Float, y0: Float, y1: Float) {
+            val px = -dirZ
+            val pz = dirX
+            fun at(along: Float, side: Float, y: Float) = floatArrayOf(
+                dirX * along + px * side, y, dirZ * along + pz * side)
+            val a = at(from, -halfWidth, y0); val b = at(to, -halfWidth, y0)
+            val c = at(to, halfWidth, y0);    val d = at(from, halfWidth, y0)
+            val e = at(from, -halfWidth, y1); val f = at(to, -halfWidth, y1)
+            val g = at(to, halfWidth, y1);    val h = at(from, halfWidth, y1)
+            tri(e, f, g); tri(e, g, h)
+            tri(a, d, c); tri(a, c, b)
+            tri(a, b, f); tri(a, f, e)
+            tri(d, h, g); tri(d, g, c)
+            tri(a, e, h); tri(a, h, d)
+            tri(b, c, g); tri(b, g, f)
+        }
+
+        /** A short many sided post: a motor, or a propeller when it is flat. */
+        fun post(cx: Float, cz: Float, radius: Float, y0: Float, y1: Float, sides: Int) {
+            for (i in 0 until sides) {
+                val a0 = 2.0 * Math.PI * i / sides
+                val a1 = 2.0 * Math.PI * (i + 1) / sides
+                val x0 = cx + (radius * Math.cos(a0)).toFloat()
+                val z0 = cz + (radius * Math.sin(a0)).toFloat()
+                val x1 = cx + (radius * Math.cos(a1)).toFloat()
+                val z1 = cz + (radius * Math.sin(a1)).toFloat()
+                tri(floatArrayOf(x0, y0, z0), floatArrayOf(x1, y0, z1), floatArrayOf(x1, y1, z1))
+                tri(floatArrayOf(x0, y0, z0), floatArrayOf(x1, y1, z1), floatArrayOf(x0, y1, z0))
+                tri(floatArrayOf(cx, y1, cz), floatArrayOf(x0, y1, z0), floatArrayOf(x1, y1, z1))
+            }
+        }
+
+        fun build(): FloatArray {
+            val array = FloatArray(out.size)
+            for (i in out.indices) array[i] = out[i]
+            return array
+        }
     }
 
-    private fun v(x: Float, y: Float, z: Float) = floatArrayOf(x, y, z)
-
-    /** A quad seen as a quad: four arms, four motors, a body with a nose. */
+    /** A quad: four arms out to motors, propeller discs, a body with a nose. */
     private fun quad(): FloatArray {
-        val faces = ArrayList<FloatArray>()
-        val arms = arrayOf(
-            floatArrayOf(-1f, -1f), floatArrayOf(1f, -1f),
-            floatArrayOf(-1f, 1f), floatArrayOf(1f, 1f)
-        )
-        for (a in arms) {
-            val ex = a[0]
-            val ez = a[1]
-            // arm, as a flat strip from the body out to the motor
-            faces.add(v(ex * 0.12f, 0.02f, ez * 0.12f))
-            faces.add(v(ex * 0.9f, 0.02f, ez * 0.9f))
-            faces.add(v(ex * 0.12f + ez * 0.12f, 0.02f, ez * 0.12f - ex * 0.12f))
-            faces.add(v(ex * 0.9f, 0.02f, ez * 0.9f))
-            faces.add(v(ex * 0.9f + ez * 0.12f, 0.02f, ez * 0.9f - ex * 0.12f))
-            faces.add(v(ex * 0.12f + ez * 0.12f, 0.02f, ez * 0.12f - ex * 0.12f))
-            // motor, a short post standing on the arm end
-            faces.add(v(ex * 1f - 0.12f, 0.02f, ez * 1f))
-            faces.add(v(ex * 1f + 0.12f, 0.02f, ez * 1f))
-            faces.add(v(ex * 1f, 0.35f, ez * 1f))
+        val s = Solid()
+        val d = 0.7071f
+        for (c in arrayOf(floatArrayOf(d, -d), floatArrayOf(-d, -d),
+                          floatArrayOf(d, d), floatArrayOf(-d, d))) {
+            s.arm(c[0], c[1], 0.15f, 1f, 0.07f, -0.03f, 0.05f)
+            s.post(c[0], c[1], 0.13f, 0.05f, 0.22f, 8)
+            s.post(c[0], c[1], 0.42f, 0.23f, 0.25f, 10)
         }
-        // body: a low pyramid with its nose forward, so heading is readable
-        val nose = v(0f, 0.1f, -0.75f)
-        val top = v(0f, 0.42f, 0.1f)
-        val bl = v(-0.35f, 0f, 0.45f)
-        val br = v(0.35f, 0f, 0.45f)
-        val fl = v(-0.32f, 0f, -0.2f)
-        val fr = v(0.32f, 0f, -0.2f)
-        faces.add(nose); faces.add(fl); faces.add(top)
-        faces.add(nose); faces.add(top); faces.add(fr)
-        faces.add(fl); faces.add(bl); faces.add(top)
-        faces.add(br); faces.add(fr); faces.add(top)
-        faces.add(bl); faces.add(br); faces.add(top)
-        faces.add(nose); faces.add(fr); faces.add(fl)
-        return mesh(faces.toTypedArray())
+        s.box(-0.28f, -0.10f, -0.30f, 0.28f, 0.20f, 0.42f)
+        s.box(-0.16f, -0.05f, -0.62f, 0.16f, 0.10f, -0.28f)
+        s.box(-0.18f, 0.20f, -0.18f, 0.18f, 0.32f, 0.20f)
+        return s.build()
     }
 
-    /** A plane or wing: fuselage, swept wings, a fin and a tailplane. */
+    /** A plane: fuselage, swept wings, a fin and a tailplane. */
     private fun plane(): FloatArray {
-        val faces = ArrayList<FloatArray>()
-        val nose = v(0f, 0f, -1.5f)
-        val spine = v(0f, 0.22f, -0.2f)
-        val tail = v(0f, 0.05f, 1.1f)
-        val bl = v(-0.18f, -0.08f, 0.6f)
-        val br = v(0.18f, -0.08f, 0.6f)
-        // fuselage
-        faces.add(nose); faces.add(bl); faces.add(spine)
-        faces.add(nose); faces.add(spine); faces.add(br)
-        faces.add(spine); faces.add(bl); faces.add(tail)
-        faces.add(spine); faces.add(tail); faces.add(br)
-        faces.add(nose); faces.add(br); faces.add(bl)
-        // wings, swept back from the shoulder
-        val wl = v(-1.25f, 0.02f, 0.55f)
-        val wr = v(1.25f, 0.02f, 0.55f)
-        val rootFront = v(0f, 0.02f, -0.35f)
-        val rootBack = v(0f, 0.02f, 0.35f)
-        faces.add(rootFront); faces.add(wl); faces.add(rootBack)
-        faces.add(rootFront); faces.add(rootBack); faces.add(wr)
-        faces.add(rootFront); faces.add(rootBack); faces.add(wl)
-        faces.add(rootFront); faces.add(wr); faces.add(rootBack)
-        // fin and tailplane
-        faces.add(v(0f, 0.05f, 0.75f)); faces.add(v(0f, 0.55f, 1.1f)); faces.add(tail)
-        faces.add(v(-0.45f, 0.05f, 1.05f)); faces.add(v(0.45f, 0.05f, 1.05f)); faces.add(tail)
-        faces.add(v(0.45f, 0.05f, 1.05f)); faces.add(v(-0.45f, 0.05f, 1.05f)); faces.add(tail)
-        return mesh(faces.toTypedArray())
+        val s = Solid()
+        s.box(-0.11f, -0.08f, -0.95f, 0.11f, 0.12f, 0.75f)
+        s.box(-0.07f, -0.05f, -1.25f, 0.07f, 0.07f, -0.90f)
+        s.box(-0.16f, 0.12f, -0.35f, 0.16f, 0.26f, 0.15f)
+        s.arm(1f, 0f, 0.10f, 1.35f, 0.28f, -0.02f, 0.04f)
+        s.arm(-1f, 0f, 0.10f, 1.35f, 0.28f, -0.02f, 0.04f)
+        s.arm(1f, 0f, 0.05f, 0.5f, 0.16f, 0f, 0.04f)
+        s.arm(-1f, 0f, 0.05f, 0.5f, 0.16f, 0f, 0.04f)
+        s.box(-0.04f, 0.10f, 0.45f, 0.04f, 0.55f, 0.78f)
+        return s.build()
     }
+
 
     private var circleBuffer: FloatBuffer? = null
     private var circleCount = 0
@@ -477,6 +507,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         Matrix.multiplyMM(mvp, 0, projection, 0, vm, 0)
 
         drawTerrain()
+        drawModelLit()
         drawLines()
     }
 
@@ -524,7 +555,10 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val aNormal = GLES20.glGetAttribLocation(terrainProgram, "aNormal")
         val uMvp = GLES20.glGetUniformLocation(terrainProgram, "uMvp")
         val uHasTexture = GLES20.glGetUniformLocation(terrainProgram, "uHasTexture")
+        val uBase = GLES20.glGetUniformLocation(terrainProgram, "uBase")
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
+        // the ground's own colour, for a tile whose imagery has not arrived
+        GLES20.glUniform3f(uBase, 0.45f, 0.44f, 0.40f)
 
         // The proper answer to two surfaces at the same depth: push the ground
         // back by a hair, in depth only, so anything lying on it wins without
@@ -608,7 +642,9 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         if (shadow != null && sCount > 1) {
             shadow.position(0)
             GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, shadow)
-            GLES20.glUniform4f(uColor, 0f, 0f, 0f, 0.5f)
+            // the route colour darkened, rather than an anonymous black line
+            GLES20.glUniform4f(uColor, trackColor[0] * 0.45f, trackColor[1] * 0.45f,
+                trackColor[2] * 0.45f, 0.85f)
             GLES20.glDrawArrays(GLES20.GL_LINE_STRIP, 0, sCount)
         }
         if (drops != null && dCount > 2) {
@@ -624,8 +660,6 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glDepthMask(true)
             GLES20.glDisable(GLES20.GL_BLEND)
         }
-        drawModel(aPosition, uMvp, uColor)
-
         val marker: FloatBuffer?
         val mCount: Int
         synchronized(this) { marker = markerBuffer; mCount = markerCount }
@@ -707,10 +741,25 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         GLES20.glDisableVertexAttribArray(aPosition)
     }
 
-    private fun drawModel(aPosition: Int, uMvp: Int, uColor: Int) {
+    /**
+     * Drawn with the lit shader rather than the flat one.
+     *
+     * One colour with no shading makes any solid read as a silhouette, so arms,
+     * motors and a fuselage were shapes nobody could see. Borrowing the program
+     * the ground uses gives the model a light, at the cost of carrying normals.
+     */
+    private fun drawModelLit() {
         val buffer: FloatBuffer?
         synchronized(this) { buffer = if (modelVisible) modelBuffer else null }
-        if (buffer == null || modelCount < 3) return
+        if (buffer == null || modelCount < 3 || terrainProgram == 0) return
+
+        GLES20.glUseProgram(terrainProgram)
+        val aPosition = GLES20.glGetAttribLocation(terrainProgram, "aPosition")
+        val aTexture = GLES20.glGetAttribLocation(terrainProgram, "aTexture")
+        val aNormal = GLES20.glGetAttribLocation(terrainProgram, "aNormal")
+        val uMvp = GLES20.glGetUniformLocation(terrainProgram, "uMvp")
+        val uHasTexture = GLES20.glGetUniformLocation(terrainProgram, "uHasTexture")
+        val uBase = GLES20.glGetUniformLocation(terrainProgram, "uBase")
 
         Matrix.setIdentityM(modelMatrix, 0)
         Matrix.translateM(modelMatrix, 0, modelX, modelY, modelZ)
@@ -724,17 +773,32 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // Held at a size on screen rather than in metres — a model drawn to
         // scale is invisible from anywhere useful — but a good deal smaller
         // than it was, which made a quad look the size of a hangar.
-        val drawSize = Math.max(10f, Math.round(distance * 0.022f).toFloat())
+        // the same fraction of the distance the position arrow uses, so the two
+        // read as one family rather than two scales
+        val drawSize = Math.max(2f, Math.round(distance * 0.014f).toFloat())
         Matrix.scaleM(modelMatrix, 0, drawSize, drawSize / verticalScale, drawSize)
         Matrix.multiplyMM(modelMvp, 0, mvp, 0, modelMatrix, 0)
 
         GLES20.glUniformMatrix4fv(uMvp, 1, false, modelMvp, 0)
+        GLES20.glUniform1f(uHasTexture, 0f)
+        GLES20.glUniform3f(uBase, modelColor[0], modelColor[1], modelColor[2])
+
+        val stride = FLOATS_PER_VERTEX * 4
         buffer.position(0)
-        GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, buffer)
-        GLES20.glUniform4f(uColor, modelColor[0], modelColor[1], modelColor[2], 1f)
+        GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, stride, buffer)
+        GLES20.glEnableVertexAttribArray(aPosition)
+        buffer.position(3)
+        GLES20.glVertexAttribPointer(aTexture, 2, GLES20.GL_FLOAT, false, stride, buffer)
+        GLES20.glEnableVertexAttribArray(aTexture)
+        buffer.position(5)
+        GLES20.glVertexAttribPointer(aNormal, 3, GLES20.GL_FLOAT, false, stride, buffer)
+        GLES20.glEnableVertexAttribArray(aNormal)
+
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, modelCount)
-        // back to the plain matrix for the lines that follow
-        GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
+
+        GLES20.glDisableVertexAttribArray(aPosition)
+        GLES20.glDisableVertexAttribArray(aTexture)
+        GLES20.glDisableVertexAttribArray(aNormal)
     }
 
     private fun program(vertexSource: String, fragmentSource: String): Int {
