@@ -166,8 +166,7 @@ class PrefsFragment : PreferenceFragmentCompat() {
         // nothing when the flight controller already reports a single cell.
         val reportsPack =
             preferenceManager.sharedPreferences.getString("report_voltage", "Battery") == "Battery"
-        findPreference<ListPreference>("battery_cells")?.let {
-            it.isEnabled = reportsPack
-        }
+        // preference 1.0.0 has the old, non generic findPreference
+        findPreference("battery_cells")?.isEnabled = reportsPack
     }
 }
