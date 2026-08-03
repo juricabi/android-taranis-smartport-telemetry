@@ -90,6 +90,11 @@ class PreferenceManager(context: Context) {
         return sharedPreferences.getString("report_voltage", "Battery") ?: "Battery"
     }
 
+    // "auto", or a fixed cell count as a string
+    fun getBatteryCells(): String {
+        return sharedPreferences.getString("battery_cells", "auto") ?: "auto"
+    }
+
     fun showArtificialHorizonView(): Boolean {
         return sharedPreferences.getBoolean("show_artificial_horizon", true)
     }

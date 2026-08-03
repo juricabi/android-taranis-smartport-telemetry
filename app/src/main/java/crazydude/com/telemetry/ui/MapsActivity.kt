@@ -52,6 +52,7 @@ import crazydude.com.telemetry.maps.MapWrapper
 import crazydude.com.telemetry.maps.Position
 import crazydude.com.telemetry.maps.osm.OsmMapWrapper
 import crazydude.com.telemetry.utils.GeoUtils
+import crazydude.com.telemetry.utils.PlusCode
 import crazydude.com.telemetry.protocol.decoder.DataDecoder
 import crazydude.com.telemetry.protocol.pollers.LogPlayer
 import crazydude.com.telemetry.service.DataService
@@ -73,6 +74,7 @@ import kotlin.math.roundToInt
 class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Listener, SensorTimeoutManager.Listener, Fr24Manager.Listener {
 
     private var detectedProtocol: String = ""
+    private var detectedCells = 0
 
     companion object {
 
@@ -185,6 +187,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private lateinit var mapTypeButton: FloatingActionButton
     private lateinit var northUpButton: FloatingActionButton
     private lateinit var myLocationButton: FloatingActionButton
+    private lateinit var findQuadButton: FloatingActionButton
     private lateinit var fullscreenButton: ImageView
     private lateinit var menuButton: FloatingActionButton
     private lateinit var settingsButton: ImageView
@@ -317,6 +320,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         northUpButton = findViewById(R.id.north_up_button)
         compassHeading = findViewById(R.id.compass_heading)
         myLocationButton = findViewById(R.id.my_location_button)
+        findQuadButton = findViewById(R.id.find_quad_button)
         settingsButton = findViewById(R.id.settings_button)
         replayButton = findViewById(R.id.replay_button)
         seekBar = findViewById(R.id.seekbar)
@@ -418,6 +422,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             } else {
                 Toast.makeText(this, "Phone location not available", Toast.LENGTH_SHORT).show()
             }
+        }
+
+        findQuadButton.setOnClickListener {
+            showFindMyQuad()
         }
 
         menuButton.setOnClickListener {
@@ -648,6 +656,65 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         if ( marker == null ) {
             Toast.makeText(this, "Location is unknown", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    // Everything needed to walk to a downed model: where it was last seen, how
+    // far and in which direction from where you are standing, and a plus code
+    // that can be typed into any maps app or read out to someone else.
+    private fun showFindMyQuad() {
+        val pos = if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) lastGPS else null
+        if (pos == null) {
+            Toast.makeText(this, "No position received from the model yet", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val nl = 10.toChar().toString()
+        val plusCode = PlusCode.encode(pos.lat, pos.lon)
+        val coords = "%.6f,%.6f".format(pos.lat, pos.lon)
+        val mapsUrl = "https://www.google.com/maps/search/?api=1&query=" + coords
+
+        val text = StringBuilder()
+        text.append("Plus code").append(nl).append(plusCode).append(nl).append(nl)
+        text.append("Coordinates").append(nl).append(coords)
+
+        val me = map?.getMyLocation()
+        if (me != null) {
+            val results = FloatArray(2)
+            android.location.Location.distanceBetween(me.lat, me.lon, pos.lat, pos.lon, results)
+            val bearing = ((results[1] % 360f) + 360f) % 360f
+            text.append(nl).append(nl).append("From you").append(nl)
+            text.append("%.0f m".format(results[0]))
+            text.append("   bearing ")
+            text.append("%03d".format(bearing.toInt()))
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Find my quad")
+            .setMessage(text.toString())
+            .setPositiveButton("Open in Maps") { _, _ ->
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(mapsUrl)))
+                } catch (e: ActivityNotFoundException) {
+                    Toast.makeText(this, "No maps app found", Toast.LENGTH_LONG).show()
+                }
+            }
+            .setNeutralButton("Share") { _, _ ->
+                val share = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(
+                        Intent.EXTRA_TEXT,
+                        "Model last seen at " + plusCode + " (" + coords + ")" + nl + mapsUrl
+                    )
+                }
+                startActivity(Intent.createChooser(share, "Share location"))
+            }
+            .setNegativeButton("Copy") { _, _ ->
+                val clipboardManager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboardManager.primaryClip =
+                    ClipData.newPlainText("Location", plusCode + " (" + coords + ")")
+                Toast.makeText(this, "Copied " + plusCode, Toast.LENGTH_LONG).show()
+            }
+            .show()
     }
 
     private fun showDirectionsToCurrentLocation() {
@@ -2097,17 +2164,34 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
+    // Telemetry reports the pack voltage. Pilots read volts per cell, so show
+    // both: the pack as sent, and the pack divided by the cell count. The count
+    // is worked out from the first sensible reading unless it is set by hand.
+    private fun cellCount(packVoltage: Float): Int {
+        val setting = preferenceManager.getBatteryCells()
+        if (setting != "auto") {
+            return setting.toIntOrNull() ?: 1
+        }
+        if (detectedCells == 0 && packVoltage > 5f) {
+            var cells = Math.round(packVoltage / 3.85f)
+            if (cells < 1) cells = 1
+            if (cells > 8) cells = 8
+            detectedCells = cells
+        }
+        return if (detectedCells > 0) detectedCells else 1
+    }
+
     override fun onVBATOrCellData(voltage: Float) {
         runOnUiThread {
-            val reportVoltage = preferenceManager.getReportVoltage()
-            if (reportVoltage == "Battery") {
-                this.sensorTimeoutManager.onVBATData(voltage);
-                this.voltage.text = "${"%.2f".format(voltage)} V"
-            } else {
-                this.sensorTimeoutManager.onCellVoltageData(voltage)
-                this.cell_voltage.text = "${"%.2f".format(voltage)} V"
-                this.lastCellVoltage = voltage;
-            }
+            val cells = cellCount(voltage)
+            val perCell = voltage / cells
+
+            this.sensorTimeoutManager.onVBATData(voltage)
+            this.voltage.text = "${"%.2f".format(voltage)} V"
+
+            this.sensorTimeoutManager.onCellVoltageData(perCell)
+            this.cell_voltage.text = "${"%.2f".format(perCell)} V"
+            this.lastCellVoltage = perCell
         }
     }
 
