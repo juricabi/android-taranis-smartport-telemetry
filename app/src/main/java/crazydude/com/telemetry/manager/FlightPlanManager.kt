@@ -14,7 +14,19 @@ class FlightPlanManager(private val context: Context) {
     companion object {
         private const val PLANS_DIR = "flight_plans"
         private const val INDEX_FILE = "plans_index.json"
-        /** Means "no colour of its own": such a plan follows the setting. */
+        /**
+         * Colours handed to plans as they are imported, in turn.
+         *
+         * A plan gets a colour of its own at birth rather than sharing one
+         * setting with every other plan: two plans on the same map have to be
+         * told apart, and that is the whole reason to draw them.
+         */
+        val PALETTE = intArrayOf(
+            0xCC2196F3.toInt(), 0xCCFF9800.toInt(), 0xCC4CAF50.toInt(),
+            0xCCE040FB.toInt(), 0xCCFFEB3B.toInt(), 0xCCF44336.toInt(),
+            0xCC00BCD4.toInt(), 0xCCFFFFFF.toInt()
+        )
+
         const val DEFAULT_COLOR = 0x664488FF.toInt()
     }
 
@@ -101,7 +113,7 @@ class FlightPlanManager(private val context: Context) {
 
         val name = fileName.removeSuffix(".csv").removeSuffix(".CSV")
         val id = System.currentTimeMillis().toString()
-        val plan = FlightPlan(id, name, waypoints)
+        val plan = FlightPlan(id, name, waypoints, PALETTE[getPlans().size % PALETTE.size])
 
         val plans = getPlans().toMutableList()
         plans.add(plan)

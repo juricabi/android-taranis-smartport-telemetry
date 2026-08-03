@@ -295,8 +295,8 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
 
     // ------------------------------------------------- what the map also draws
 
-    private var flightPlans: List<List<crazydude.com.telemetry.maps.Position>> = emptyList()
-    private var flightPlanColor = 0
+    private var flightPlans: List<Pair<List<crazydude.com.telemetry.maps.Position>, Int>> =
+        emptyList()
     private var traffic: List<crazydude.com.telemetry.manager.Fr24Manager.AirplaneInfo> = emptyList()
     private var homeLineOn = false
     private var headingLineOn = false
@@ -304,16 +304,15 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     private var headingLineColor = 0
 
     fun setOverlaySettings(homeLine: Boolean, homeColor: Int,
-                           headingLine: Boolean, headingColor: Int, planColor: Int) {
+                           headingLine: Boolean, headingColor: Int) {
         homeLineOn = homeLine
         homeLineColor = homeColor
         headingLineOn = headingLine
         headingLineColor = headingColor
-        flightPlanColor = planColor
         rebuildOverlays()
     }
 
-    fun setFlightPlans(plans: List<List<crazydude.com.telemetry.maps.Position>>) {
+    fun setFlightPlans(plans: List<Pair<List<crazydude.com.telemetry.maps.Position>, Int>>) {
         flightPlans = plans
         rebuildOverlays()
     }
@@ -361,10 +360,11 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
                 c[0], c[1], c[2], c[3], true, 2f, false))
         }
 
-        // imported plans, laid on the ground they cross
-        val planColor = colorOf(flightPlanColor)
-        for (plan in flightPlans) {
+        // imported plans, laid on the ground they cross, each in its own colour
+        for (entry in flightPlans) {
+            val plan = entry.first
             if (plan.size < 2) continue
+            val planColor = colorOf(entry.second)
             val points = FloatArray(plan.size * 3)
             var i = 0
             for (p in plan) {

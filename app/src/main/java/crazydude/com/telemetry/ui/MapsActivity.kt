@@ -689,14 +689,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val plans = FlightPlanManager(this).getPlans()
         for (plan in plans) {
             if (!plan.visible || plan.waypoints.size < 2) continue
-            // a plan that has been given a colour keeps it, so several plans can
-            // be told apart; the rest follow the setting
-            val color = if (plan.color == FlightPlanManager.DEFAULT_COLOR) {
-                preferenceManager.getFlightPlanColor()
-            } else {
-                plan.color
-            }
-            val line = map?.addPolyline(4f, color, *plan.waypoints.toTypedArray())
+            val line = map?.addPolyline(4f, plan.color, *plan.waypoints.toTypedArray())
             if (line != null) {
                 flightPlanLines.add(line)
             }
@@ -2430,13 +2423,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // the same overlays the map carries, from the same settings
         view.setOverlaySettings(
             preferenceManager.isHomeLineEnabled(), preferenceManager.getHomeLineColor(),
-            preferenceManager.isHeadingLineEnabled(), preferenceManager.getHeadLineColor(),
-            preferenceManager.getFlightPlanColor()
+            preferenceManager.isHeadingLineEnabled(), preferenceManager.getHeadLineColor()
         )
         if (preferenceManager.isFlightPlansEnabled()) {
             val plans = FlightPlanManager(this).getPlans()
                 .filter { it.visible && it.waypoints.size >= 2 }
-                .map { it.waypoints }
+                .map { Pair(it.waypoints, it.color) }
             view.setFlightPlans(plans)
         }
         view.setTraffic(lastAirplanes)
@@ -2961,16 +2953,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val labels = options
             .map { it.toString() + "S — " + "%.2f".format(packVoltage / it) + " V per cell" }
             .toTypedArray()
+        // The title carries the voltage rather than a message: an AlertDialog
+        // shows either a message or a list, never both, and the message won —
+        // so the dialog appeared with nothing in it to choose.
         this.showDialog(
             AlertDialog.Builder(this)
-                .setTitle("Which battery?")
-                .setMessage(
-                    "%.1f".format(packVoltage) + " V could be either of these." +
-                        10.toChar() + 10.toChar() +
-                        "This only affects the volts per cell reading, and is asked once per " +
-                        "connection. If you connect on a part used pack it can read as a " +
-                        "smaller full one — Settings has a fixed cell count for that."
-                )
+                .setTitle("%.1f".format(packVoltage) + " V — which battery?")
                 .setItems(labels) { d, which ->
                     detectedCells = options[which]
                     cellsAnswered = true

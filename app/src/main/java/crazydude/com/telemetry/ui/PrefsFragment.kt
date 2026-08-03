@@ -140,13 +140,9 @@ class PrefsFragment : PreferenceFragmentCompat() {
     // Named colours rather than a picker: telling two plans apart is the whole
     // job, and these read the same on satellite imagery as on a map.
     private val planColorNames = arrayOf(
-        "Default", "Blue", "Red", "Green", "Yellow", "Orange", "Magenta", "White"
+        "Blue", "Orange", "Green", "Magenta", "Yellow", "Red", "Cyan", "White"
     )
-    private val planColorValues = intArrayOf(
-        FlightPlanManager.DEFAULT_COLOR,
-        0xCC2196F3.toInt(), 0xCCF44336.toInt(), 0xCC4CAF50.toInt(), 0xCCFFEB3B.toInt(),
-        0xCCFF9800.toInt(), 0xCCE040FB.toInt(), 0xCCFFFFFF.toInt()
-    )
+    private val planColorValues = FlightPlanManager.PALETTE
 
     private fun showFlightPlanColorDialog(plan: FlightPlanManager.FlightPlan) {
         val checked = planColorValues.indexOfFirst { it == plan.color }

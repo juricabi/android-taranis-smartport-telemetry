@@ -126,15 +126,7 @@
                 android:defaultValue="true"
                 android:key="show_flight_plans"/>
 
-        <com.jaredrummler.android.colorpicker.ColorPreferenceCompat
-            app:iconSpaceReserved="false"
-                android:defaultValue="@color/colorFlightPlan"
-                android:key="flight_plan_color"
-                app:cpv_showAlphaSlider="true"
-                app:cpv_allowPresets="false"
-                app:cpv_allowCustom="true"
-                android:summary="Default color for new flight plans"
-                android:title="Flight plan line color"/>
+
 
         <Preference
             app:iconSpaceReserved="false"

@@ -41,13 +41,13 @@ class CrsfDataDecoder(listener: Listener) : DataDecoder(listener) {
                 val value = data.data / 10f
                 listener.onCurrentData(value)
             }
-/*
             Protocol.GPS_ALTITUDE -> {
-                val gps_altitude = data.data
-                listener.onGPSAltitudeData(gps_altitude)
+                // Height above sea level, from the GPS frame. It was commented
+                // out, so on a CRSF link nothing ever reported it — which left
+                // the Altitude above MSL widget blank, and the flight without
+                // the one height that can be compared against terrain.
+                listener.onGPSAltitudeData(data.data.toFloat())
             }
-
- */
             Protocol.GPS_LONGITUDE -> {
                 longitude = data.data / 10000000.toDouble()
                 newLongitude = true
