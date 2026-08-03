@@ -13,6 +13,8 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import android.util.Base64
+import java.io.InputStream
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketException
@@ -66,9 +68,36 @@ class NetworkDataPoller(
          */
         const val MODE_TCP_SERVER = 2
 
+        /**
+         * A TBS Crossfire WiFi module's CRSF WebSocket, ws://<ip>/ws.
+         *
+         * Worth having as its own transport because it is the only way into
+         * that module that works on every firmware: the MQTT path its own phone
+         * app uses needs a broker running in the app and is broken on 3.20,
+         * while /ws served CRSF on 2.25, 3.0, 3.10 and 3.20 alike. What comes
+         * out of it is ordinary CRSF, so the existing decoder handles it.
+         */
+        const val MODE_WEBSOCKET = 3
+
         private const val RECEIVE_TIMEOUT_MS = 1000
         private const val ANNOUNCE_EVERY_MS = 1000L
         private const val MAX_PEERS = 4
+        private const val MAX_FRAME = 1 shl 20
+
+        private const val OPCODE_CONTINUATION = 0x0
+        private const val OPCODE_TEXT = 0x1
+        private const val OPCODE_BINARY = 0x2
+        private const val OPCODE_CLOSE = 0x8
+        private const val OPCODE_PING = 0x9
+        private const val OPCODE_PONG = 0xA
+
+        /**
+         * CRSF device ping, broadcast, from the radio address: sync, length,
+         * type 0x28, destination, origin, CRC8 over the body with poly 0xD5.
+         */
+        private val DEVICE_PING = byteArrayOf(
+            0xC8.toByte(), 0x04, 0x28, 0x00, 0xEA.toByte(), 0x54
+        )
 
         /**
          * A MAVLink v1 HEARTBEAT from a ground station: length 9, sysid 255,
@@ -154,6 +183,7 @@ class NetworkDataPoller(
                 when (mode) {
                     MODE_TCP_CLIENT -> runTcp()
                     MODE_TCP_SERVER -> runTcpServer()
+                    MODE_WEBSOCKET -> runWebSocket()
                     else -> runUdp()
                 }
             } catch (e: Exception) {
@@ -234,6 +264,138 @@ class NetworkDataPoller(
             tcpSocket = null
         }
         finish()
+    }
+
+    // ---------------------------------------------------------- WebSocket
+
+    private fun runWebSocket() {
+        val socket = Socket()
+        tcpSocket = socket
+        if (!isLoopback(host)) binder?.bind(socket)
+        socket.tcpNoDelay = true
+        socket.connect(InetSocketAddress(host, port), TCP_CONNECT_TIMEOUT_MS)
+
+        val key = Base64.encodeToString(randomBytes(16), Base64.NO_WRAP)
+        val crlf = "\r\n"
+        val request = "GET /ws HTTP/1.1" + crlf +
+            "Host: " + host + crlf +
+            "Upgrade: websocket" + crlf +
+            "Connection: Upgrade" + crlf +
+            "Sec-WebSocket-Key: " + key + crlf +
+            "Sec-WebSocket-Version: 13" + crlf + crlf
+        val out = socket.getOutputStream()
+        out.write(request.toByteArray())
+        out.flush()
+
+        val input = socket.getInputStream()
+        val status = readHandshake(input)
+        if (!status.contains(" 101")) {
+            // not a WebSocket endpoint: fail rather than feed HTML to a decoder
+            finish()
+            return
+        }
+
+        connectedOnce = true
+        runOnMainThread(Runnable { listener.onConnected() })
+
+        // The module answers rather than volunteers: without a device ping the
+        // socket opens and stays silent forever.
+        writeFrame(out, OPCODE_BINARY, DEVICE_PING)
+
+        while (!stopping && !finished) {
+            val frame = readFrame(input) ?: break
+            when (frame.first) {
+                OPCODE_BINARY, OPCODE_TEXT, OPCODE_CONTINUATION ->
+                    feed(frame.second, 0, frame.second.size)
+                OPCODE_PING -> writeFrame(out, OPCODE_PONG, frame.second)
+                OPCODE_CLOSE -> {
+                    stopping = true
+                }
+            }
+        }
+        finish()
+    }
+
+    private fun randomBytes(n: Int): ByteArray {
+        val out = ByteArray(n)
+        java.util.Random(System.currentTimeMillis()).nextBytes(out)
+        return out
+    }
+
+    private fun readHandshake(input: InputStream): String {
+        val sb = StringBuilder()
+        val endOfHeaders = "\r\n\r\n"
+        while (sb.length < 4096 && !sb.endsWith(endOfHeaders)) {
+            val c = input.read()
+            if (c < 0) break
+            sb.append(c.toChar())
+        }
+        return sb.toString()
+    }
+
+    private fun readFully(input: InputStream, n: Int): ByteArray? {
+        val out = ByteArray(n)
+        var read = 0
+        while (read < n) {
+            val r = input.read(out, read, n - read)
+            if (r < 0) return null
+            read += r
+        }
+        return out
+    }
+
+    /** opcode to payload, or null when the stream ends. */
+    private fun readFrame(input: InputStream): Pair<Int, ByteArray>? {
+        val head = readFully(input, 2) ?: return null
+        val opcode = head[0].toInt() and 0x0F
+        val masked = (head[1].toInt() and 0x80) != 0
+        var length = (head[1].toInt() and 0x7F).toLong()
+        if (length == 126L) {
+            val ext = readFully(input, 2) ?: return null
+            length = ((ext[0].toInt() and 0xFF).toLong() shl 8) or (ext[1].toInt() and 0xFF).toLong()
+        } else if (length == 127L) {
+            val ext = readFully(input, 8) ?: return null
+            length = 0
+            for (b in ext) length = (length shl 8) or (b.toInt() and 0xFF).toLong()
+        }
+        // a server must not mask, but tolerate it rather than desynchronise
+        val mask = if (masked) readFully(input, 4) ?: return null else null
+        if (length > MAX_FRAME) return null
+        val payload = readFully(input, length.toInt()) ?: return null
+        if (mask != null) {
+            for (i in payload.indices) {
+                payload[i] = (payload[i].toInt() xor mask[i % 4].toInt()).toByte()
+            }
+        }
+        return Pair(opcode, payload)
+    }
+
+    /** Client frames must always be masked, says RFC 6455. */
+    private fun writeFrame(out: java.io.OutputStream, opcode: Int, payload: ByteArray) {
+        val mask = randomBytes(4)
+        val header = java.io.ByteArrayOutputStream()
+        header.write(0x80 or opcode)
+        val n = payload.size
+        when {
+            n < 126 -> header.write(0x80 or n)
+            n < 65536 -> {
+                header.write(0x80 or 126); header.write((n shr 8) and 0xFF); header.write(n and 0xFF)
+            }
+            else -> {
+                header.write(0x80 or 127)
+                for (shift in intArrayOf(56, 48, 40, 32, 24, 16, 8, 0)) {
+                    header.write((n ushr shift) and 0xFF)
+                }
+            }
+        }
+        header.write(mask)
+        val masked = ByteArray(n)
+        for (i in 0 until n) masked[i] = (payload[i].toInt() xor mask[i % 4].toInt()).toByte()
+        synchronized(this) {
+            out.write(header.toByteArray())
+            out.write(masked)
+            out.flush()
+        }
     }
 
     // ---------------------------------------------------------------- UDP

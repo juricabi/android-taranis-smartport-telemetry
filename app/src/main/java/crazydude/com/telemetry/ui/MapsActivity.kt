@@ -1736,7 +1736,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val port: Int,
         val useGateway: Boolean,
         /** a fixed address, where the preset knows it */
-        val host: String? = null
+        val host: String? = null,
+        /** transport, matching the order of the transport spinner */
+        val mode: Int = if (useTcp) NetworkDataPoller.MODE_TCP_CLIENT else NetworkDataPoller.MODE_UDP
     )
 
     // The transport stays in the name because it is the thing that decides
@@ -1748,6 +1750,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         NetworkPreset("TBS Crossfire / Tracer (UDP)", false, 8888, false),
         NetworkPreset("MAVLink router / ground station (UDP)", false, 14550, false),
         NetworkPreset("Serial to Wi-Fi bridge (TCP)", true, 23, true),
+        // The one path into a Crossfire WiFi module that every firmware
+        // serves: its own phone app uses MQTT, which needs a broker in the app
+        // and is broken on the newest firmware, while this carries plain CRSF.
+        NetworkPreset(
+            "TBS Crossfire WiFi (WebSocket)", true, 80, true,
+            mode = NetworkDataPoller.MODE_WEBSOCKET
+        ),
         NetworkPreset("Custom", false, 14550, false)
     )
 
@@ -1766,7 +1775,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val findButton = view.findViewById<Button>(R.id.network_find)
         val portDefaultButton = view.findViewById<Button>(R.id.network_port_default)
 
-        val transports = arrayOf("UDP listen", "TCP client", "TCP server (wait)")
+        val transports = arrayOf(
+            "UDP listen", "TCP client", "TCP server (wait)", "TBS WebSocket"
+        )
 
         presetSpinner.adapter = ArrayAdapter(
             this, android.R.layout.simple_spinner_dropdown_item,
@@ -1805,8 +1816,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // A UDP listen binds a local port and never needs the module's address,
         // which is the whole reason the UDP presets are offered first.
         fun updateHostEnabled() {
-            // only a TCP *client* needs somewhere to dial
-            val tcp = transportSpinner.selectedItemPosition == 1
+            // whatever dials out needs somewhere to dial: a TCP client and a
+            // WebSocket both do, a UDP listen and a TCP server do not
+            val chosen = transportSpinner.selectedItemPosition
+            val tcp = chosen == NetworkDataPoller.MODE_TCP_CLIENT ||
+                chosen == NetworkDataPoller.MODE_WEBSOCKET
             hostField.isEnabled = tcp
             hostLabel.isEnabled = tcp
             // Greying the field out on its own only raises the question "why
@@ -1832,7 +1846,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
         fun applyPreset(index: Int) {
             val preset = networkPresets[index]
-            transportSpinner.setSelection(if (preset.useTcp) 1 else 0)
+            transportSpinner.setSelection(preset.mode)
             // the port this preset was last used with, not the documented one:
             // modules do get moved off their default
             portField.setText(
@@ -1998,7 +2012,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(R.string.network_connect) { _, _ ->
                     val mode = transportSpinner.selectedItemPosition
-                    val useTcp = mode == NetworkDataPoller.MODE_TCP_CLIENT
+                    val useTcp = mode == NetworkDataPoller.MODE_TCP_CLIENT ||
+                        mode == NetworkDataPoller.MODE_WEBSOCKET
                     val port = portField.text.toString().trim().toIntOrNull() ?: 0
                     val host = hostField.text.toString().trim()
 
