@@ -2164,9 +2164,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
-    // Telemetry reports the pack voltage. Pilots read volts per cell, so show
-    // both: the pack as sent, and the pack divided by the cell count. The count
-    // is worked out from the first sensible reading unless it is set by hand.
+    // The reported value is either the whole pack or a single cell, depending on
+    // how the flight controller is set up (report_cell_voltage). Work out the
+    // other one from the cell count, which is either set by hand or taken from
+    // the first sensible pack reading.
     private fun cellCount(packVoltage: Float): Int {
         val setting = preferenceManager.getBatteryCells()
         if (setting != "auto") {
@@ -2178,20 +2179,38 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             if (cells > 8) cells = 8
             detectedCells = cells
         }
-        return if (detectedCells > 0) detectedCells else 1
+        return detectedCells
     }
 
     override fun onVBATOrCellData(voltage: Float) {
         runOnUiThread {
-            val cells = cellCount(voltage)
-            val perCell = voltage / cells
+            if (preferenceManager.getReportVoltage() == "Battery") {
+                // reported value is the pack
+                this.sensorTimeoutManager.onVBATData(voltage)
+                this.voltage.text = "${"%.2f".format(voltage)} V"
 
-            this.sensorTimeoutManager.onVBATData(voltage)
-            this.voltage.text = "${"%.2f".format(voltage)} V"
+                val cells = cellCount(voltage)
+                if (cells > 0) {
+                    val perCell = voltage / cells
+                    this.sensorTimeoutManager.onCellVoltageData(perCell)
+                    this.cell_voltage.text = "${"%.2f".format(perCell)} V"
+                    this.lastCellVoltage = perCell
+                }
+            } else {
+                // reported value is one cell
+                this.sensorTimeoutManager.onCellVoltageData(voltage)
+                this.cell_voltage.text = "${"%.2f".format(voltage)} V"
+                this.lastCellVoltage = voltage
 
-            this.sensorTimeoutManager.onCellVoltageData(perCell)
-            this.cell_voltage.text = "${"%.2f".format(perCell)} V"
-            this.lastCellVoltage = perCell
+                // the pack can only be shown if the cell count is known
+                val setting = preferenceManager.getBatteryCells()
+                val cells = setting.toIntOrNull() ?: 0
+                if (cells > 0) {
+                    val pack = voltage * cells
+                    this.sensorTimeoutManager.onVBATData(pack)
+                    this.voltage.text = "${"%.2f".format(pack)} V"
+                }
+            }
         }
     }
 
