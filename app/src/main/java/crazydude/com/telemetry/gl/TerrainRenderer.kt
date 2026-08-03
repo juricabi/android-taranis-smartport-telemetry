@@ -166,14 +166,52 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     private var circleBuffer: FloatBuffer? = null
     private var circleCount = 0
 
-    private var myLocationBuffer: FloatBuffer? = null
-    private var myLocationCount = 0
+    private var arrowBuffer: FloatBuffer? = null
+    private val arrowMatrix = FloatArray(16)
+    private val arrowMvp = FloatArray(16)
+    @Volatile private var myVisible = false
+    @Volatile private var myX = 0f
+    @Volatile private var myY = 0f
+    @Volatile private var myZ = 0f
+    @Volatile private var myHeading = 0f
 
-    /** The chevron for where you are standing, already laid on the ground. */
+    /**
+     * Where you are standing and which way you face.
+     *
+     * Position only: the size is worked out per frame from how far the camera
+     * is, so the arrow holds its size on the screen the way a marker on a map
+     * does. Fixed in metres it was a speck from high up and covered the hill
+     * from close in.
+     */
     @Synchronized
-    fun setMyLocation(triangles: FloatArray) {
-        myLocationBuffer = floats(triangles)
-        myLocationCount = triangles.size / 3
+    fun setMyLocation(x: Float, y: Float, z: Float, headingDegrees: Float) {
+        myX = x; myY = y; myZ = z
+        myHeading = headingDegrees
+        myVisible = true
+        if (arrowBuffer == null) arrowBuffer = floats(arrowMesh())
+    }
+
+    /** A unit arrow: nose along -z, swept corners, a raised spine. */
+    private fun arrowMesh(): FloatArray {
+        val nose = floatArrayOf(0f, 0f, -1.6f)
+        val left = floatArrayOf(-1f, 0f, 1f)
+        val right = floatArrayOf(1f, 0f, 1f)
+        val tail = floatArrayOf(0f, 0f, 0.4f)
+        val spine = floatArrayOf(0f, 0.8f, 0.1f)
+        val faces = arrayOf(
+            nose, left, spine,
+            nose, spine, right,
+            left, tail, spine,
+            tail, right, spine,
+            nose, tail, left,
+            nose, right, tail
+        )
+        val out = FloatArray(faces.size * 3)
+        var i = 0
+        for (f in faces) {
+            out[i++] = f[0]; out[i++] = f[1]; out[i++] = f[2]
+        }
+        return out
     }
 
     /** The accuracy ring, already laid on the ground by whoever built it. */
@@ -433,13 +471,22 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val mCount: Int
         synchronized(this) { marker = markerBuffer; mCount = markerCount }
         val mine: FloatBuffer?
-        val myCount: Int
-        synchronized(this) { mine = myLocationBuffer; myCount = myLocationCount }
-        if (mine != null && myCount >= 3) {
+        synchronized(this) { mine = if (myVisible) arrowBuffer else null }
+        if (mine != null) {
+            // a fortieth of the distance out, so it is the same size on screen
+            // however far the camera is
+            val size = Math.max(3f, distance * 0.025f)
+            Matrix.setIdentityM(arrowMatrix, 0)
+            Matrix.translateM(arrowMatrix, 0, myX, myY, myZ)
+            Matrix.rotateM(arrowMatrix, 0, -myHeading, 0f, 1f, 0f)
+            Matrix.scaleM(arrowMatrix, 0, size, size / verticalScale, size)
+            Matrix.multiplyMM(arrowMvp, 0, mvp, 0, arrowMatrix, 0)
+            GLES20.glUniformMatrix4fv(uMvp, 1, false, arrowMvp, 0)
             mine.position(0)
             GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, mine)
             GLES20.glUniform4f(uColor, 0.15f, 0.55f, 1f, 1f)
-            GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, myCount)
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 18)
+            GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
         }
 
         val ring: FloatBuffer?
@@ -480,7 +527,9 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         Matrix.rotateM(modelMatrix, 0, -modelHeading, 0f, 1f, 0f)
         // undo the vertical exaggeration on the dart itself, or it grows a
         // taller fin the more the ground is stretched
-        Matrix.scaleM(modelMatrix, 0, modelSize, modelSize / verticalScale, modelSize)
+        // held at a size on screen rather than in metres, as the arrow is
+        val drawSize = Math.max(modelSize, distance * 0.02f)
+        Matrix.scaleM(modelMatrix, 0, drawSize, drawSize / verticalScale, drawSize)
         Matrix.multiplyMM(modelMvp, 0, mvp, 0, modelMatrix, 0)
 
         GLES20.glUniformMatrix4fv(uMvp, 1, false, modelMvp, 0)

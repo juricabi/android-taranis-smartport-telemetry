@@ -214,7 +214,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         val x = scene.east(myLon)
         val z = -scene.north(myLat)
         val y = ground - scene.originAltitude + 1f
-        buildMyArrow(x, y, z)
+        placeMyArrow()
 
         if (myAccuracy < 1f) return
         val metresPerDegreeLon = 111320.0 * Math.cos(Math.toRadians(myLat))
@@ -271,52 +271,24 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
      * one finger drags the ground, two fingers pinch to zoom, twist to turn,
      * and slide together to tilt.
      */
-    /**
-     * An arrow with a body, pointing where the phone is pointing.
-     *
-     * A nose, two swept back corners and a raised spine, so it reads as a
-     * direction from above and as a solid from the side.
-     */
-    private fun buildMyArrow(x: Float, y: Float, z: Float) {
-        val size = Math.max(6f, scene.extent / 90f)
-        val heading = Math.toRadians(myHeading.toDouble())
-        val sin = Math.sin(heading).toFloat()
-        val cos = Math.cos(heading).toFloat()
-
-        // in the arrow's own frame: nose ahead, corners behind, tail notched in
-        fun place(forward: Float, side: Float, up: Float): FloatArray {
-            val fx = sin * forward + cos * side
-            val fz = -cos * forward + sin * side
-            return floatArrayOf(x + fx * size, y + up * size, z + fz * size)
-        }
-
-        val nose = place(1.6f, 0f, 0f)
-        val left = place(-1f, -1f, 0f)
-        val right = place(-1f, 1f, 0f)
-        val tail = place(-0.4f, 0f, 0f)
-        val spine = place(-0.1f, 0f, 0.8f)
-
-        renderer.setMyLocation(floatArrayOf(
-            nose[0], nose[1], nose[2], left[0], left[1], left[2], spine[0], spine[1], spine[2],
-            nose[0], nose[1], nose[2], spine[0], spine[1], spine[2], right[0], right[1], right[2],
-            left[0], left[1], left[2], tail[0], tail[1], tail[2], spine[0], spine[1], spine[2],
-            tail[0], tail[1], tail[2], right[0], right[1], right[2], spine[0], spine[1], spine[2],
-            nose[0], nose[1], nose[2], tail[0], tail[1], tail[2], left[0], left[1], left[2],
-            nose[0], nose[1], nose[2], right[0], right[1], right[2], tail[0], tail[1], tail[2]
-        ))
-    }
-
     /** Which way the phone is pointing, so the arrow means something. */
     fun setMyHeading(degrees: Float) {
-        if (Math.abs(degrees - myHeading) < 2f) return
+        var turn = degrees - myHeading
+        while (turn > 180f) turn -= 360f
+        while (turn < -180f) turn += 360f
+        // a couple of degrees of hysteresis, or it twitches on every sample
+        if (Math.abs(turn) < 2f) return
         myHeading = degrees
-        if (!myLat.isNaN() && !myLon.isNaN()) {
-            val ground = scene.groundAt(myLat, myLon)
-            if (ground != null) {
-                buildMyArrow(scene.east(myLon), ground - scene.originAltitude + 1f,
-                    -scene.north(myLat))
-            }
-        }
+        placeMyArrow()
+    }
+
+    private fun placeMyArrow() {
+        if (myLat.isNaN() || myLon.isNaN()) return
+        val ground = scene.groundAt(myLat, myLon) ?: return
+        renderer.setMyLocation(
+            scene.east(myLon), ground - scene.originAltitude + 1f,
+            -scene.north(myLat), myHeading
+        )
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -459,15 +431,36 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
 
     override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) {}
 
-    fun onResume() {
-        surface.onResume()
-        ticker.post(poll)
+    /**
+     * Sensors follow the view being on screen, not the activity's lifecycle.
+     *
+     * This view is built when 3D is chosen, which is long after the activity
+     * resumed — so registering in onResume alone meant the compass was never
+     * listened to at all and the arrow never turned.
+     */
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        listenToCompass()
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        sensors?.unregisterListener(this)
+    }
+
+    private fun listenToCompass() {
         sensors?.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER)?.let {
             sensors.registerListener(this, it, android.hardware.SensorManager.SENSOR_DELAY_UI)
         }
         sensors?.getDefaultSensor(android.hardware.Sensor.TYPE_MAGNETIC_FIELD)?.let {
             sensors.registerListener(this, it, android.hardware.SensorManager.SENSOR_DELAY_UI)
         }
+    }
+
+    fun onResume() {
+        surface.onResume()
+        ticker.post(poll)
+        listenToCompass()
     }
 
     fun onPause() {
