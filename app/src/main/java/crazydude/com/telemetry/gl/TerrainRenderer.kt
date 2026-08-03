@@ -484,6 +484,14 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val uHasTexture = GLES20.glGetUniformLocation(terrainProgram, "uHasTexture")
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
 
+        // The proper answer to two surfaces at the same depth: push the ground
+        // back by a hair, in depth only, so anything lying on it wins without
+        // being moved off it. The bias is worked out per fragment from the
+        // slope and the depth resolution to hand, which is why it holds at
+        // every zoom where a fixed lift could not — and nothing floats.
+        GLES20.glEnable(GLES20.GL_POLYGON_OFFSET_FILL)
+        GLES20.glPolygonOffset(1.5f, 4f)
+
         val snapshot: List<Tile>
         synchronized(this) { snapshot = ArrayList(tiles) }
         for (tile in snapshot) {
@@ -513,17 +521,17 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glDisableVertexAttribArray(aTexture)
             GLES20.glDisableVertexAttribArray(aNormal)
         }
+        GLES20.glDisable(GLES20.GL_POLYGON_OFFSET_FILL)
     }
 
     /**
-     * How far above the terrain to draw the things that lie on it.
+     * A whisker above the terrain, no more.
      *
-     * A hundredth of the camera distance: at arm's length that is centimetres,
-     * and at the far end of the zoom it is tens of metres, which is still
-     * invisible at that range and is well clear of what the depth buffer can
-     * resolve. The zoom being capped is what makes a proportion safe.
+     * The ground is pushed back in depth while it is drawn, which is what
+     * actually keeps these clear of it; this is only so a line lying exactly on
+     * a slope does not weave in and out of it between vertices.
      */
-    private fun groundLift(): Float = Math.max(0.5f, distance * 0.01f)
+    private fun groundLift(): Float = Math.max(0.15f, distance * 0.0005f)
 
     private fun drawLines() {
         if (lineProgram == 0) return
