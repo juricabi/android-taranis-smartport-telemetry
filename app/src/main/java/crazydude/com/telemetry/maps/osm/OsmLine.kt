@@ -43,5 +43,10 @@ class OsmLine(private val mapView: MapView) : MapLine() {
         get() = line.actualPoints.size
     override var color: Int
         get() = line.color
-        set(value) {line.color = value}
+        // redrawn straight away: without this a colour picked in the settings
+        // did not appear until something else happened to invalidate the map
+        set(value) {
+            line.color = value
+            mapView.invalidate()
+        }
 }

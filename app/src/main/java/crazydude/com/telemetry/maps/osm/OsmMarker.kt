@@ -54,6 +54,7 @@ class OsmMarker(icon: Int, color: Int?, position: Position, private val mapView:
 
     override fun setIcon(icon: Int, color: Int) {
         marker.icon = buildIcon(icon, color)
+        mapView.invalidate()
     }
 
     override fun remove() {

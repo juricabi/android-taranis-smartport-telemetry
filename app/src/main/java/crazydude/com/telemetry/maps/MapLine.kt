@@ -27,16 +27,23 @@ abstract class MapLine {
             lastLon = 0.0
         }
 
-        var threshold = 5
+        // How far the model must move before the track gains a point. One
+        // metre keeps the shape of a turn; five, as it was, cut the corners off
+        // everything and made a circuit look like a polygon.
+        //
+        // It widens as the track gets long, so a whole flight still costs a
+        // bounded number of points. The tests were the wrong way round before:
+        // anything over 1500 matched the first rung, so it never reached the
+        // others and every long track sat at ten metres.
+        val points = size + spoints.size
+        var threshold = 1
         if (limit > 1500) {
-            if ((size + spoints.size) > 1500) {
-                threshold = 10
-            } else if ((size + spoints.size) > 3000) {
-                threshold = 20
-            } else if ((size + spoints.size) > 5000) {
-                threshold = 30
-            } else if ((size + spoints.size) > 7000) {
-                threshold = 100
+            threshold = when {
+                points > 7000 -> 30
+                points > 5000 -> 20
+                points > 3000 -> 10
+                points > 1500 -> 5
+                else -> 1
             }
         }
 

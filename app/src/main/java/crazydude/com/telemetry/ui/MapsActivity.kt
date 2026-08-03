@@ -1249,7 +1249,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         this.sensorTimeoutManager.resume();
         updateWindowFullscreenDecoration()
         updateScreenOrientation()
-        drawFlightPlans()
+        // reapplies the colours and the heading line, which is how a change made
+        // in the settings reaches the map; it draws the flight plans too
+        initHeadingLine()
         updateHomeLine()
         if (checkCallingOrSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             val lm = getSystemService(LOCATION_SERVICE) as LocationManager
