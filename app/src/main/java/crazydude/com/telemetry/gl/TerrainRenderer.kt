@@ -121,6 +121,9 @@ class TerrainRenderer : GLSurfaceView.Renderer {
 
     @Volatile var trackColor = floatArrayOf(1f, 0.85f, 0.1f, 1f)
 
+    /** The model's colour, from the same setting that tints the map marker. */
+    @Volatile var modelColor = floatArrayOf(1f, 0.25f, 0.15f, 1f)
+
     /** Anything else worth drawing as lines: home, heading, plans, traffic. */
     class LineSet(
         val vertices: FloatArray,
@@ -721,14 +724,14 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // Held at a size on screen rather than in metres — a model drawn to
         // scale is invisible from anywhere useful — but a good deal smaller
         // than it was, which made a quad look the size of a hangar.
-        val drawSize = Math.max(20f, Math.round(distance * 0.045f).toFloat())
+        val drawSize = Math.max(10f, Math.round(distance * 0.022f).toFloat())
         Matrix.scaleM(modelMatrix, 0, drawSize, drawSize / verticalScale, drawSize)
         Matrix.multiplyMM(modelMvp, 0, mvp, 0, modelMatrix, 0)
 
         GLES20.glUniformMatrix4fv(uMvp, 1, false, modelMvp, 0)
         buffer.position(0)
         GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, buffer)
-        GLES20.glUniform4f(uColor, 1f, 0.25f, 0.15f, 1f)
+        GLES20.glUniform4f(uColor, modelColor[0], modelColor[1], modelColor[2], 1f)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, modelCount)
         // back to the plain matrix for the lines that follow
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)

@@ -413,6 +413,12 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         renderer.setOverlays(sets)
     }
 
+    /** The model's colour, from the same setting the map marker uses. */
+    fun setModelColor(argb: Int) {
+        val c = colorOf(argb)
+        renderer.modelColor = floatArrayOf(c[0], c[1], c[2], 1f)
+    }
+
     /** The route line colour, so the flight looks the same in both views. */
     fun setTrackColor(argb: Int) {
         val c = colorOf(argb)
