@@ -109,7 +109,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             "OpenTopoMap (can be cached)",
             "Satellite - ESRI (can be cached)",
             "Satellite + Streets - ESRI (can be cached)",
-            "3D terrain"
+            "3D terrain (can be cached)"
         )
 
         /** The entry that opens the 3D screen instead of changing the map. */

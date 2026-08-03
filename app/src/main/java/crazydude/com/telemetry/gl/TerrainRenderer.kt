@@ -33,9 +33,13 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                 vTexture = aTexture;
                 // a fixed light from the north west, the way a printed map is lit
                 vec3 light = normalize(vec3(-0.5, 0.8, -0.4));
-                // a gentle light: enough to tell one face from another, not
-                // enough to lose the colour a face is supposed to be
-                vShade = 0.82 + 0.18 * max(dot(normalize(aNormal), light), 0.0);
+                // How much the face lies across the light, not which way it
+                // faces it. A procedural solid built from boxes and posts does
+                // not wind every triangle the same way, and a signed dot turns
+                // whichever ones came out backwards flat black — this cannot,
+                // while still telling a top from a side from an end.
+                float lit = abs(dot(normalize(aNormal), light));
+                vShade = 0.70 + 0.30 * lit;
             }
         """
 
