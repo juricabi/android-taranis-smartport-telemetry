@@ -181,7 +181,7 @@
     <string name="network_host_unused">Address (not needed for UDP)</string>
     <string name="network_host_hint_udp">not needed when listening</string>
     <string name="network_hint_tcp">Connects out to the module. If the phone joined the module&#8217;s own network, its address is the gateway shown above.</string>
-    <string name="network_hint_udp">Listens on this port. The module&#8217;s address is not needed — ExpressLRS broadcasts its telemetry.</string>
+    <string name="network_hint_udp">Listens on this port. The module&#8217;s address is not needed — it sends telemetry out to the network.</string>
     <string name="network_interface">Network</string>
     <string name="network_interface_auto">Automatic</string>
     <string name="network_find">Find</string>
