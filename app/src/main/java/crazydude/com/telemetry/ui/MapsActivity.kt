@@ -30,6 +30,7 @@ import android.text.method.LinkMovementMethod
 import android.text.style.StyleSpan
 import android.util.TypedValue
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
@@ -190,6 +191,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     @Volatile private var phoneAccuracy = 0f
+    private var terrain3D: Terrain3DView? = null
 
     private lateinit var connectButton: Button
     private lateinit var replayButton: ImageView
@@ -1319,6 +1321,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     override fun onResume() {
         super.onResume()
         map?.onResume()
+        terrain3D?.onResume()
         this.sensorTimeoutManager.resume();
         updateWindowFullscreenDecoration()
         updateScreenOrientation()
@@ -1335,6 +1338,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     override fun onPause() {
         super.onPause()
+        terrain3D?.onPause()
         map?.onPause()
         this.sensorTimeoutManager.pause();
         this.logPlayer?.stop();
@@ -2367,37 +2371,47 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     private fun show3DView() {
-        val intent = Intent(this, Scene3DActivity::class.java)
-        // where you are standing, marked in the scene
-        map?.getMyLocation()?.let {
-            intent.putExtra(Scene3DActivity.EXTRA_MY_LAT, it.lat)
-            intent.putExtra(Scene3DActivity.EXTRA_MY_LON, it.lon)
-            intent.putExtra(Scene3DActivity.EXTRA_MY_ACCURACY, phoneAccuracy)
-        }
-
-        if (crazydude.com.telemetry.gl.LiveFlightPath.size() >= 2) {
-            Scene3DActivity.pending = crazydude.com.telemetry.gl.LiveFlightPath.snapshot()
-            startActivity(intent)
-            return
-        }
-
-        // No flight yet is no reason to refuse: the ground is there either way,
-        // and looking at it before flying is the point of having it. Anywhere
-        // we know about will do — the model, where it was last seen, or here.
+        val mine = map?.getMyLocation()
+        // No flight yet is no reason to refuse: the ground is there either way.
+        // Anywhere we know about will do — the model, where it was last seen,
+        // or here.
         val where = when {
             lastGPS.lat != 0.0 || lastGPS.lon != 0.0 -> lastGPS
             lastKnownGPS != null -> lastKnownGPS
-            else -> map?.getMyLocation()
+            else -> mine
         }
-        if (where == null) {
+        if (where == null && crazydude.com.telemetry.gl.LiveFlightPath.size() < 2) {
             Toast.makeText(this, "No position yet, from the model or this phone",
                 Toast.LENGTH_SHORT).show()
             return
         }
-        Scene3DActivity.pending = null
-        intent.putExtra(Scene3DActivity.EXTRA_LAT, where.lat)
-        intent.putExtra(Scene3DActivity.EXTRA_LON, where.lon)
-        startActivity(intent)
+
+        hide3DView()
+        mapHolder.removeAllViews()
+        map = null
+
+        val view = Terrain3DView(this)
+        terrain3D = view
+        mapHolder.addView(
+            view,
+            ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
+        view.start(
+            crazydude.com.telemetry.gl.LiveFlightPath.snapshot(),
+            where?.lat ?: Double.NaN, where?.lon ?: Double.NaN,
+            mine?.lat ?: Double.NaN, mine?.lon ?: Double.NaN, phoneAccuracy
+        )
+    }
+
+    private fun hide3DView() {
+        terrain3D?.let {
+            it.onPause()
+            it.release()
+            mapHolder.removeView(it)
+        }
+        terrain3D = null
     }
 
     /** Terrain over the flight's area, off the UI thread; [onReady] on it. */
@@ -2759,7 +2773,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val builder = AlertDialog.Builder(this)
         builder.setTitle(fDialogTitle)
 
-        val checkItem = preferenceManager.getMapType() - OsmMapWrapper.MAP_TYPE_DEFAULT
+        val checkItem = if (terrain3D != null) {
+            ITEM_3D
+        } else {
+            preferenceManager.getMapType() - OsmMapWrapper.MAP_TYPE_DEFAULT
+        }
 
         builder.setSingleChoiceItems(
             MAP_TYPE_ITEMS,
@@ -2772,6 +2790,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 show3DView()
                 return@setSingleChoiceItems
             }
+            hide3DView()
             mapHolder.removeAllViews()
             map = null
             mapType = item + OsmMapWrapper.MAP_TYPE_DEFAULT

@@ -157,6 +157,16 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     private var circleBuffer: FloatBuffer? = null
     private var circleCount = 0
 
+    private var myLocationBuffer: FloatBuffer? = null
+    private var myLocationCount = 0
+
+    /** The chevron for where you are standing, already laid on the ground. */
+    @Synchronized
+    fun setMyLocation(triangles: FloatArray) {
+        myLocationBuffer = floats(triangles)
+        myLocationCount = triangles.size / 3
+    }
+
     /** The accuracy ring, already laid on the ground by whoever built it. */
     @Synchronized
     fun setAccuracyCircle(ring: FloatArray) {
@@ -262,7 +272,15 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // becomes a meaningless slab
         val floorY = groundUnderCamera?.invoke(eyeX, eyeZ)
         if (floorY != null && eyeY < floorY + 30f) eyeY = floorY + 30f
-        Matrix.setLookAtM(view, 0, eyeX, eyeY, eyeZ, target[0], target[1], target[2], 0f, 1f, 0f)
+        // and the point being looked at, or the camera tips under the ground
+        // trying to see beneath it
+        val targetFloor = groundUnderCamera?.invoke(target[0], target[2])
+        val targetY = if (targetFloor != null && target[1] < targetFloor + 5f) {
+            targetFloor + 5f
+        } else {
+            target[1]
+        }
+        Matrix.setLookAtM(view, 0, eyeX, eyeY, eyeZ, target[0], targetY, target[2], 0f, 1f, 0f)
 
         // the exaggeration lives in the matrix, so nothing has to be rebuilt
         val scaled = FloatArray(16)
@@ -391,6 +409,16 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val marker: FloatBuffer?
         val mCount: Int
         synchronized(this) { marker = markerBuffer; mCount = markerCount }
+        val mine: FloatBuffer?
+        val myCount: Int
+        synchronized(this) { mine = myLocationBuffer; myCount = myLocationCount }
+        if (mine != null && myCount >= 3) {
+            mine.position(0)
+            GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, mine)
+            GLES20.glUniform4f(uColor, 0.15f, 0.55f, 1f, 1f)
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, myCount)
+        }
+
         val ring: FloatBuffer?
         val rCount: Int
         synchronized(this) { ring = circleBuffer; rCount = circleCount }

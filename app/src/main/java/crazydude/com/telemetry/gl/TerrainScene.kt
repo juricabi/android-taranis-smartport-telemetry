@@ -27,21 +27,24 @@ class TerrainScene {
     )
 
     companion object {
-        /** Vertices across one tile: 129 gives 128 cells, about 13m at zoom 14. */
-        private const val GRID = 129
+        /** Vertices across one tile: 193 gives about 9m between them at zoom 14. */
+        private const val GRID = 193
 
         /**
          * Ground tiles at zoom 14 are about 1.7km across, so a texture two
          * levels in is roughly 1.7m per pixel. Three levels would be sharper
          * and four times the memory, which a phone will not thank us for.
          */
-        private const val IMAGERY_DETAIL = 2
+        private const val IMAGERY_DETAIL = 3
 
         /** Preferred ground detail, dropped a level at a time if that is too many tiles. */
-        private const val PREFERRED_ZOOM = 14
+        private const val PREFERRED_ZOOM = 15
 
-        /** Textures are 4MB each, so this is the real budget. */
-        private const val MAX_TILES = 16
+        /**
+         * A 2048px texture is 16MB, so fewer tiles at more detail. Nine covers
+         * a flight with room around it.
+         */
+        private const val MAX_TILES = 9
 
         private const val METRES_PER_DEGREE_LAT = 111320.0
     }
@@ -64,6 +67,10 @@ class TerrainScene {
 
     var tiles: List<TileMesh> = emptyList()
         private set
+
+    /** Kept between loads so extending the ground only builds what is new. */
+    private val built = LinkedHashMap<Long, TileMesh>()
+    private var builtZoom = -1
 
     /** Half the width of the flight, for placing the camera. */
     var extent = 500f
@@ -160,18 +167,20 @@ class TerrainScene {
     fun loadTerrain(points: List<TrackPoint>,
                     onProgress: (Int, Int) -> Unit,
                     onTerrainReady: () -> Unit) {
-        // Roughly two kilometres of ground around the flight, so there is
-        // somewhere to look when the camera swings out, and a hill beyond the
-        // flight is still part of the picture.
-        val padLat = Math.max(0.02, (maxLat - minLat) * 0.5)
-        val padLon = Math.max(0.03, (maxLon - minLon) * 0.5)
+        // Half a kilometre around the flight to begin with, so the first
+        // picture arrives in seconds; more is fetched as the model approaches
+        // the edge of what has been built.
+        val padLat = Math.max(0.0045, (maxLat - minLat) * 0.5)
+        val padLon = Math.max(0.0065, (maxLon - minLon) * 0.5)
         val southEdge = minLat - padLat
         val northEdge = maxLat + padLat
         val westEdge = minLon - padLon
         val eastEdge = maxLon + padLon
 
-        loadedMinLat = southEdge; loadedMaxLat = northEdge
-        loadedMinLon = westEdge; loadedMaxLon = eastEdge
+        loadedMinLat = if (builtZoom < 0) southEdge else Math.min(loadedMinLat, southEdge)
+        loadedMaxLat = if (builtZoom < 0) northEdge else Math.max(loadedMaxLat, northEdge)
+        loadedMinLon = if (builtZoom < 0) westEdge else Math.min(loadedMinLon, westEdge)
+        loadedMaxLon = if (builtZoom < 0) eastEdge else Math.max(loadedMaxLon, eastEdge)
 
         // As much detail as the area allows: drop a zoom level at a time until
         // the tile count is something a phone can hold.
@@ -194,20 +203,37 @@ class TerrainScene {
         val x1 = Elevation.tileX(eastEdge, z)
         val y0 = Elevation.tileY(northEdge, z)
         val y1 = Elevation.tileY(southEdge, z)
-        val built = ArrayList<TileMesh>()
+        // A change of detail makes every mesh the wrong shape, so start again;
+        // otherwise keep what is built and add only what is missing.
+        if (z != builtZoom) {
+            built.clear()
+            builtZoom = z
+        }
+
         val total = (Math.abs(x1 - x0) + 1) * (Math.abs(y1 - y0) + 1)
         var done = 0
         for (tx in Math.min(x0, x1)..Math.max(x0, x1)) {
             for (ty in Math.min(y0, y1)..Math.max(y0, y1)) {
-                val mesh = buildTile(z, tx, ty)
-                if (mesh != null) built.add(mesh)
+                val key = tileKey(tx, ty)
+                if (!built.containsKey(key)) {
+                    val mesh = buildTile(z, tx, ty)
+                    if (mesh != null) built[key] = mesh
+                }
                 done++
                 onProgress(total + done, total * 2)
-                tiles = ArrayList(built)
+                tiles = ArrayList(built.values)
             }
         }
-        tiles = built
+        // oldest first out, so a long flight does not collect the whole county
+        while (built.size > MAX_TILES) {
+            val oldest = built.keys.iterator()
+            if (!oldest.hasNext()) break
+            built.remove(oldest.next())
+        }
+        tiles = ArrayList(built.values)
     }
+
+    private fun tileKey(x: Int, y: Int): Long = (x.toLong() shl 32) or (y.toLong() and 0xFFFFFFFFL)
 
     private fun tileLon(x: Int, z: Int): Double = x.toDouble() / (1 shl z) * 360.0 - 180.0
 
@@ -325,9 +351,17 @@ class TerrainScene {
     var loadedMinLon = 0.0; private set
     var loadedMaxLon = 0.0; private set
 
-    fun outsideLoaded(lat: Double, lon: Double): Boolean {
+    /**
+     * Whether a position is close enough to the edge of the built ground to be
+     * worth fetching more. Half a kilometre of warning, so the tiles are there
+     * before the model needs them rather than after it has flown off the end.
+     */
+    fun nearEdge(lat: Double, lon: Double): Boolean {
         if (loadedMaxLat == loadedMinLat) return true
-        return lat < loadedMinLat || lat > loadedMaxLat || lon < loadedMinLon || lon > loadedMaxLon
+        val marginLat = 500.0 / METRES_PER_DEGREE_LAT
+        val marginLon = 500.0 / metresPerDegreeLon(lat)
+        return lat < loadedMinLat + marginLat || lat > loadedMaxLat - marginLat ||
+            lon < loadedMinLon + marginLon || lon > loadedMaxLon - marginLon
     }
 
     fun groundAt(lat: Double, lon: Double): Float? = Elevation.elevationAt(lat, lon, zoom)
