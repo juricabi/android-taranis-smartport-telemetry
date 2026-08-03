@@ -226,6 +226,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var mapType = OsmMapWrapper.MAP_TYPE_DEFAULT
 
     private var lastGPS = Position(0.0, 0.0)
+
+    // Where the model was last seen, kept across a disconnect on purpose.
+    // lastGPS is cleared when the UI goes idle, which is exactly the moment
+    // this matters most: a link that drops because the model went down is when
+    // someone needs to be told where it was.
+    private var lastKnownGPS: Position? = null
+    private var lastKnownGPSAt: Long = 0L
     private var lastHeading = 0f
     private var followMode = true
     private var hasGPSFix = false
@@ -671,19 +678,33 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     // far and in which direction from where you are standing, and a plus code
     // that can be typed into any maps app or read out to someone else.
     private fun showFindMyQuad() {
-        val pos = if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) lastGPS else null
+        val live = if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) lastGPS else null
+        // Falls back to the last position from before the disconnect, which is
+        // the whole point of the button after a link is lost.
+        val pos = live ?: lastKnownGPS
         if (pos == null) {
             Toast.makeText(this, "No position received from the model yet", Toast.LENGTH_LONG).show()
             return
         }
 
         val nl = 10.toChar().toString()
+        val age = if (live == null && lastKnownGPSAt > 0L) {
+            val seconds = (System.currentTimeMillis() - lastKnownGPSAt) / 1000
+            when {
+                seconds < 60 -> "last seen " + seconds + "s ago"
+                seconds < 3600 -> "last seen " + (seconds / 60) + " min ago"
+                else -> "last seen " + (seconds / 3600) + "h " + ((seconds % 3600) / 60) + "m ago"
+            }
+        } else {
+            null
+        }
         val plusCode = PlusCode.encode(pos.lat, pos.lon)
         // Locale.US: a comma decimal separator would corrupt the maps link
         val coords = String.format(java.util.Locale.US, "%.6f,%.6f", pos.lat, pos.lon)
         val mapsUrl = "https://www.google.com/maps/search/?api=1&query=" + coords
 
         val text = StringBuilder()
+        if (age != null) text.append(age).append(nl).append(nl)
         text.append("Plus code").append(nl).append(plusCode).append(nl).append(nl)
         text.append("Coordinates").append(nl).append(coords)
 
@@ -2916,6 +2937,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     )
                 }
                 lastGPS = Position(latitude, longitude)
+                if (latitude != 0.0 || longitude != 0.0) {
+                    lastKnownGPS = lastGPS
+                    lastKnownGPSAt = System.currentTimeMillis()
+                }
                 marker?.let { it.position = lastGPS }
                 updateHomeLine()
                 updateHeading()
