@@ -1713,7 +1713,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val label: String,
         val useTcp: Boolean,
         val port: Int,
-        val useGateway: Boolean
+        val useGateway: Boolean,
+        /** a fixed address, where the preset knows it */
+        val host: String? = null
     )
 
     // The transport stays in the name because it is the thing that decides
@@ -1725,6 +1727,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         NetworkPreset("TBS Crossfire / Tracer (UDP)", false, 8888, false),
         NetworkPreset("MAVLink router / ground station (UDP)", false, 14550, false),
         NetworkPreset("Serial to Wi-Fi bridge (TCP)", true, 23, true),
+        // 127.0.0.1 is this phone. Useful when the telemetry source runs on the
+        // phone itself — a MAVLink router or a serial bridge app — or when a
+        // computer forwards a port to it over USB with `adb reverse`.
+        NetworkPreset("This device / localhost (TCP)", true, 8888, false, "127.0.0.1"),
         NetworkPreset("Custom", false, 14550, false)
     )
 
@@ -1799,7 +1805,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             } else {
                 getString(R.string.network_host_hint_udp)
             }
-            findButton.isEnabled = tcp
+            // nothing to find on loopback: it is a single address, this device
+            findButton.isEnabled = tcp && !hostField.text.toString().trim().startsWith("127.")
             hint.text = if (tcp) {
                 getString(R.string.network_hint_tcp)
             } else {
@@ -1811,7 +1818,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             val preset = networkPresets[index]
             transportSpinner.setSelection(if (preset.useTcp) 1 else 0)
             portField.setText(preset.port.toString())
-            if (preset.useGateway) {
+            if (preset.host != null) {
+                hostField.setText(preset.host)
+            } else if (preset.useGateway) {
                 val gateway = binder.gatewayAddress()
                 if (gateway != null) hostField.setText(gateway)
             }
