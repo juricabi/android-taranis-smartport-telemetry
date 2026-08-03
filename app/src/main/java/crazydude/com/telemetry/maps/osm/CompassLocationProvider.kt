@@ -28,10 +28,10 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
     override fun startLocationProvider(myLocationConsumer: IMyLocationConsumer?): Boolean {
         consumer = myLocationConsumer
         sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_FASTEST)
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
         }
         sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_FASTEST)
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
         }
         // ask for frequent updates so a GPS fix replaces the first coarse one quickly
         gpsProvider.locationUpdateMinTime = 1000
@@ -77,14 +77,26 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
         return location
     }
 
+    // Averaging the sensor readings themselves is what makes the needle steady;
+    // filtering only the final angle still passes the noise through.
+    private fun smooth(target: FloatArray, values: FloatArray, initialised: Boolean) {
+        if (!initialised) {
+            System.arraycopy(values, 0, target, 0, 3)
+            return
+        }
+        for (i in 0..2) {
+            target[i] += (values[i] - target[i]) * 0.10f
+        }
+    }
+
     override fun onSensorChanged(event: SensorEvent) {
         when (event.sensor.type) {
             Sensor.TYPE_ACCELEROMETER -> {
-                System.arraycopy(event.values, 0, gravity, 0, 3)
+                smooth(gravity, event.values, hasGravity)
                 hasGravity = true
             }
             Sensor.TYPE_MAGNETIC_FIELD -> {
-                System.arraycopy(event.values, 0, geomagnetic, 0, 3)
+                smooth(geomagnetic, event.values, hasGeomagnetic)
                 hasGeomagnetic = true
             }
         }
@@ -103,13 +115,13 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
                     // shortest way round the circle, then ease towards it so the
                     // needle does not jitter on every sample
                     var diff = ((raw - compassBearing + 540f) % 360f) - 180f
-                    compassBearing = (compassBearing + diff * 0.08f + 360f) % 360f
+                    compassBearing = (compassBearing + diff * 0.25f + 360f) % 360f
                 }
 
                 // the arrow used to turn only when a location update arrived, about
                 // once a second, which looked like it was stepping
                 val now = System.currentTimeMillis()
-                if (now - lastBearingPush > 33) {
+                if (now - lastBearingPush > 100) {
                     lastBearingPush = now
                     accepted?.let { consumer?.onLocationChanged(injectBearing(Location(it)), this) }
                 }
