@@ -68,7 +68,12 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
 
     private fun injectBearing(location: Location?): Location? {
         if (location == null) return null
-        location.bearing = compassBearing
+        // Only once the compass has actually read something. Assigning a bearing
+        // at all makes Location report that it has one, and osmdroid then draws
+        // the direction arrow — which on a phone with no magnetometer sat
+        // pointing due north for the whole session, and hid the plain dot that
+        // is there for exactly this case.
+        if (hasBearing) location.bearing = compassBearing
         return location
     }
 

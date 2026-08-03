@@ -154,6 +154,10 @@
         <item>6S</item>
         <item>7S</item>
         <item>8S</item>
+        <item>10S</item>
+        <item>12S</item>
+        <item>14S</item>
+        <item>16S</item>
     </string-array>
     <string-array name="BatteryCellValues">
         <item>auto</item>
@@ -165,6 +169,10 @@
         <item>6</item>
         <item>7</item>
         <item>8</item>
+        <item>10</item>
+        <item>12</item>
+        <item>14</item>
+        <item>16</item>
     </string-array>
     <!-- network telemetry -->
     <string name="network">Network (Wi-Fi)</string>

@@ -15,10 +15,21 @@ class GhstProtocol : Protocol {
     constructor(dataDecoder: DataDecoder) : super(dataDecoder)
 
     private var buffer = ArrayList<Int>()
-    private var launchAltitude: Int? = null
     private val crC8 = CRC8()
 
     companion object {
+
+        // Kept for the whole session rather than per instance. A reconnect
+        // builds a fresh protocol, and taking the launch height from the first
+        // fix after one would zero the altitude of a model still in the air —
+        // reading 0 at 120m and going negative on the way down. Cleared when a
+        // link is started by hand, or when a log is replayed.
+        @Volatile
+        private var launchAltitude: Int? = null
+
+        fun forgetLaunchAltitude() {
+            launchAltitude = null
+        }
 
         private const val RADIO_ADDRESS = 0x80
 

@@ -43,6 +43,7 @@ import com.nex3z.flowlayout.FlowLayout
 import crazydude.com.telemetry.R
 import crazydude.com.telemetry.converter.Converter
 import crazydude.com.telemetry.manager.FlightPlanManager
+import crazydude.com.telemetry.protocol.GhstProtocol
 import crazydude.com.telemetry.manager.Fr24Manager
 import crazydude.com.telemetry.manager.PreferenceManager
 import crazydude.com.telemetry.manager.SensorTimeoutManager
@@ -842,6 +843,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     private fun startReplay(file: File?) {
+        GhstProtocol.forgetLaunchAltitude()
         file?.also {
             val progressDialog = ProgressDialog(this)
             progressDialog.setCancelable(false)
@@ -2036,7 +2038,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 .create())
     }
 
+    /** Called when a link is started by hand: none of the previous one carries over. */
     private fun clearCrsfSystem() {
+        GhstProtocol.forgetLaunchAltitude()
         crsfSystem = null
         // else the next link would redraw the old rate under its own table
         lastRfMode = null
@@ -2639,14 +2643,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // 4.32V per cell. Erring towards more cells errs towards a lower
             // reading, which is the safe direction to be wrong in — and anyone
             // flying 5S or 7S can say so in the settings.
-            for (common in intArrayOf(1, 2, 3, 4, 6, 8)) {
+            for (common in intArrayOf(1, 2, 3, 4, 6, 8, 10, 12, 14, 16)) {
                 if (common >= cells) {
                     cells = common
                     break
                 }
             }
             if (cells < 1) cells = 1
-            if (cells > 8) cells = 8
+            if (cells > 16) cells = 16
             detectedCells = cells
         }
         return detectedCells
