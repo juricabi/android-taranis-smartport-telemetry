@@ -22,14 +22,16 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
     private var hasGeomagnetic = false
     private var consumer: IMyLocationConsumer? = null
     private var accepted: Location? = null
+    private var lastBearingPush = 0L
+    private var hasBearing = false
 
     override fun startLocationProvider(myLocationConsumer: IMyLocationConsumer?): Boolean {
         consumer = myLocationConsumer
         sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
         }
         sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
         }
         // ask for frequent updates so a GPS fix replaces the first coarse one quickly
         gpsProvider.locationUpdateMinTime = 1000
@@ -91,8 +93,26 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
             if (SensorManager.getRotationMatrix(r, null, gravity, geomagnetic)) {
                 val orientation = FloatArray(3)
                 SensorManager.getOrientation(r, orientation)
-                compassBearing = Math.toDegrees(orientation[0].toDouble()).toFloat()
-                if (compassBearing < 0) compassBearing += 360f
+                var raw = Math.toDegrees(orientation[0].toDouble()).toFloat()
+                if (raw < 0) raw += 360f
+
+                if (!hasBearing) {
+                    compassBearing = raw
+                    hasBearing = true
+                } else {
+                    // shortest way round the circle, then ease towards it so the
+                    // needle does not jitter on every sample
+                    var diff = ((raw - compassBearing + 540f) % 360f) - 180f
+                    compassBearing = (compassBearing + diff * 0.2f + 360f) % 360f
+                }
+
+                // the arrow used to turn only when a location update arrived, about
+                // once a second, which looked like it was stepping
+                val now = System.currentTimeMillis()
+                if (now - lastBearingPush > 50) {
+                    lastBearingPush = now
+                    accepted?.let { consumer?.onLocationChanged(injectBearing(Location(it)), this) }
+                }
             }
         }
     }
