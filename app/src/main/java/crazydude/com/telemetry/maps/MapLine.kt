@@ -38,7 +38,9 @@ abstract class MapLine {
         // others and every long track sat at ten metres.
         val points = size + spoints.size
         var threshold = 2
-        if (limit > 1500) {
+        // whatever the cap, the ladder applies: a smaller one needs the
+        // widening more, not less
+        if (true) {
             threshold = when {
                 points > 7000 -> 30
                 points > 5000 -> 20

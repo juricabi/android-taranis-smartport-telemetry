@@ -21,14 +21,21 @@ class TerrainScene {
 
     /** One terrain tile: a grid of ground, with the aerial view of it. */
     class TileMesh(
+        /** Which tile of the world this is, so it is uploaded once and no more. */
+        val key: Long,
         val vertices: FloatArray,   // x, y, z, u, v, nx, ny, nz
         val indices: ShortArray,
         val texture: Bitmap?
     )
 
     companion object {
-        /** Vertices across one tile: 193 gives about 9m between them at zoom 14. */
-        private const val GRID = 193
+        /**
+         * Vertices across one tile. The heights themselves are about 30m apart,
+         * so 97 across a zoom-15 tile — nine metres — is already finer than
+         * anything it can describe, and a quarter of the triangles that 193 was
+         * drawing sixty times a second.
+         */
+        private const val GRID = 97
 
         /**
          * Ground tiles at zoom 14 are about 1.7km across, so a texture two
@@ -47,6 +54,62 @@ class TerrainScene {
         private const val MAX_TILES = 9
 
         private const val METRES_PER_DEGREE_LAT = 111320.0
+
+        /** What reported heights turned out to be measured from. */
+        class Reference(
+            val aboveLaunch: Boolean,
+            /** What to add to them to make them heights above the sea. */
+            val lift: Float,
+            /** The lowest of them, low outliers excepted. */
+            val lowest: Float
+        )
+
+        /**
+         * Work out what the reported altitude is measured from.
+         *
+         * It cannot be assumed. Betaflight sends height above sea level while
+         * the model is disarmed and height above the arming point once it is
+         * armed, so the same field means two different things within one
+         * flight, and drawing the second against sea level terrain would bury
+         * the model a hundred metres underground.
+         *
+         * A model cannot fly below the ground. That is the whole test, and it
+         * is the only one that holds: comparing a single reading against the
+         * terrain under it does not, since a model seventy metres above a field
+         * a hundred metres up reads as a plausible seventy metres above the
+         * sea. So take the lowest height reported anywhere on the flight and
+         * the lowest ground beneath it, and if the reports go well below the
+         * ground they are measured from the launch.
+         *
+         * The 3D view and the altitude profile both ask this, so that they
+         * cannot disagree about where a flight is.
+         */
+        fun referenceOf(points: List<TrackPoint>, zoom: Int): Reference? {
+            if (points.isEmpty()) return null
+
+            // Not the very lowest reading: one bad fix — and a receiver that
+            // has just started reports a few — would decide this for the whole
+            // flight, and the answer is kept once it is made. The lowest
+            // twentieth is still on the ground and cannot be one stray sample.
+            val reported = FloatArray(points.size)
+            for (i in points.indices) reported[i] = points[i].altitudeMsl
+            java.util.Arrays.sort(reported)
+            val lowestReported = reported[reported.size / 20]
+
+            var lowestGround = Float.NaN
+            var groundAtStart = Float.NaN
+            for (p in points) {
+                val ground = Elevation.elevationAt(p.lat, p.lon, zoom) ?: continue
+                if (groundAtStart.isNaN()) groundAtStart = ground
+                if (lowestGround.isNaN() || ground < lowestGround) lowestGround = ground
+            }
+            if (lowestGround.isNaN()) return null
+
+            // thirty metres of slack for the terrain data, which is thirty
+            // metre data, and for a fix only good to a few metres vertically
+            val aboveLaunch = lowestReported < lowestGround - 30f
+            return Reference(aboveLaunch, if (aboveLaunch) groundAtStart else 0f, lowestReported)
+        }
     }
 
     var originLat = 0.0
@@ -275,7 +338,6 @@ class TerrainScene {
                 }
                 done++
                 onProgress(total + done, total * 2)
-                tiles = ArrayList(built.values)
             }
         }
         // oldest first out, so a long flight does not collect the whole county
@@ -310,34 +372,9 @@ class TerrainScene {
      * missing.
      */
     private fun resolveAltitudeReference(points: List<TrackPoint>) {
-        if (points.isEmpty()) return
-
-        // A model cannot fly below the ground.
-        //
-        // That is the whole test, and it is the only one that holds. Comparing
-        // a single reading against the terrain under it does not: a model
-        // seventy metres above a field a hundred metres up reads as a plausible
-        // seventy metres above the sea, and the flight ends up buried.
-        //
-        // So take the lowest height reported anywhere on the flight and the
-        // lowest ground beneath it. If the reports go well below the ground,
-        // they are not sea level heights — they are measured from the launch,
-        // and the ground under the launch is what they are missing.
-        var lowestReported = points[0].altitudeMsl
-        var lowestGround = Float.NaN
-        var groundAtStart = Float.NaN
-        for (p in points) {
-            if (p.altitudeMsl < lowestReported) lowestReported = p.altitudeMsl
-            val ground = Elevation.elevationAt(p.lat, p.lon, zoom) ?: continue
-            if (groundAtStart.isNaN()) groundAtStart = ground
-            if (lowestGround.isNaN() || ground < lowestGround) lowestGround = ground
-        }
-        if (lowestGround.isNaN()) return
-
-        // thirty metres of slack for the terrain data, which is thirty metre
-        // data, and for a fix that is only good to a few metres vertically
-        val aboveLaunch = lowestReported < lowestGround - 30f
-        val newOrigin = if (aboveLaunch) lowestReported + groundAtStart else lowestReported
+        val found = referenceOf(points, zoom) ?: return
+        val aboveLaunch = found.aboveLaunch
+        val newOrigin = if (aboveLaunch) found.lowest + found.lift else found.lowest
 
         // Only the answer matters, not the exact origin. The lowest point of a
         // flight keeps dropping as it descends, and following that would move
@@ -352,7 +389,7 @@ class TerrainScene {
         }
         altitudeResolved = true
         altitudeIsAboveLaunch = aboveLaunch
-        launchGroundElevation = if (aboveLaunch) groundAtStart else 0f
+        launchGroundElevation = found.lift
         originAltitude = newOrigin
         built.clear()
         builtZoom = -1
@@ -439,7 +476,7 @@ class TerrainScene {
         } catch (e: Throwable) {
             null
         }
-        return TileMesh(vertices, indices, texture)
+        return TileMesh(tileKey(tx, ty), vertices, indices, texture)
     }
 
     /** A hole in the data becomes the average of what is around it, not a pit. */
@@ -485,8 +522,11 @@ class TerrainScene {
      */
     fun nearEdge(lat: Double, lon: Double): Boolean {
         if (loadedMaxLat == loadedMinLat) return true
-        val marginLat = 500.0 / METRES_PER_DEGREE_LAT
-        val marginLon = 500.0 / metresPerDegreeLon(lat)
+        // Well inside the half kilometre the loader pads by. They were within
+        // a metre of each other, so the first fix that moved at all asked for
+        // more ground, and went on asking on every fix for the whole flight.
+        val marginLat = 200.0 / METRES_PER_DEGREE_LAT
+        val marginLon = 200.0 / metresPerDegreeLon(lat)
         return lat < loadedMinLat + marginLat || lat > loadedMaxLat - marginLat ||
             lon < loadedMinLon + marginLon || lon > loadedMaxLon - marginLon
     }

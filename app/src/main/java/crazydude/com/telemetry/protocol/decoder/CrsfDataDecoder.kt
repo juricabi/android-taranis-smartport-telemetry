@@ -116,7 +116,9 @@ https://github.com/iNavFlight/inav/blob/135456936834ab4129e6ed540038b2e88dcb3c44
                 listener.onGSpeedData(speed)
             }
             Protocol.VSPEED -> {
-                val speed = data.data / 10f
+                // centimetres a second, as everywhere else here — a two metre
+                // climb was being reported as twenty
+                val speed = data.data / 100f
                 listener.onVSpeedData(speed)
             }
             Protocol.RSSI -> {

@@ -14,6 +14,14 @@ class CrsfProtocol : Protocol {
     private var buffer = ArrayList<Int>()
     private val crC8 = CRC8()
 
+    /**
+     * Whether this link sends the barometric altitude frame. Once it does, that
+     * frame is the altitude: it always means height above the launch, while the
+     * one in the GPS frame means that on Betaflight and height above the sea on
+     * INAV and ArduPilot.
+     */
+    private var hasBarometricAltitude = false
+
     companion object {
 
         // Device or sync byte:Length:Type:Payload:CRC
@@ -162,7 +170,15 @@ class CrsfProtocol : Protocol {
                         this.processLongitude(longitude / 10000000.toDouble());
                         dataDecoder.decodeData( Protocol.Companion.TelemetryData( GSPEED,groundSpeed.toInt()))
                         dataDecoder.decodeData( Protocol.Companion.TelemetryData( HEADING, heading.toInt()))
-                        dataDecoder.decodeData( Protocol.Companion.TelemetryData( ALTITUDE, altitude.toInt() ))
+                        // Only while nothing better has been heard. This is a
+                        // height above the sea on INAV and ArduPilot and a
+                        // height above the arming point on Betaflight, and the
+                        // barometric frame is the one that always means the
+                        // second. Sending both here made the altitude readout
+                        // alternate between the two several times a second.
+                        if (!hasBarometricAltitude) {
+                            dataDecoder.decodeData( Protocol.Companion.TelemetryData( ALTITUDE, altitude.toInt() ))
+                        }
                     }
                 }
                 VARIO_TYPE.toByte() -> {
@@ -281,11 +297,17 @@ class CrsfProtocol : Protocol {
                         // known: the GPS frame feeds the same reading in plain
                         // metres, so nothing downstream can tell them apart.
                         val raw = data.short.toInt() and 0xFFFF
+                        // Tenths below eight thousand metres, whole metres above
+                        // it. Rounded rather than truncated: everything down the
+                        // line carries whole metres, and truncation towards zero
+                        // turned both half a metre up and half a metre down into
+                        // nought, which is a step across the launch height.
                         val metres = if ((raw and 0x8000) != 0) {
                             raw and 0x7FFF
                         } else {
-                            (raw - 10000) / 10
+                            Math.round((raw - 10000) / 10f)
                         }
+                        hasBarometricAltitude = true
                         dataDecoder.decodeData(Protocol.Companion.TelemetryData(ALTITUDE, metres))
                     }
                 }

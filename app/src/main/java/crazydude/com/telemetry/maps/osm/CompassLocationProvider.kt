@@ -123,7 +123,12 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
                 val now = System.currentTimeMillis()
                 var moved = ((compassBearing - pushedBearing + 540f) % 360f) - 180f
                 if (moved < 0f) moved = -moved
-                if (now - lastBearingPush > 100 && moved > 1f) {
+                // Every push redraws the map — tiles, markers and the whole
+                // route line. Held in the hand the needle never stops moving,
+                // so a degree was enough to keep that going all day, competing
+                // with the frames the camera needs. Three degrees is still
+                // under a pixel at the tip of a 22dp arrow.
+                if (now - lastBearingPush > 200 && moved > 3f) {
                     // redrawing the map on every sample would run all day with
                     // the phone lying still, so only do it when it has turned
                     lastBearingPush = now

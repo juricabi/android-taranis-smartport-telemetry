@@ -20,6 +20,7 @@ import org.osmdroid.views.overlay.TilesOverlay
 import android.animation.ValueAnimator
 import android.view.animation.DecelerateInterpolator
 import org.osmdroid.views.overlay.gestures.RotationGestureOverlay
+import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 
 
@@ -113,11 +114,83 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
             }
         }
 
+    /**
+     * Where the map is being asked to look, and the loop that takes it there.
+     *
+     * A fix lands five or ten times a second and the screen draws sixty, so
+     * centring the map the moment one arrives makes it step. osmdroid's own
+     * animation is worse here: each call builds another animator and never
+     * stops the last, so ten of them end up writing the centre at once.
+     *
+     * One target, one loop, a quarter of the way there each frame. It is always
+     * moving, always less than a fix behind, and it cannot fight itself.
+     */
+    private var glideTo: GeoPoint? = null
+    private var glideTurn = Float.NaN
+    private var gliding = false
+
+    private val glide = object : Runnable {
+        override fun run() {
+            var again = false
+            val to = glideTo
+            if (to != null) {
+                val at = mapView.mapCenter
+                val dLat = to.latitude - at.latitude
+                val dLon = to.longitude - at.longitude
+                if (Math.abs(dLat) < 1e-7 && Math.abs(dLon) < 1e-7) {
+                    mapView.controller.setCenter(to)
+                    glideTo = null
+                } else {
+                    mapView.controller.setCenter(
+                        GeoPoint(at.latitude + dLat * 0.25, at.longitude + dLon * 0.25))
+                    again = true
+                }
+            }
+            val turnTo = glideTurn
+            if (!turnTo.isNaN()) {
+                var turn = ((turnTo - mapView.mapOrientation + 540f) % 360f) - 180f
+                if (Math.abs(turn) < 0.05f) {
+                    turnMapTo(turnTo)
+                    glideTurn = Float.NaN
+                } else {
+                    turnMapTo(mapView.mapOrientation + turn * 0.25f)
+                    again = true
+                }
+            }
+            gliding = again
+            if (again) mapView.postOnAnimation(this)
+        }
+    }
+
+    private fun startGliding() {
+        if (gliding) return
+        gliding = true
+        mapView.postOnAnimation(glide)
+    }
+
+    /**
+     * Turning without a layout pass.
+     *
+     * The one-argument setter asks the whole view tree to measure and lay out
+     * again, and in heading-up that happens on every heading the model sends.
+     * The map re-reads its own angle at the start of every draw, so an
+     * invalidate is all it needs.
+     */
+    private fun turnMapTo(degrees: Float) {
+        mapView.setMapOrientation(degrees, false)
+        markers.forEach { m -> m.updateForMapOrientation() }
+        onOrientationChangedListener?.invoke(degrees)
+        mapView.invalidate()
+    }
+
     override fun moveCamera(position: Position) {
-        mapView.controller.setCenter(position.toGeoPoint())
+        glideTo = position.toGeoPoint()
+        startGliding()
     }
 
     override fun moveCamera(position: Position, zoom: Float) {
+        // asked for a place rather than followed to it, so it arrives
+        glideTo = null
         mapView.controller.setZoom(zoom.toDouble())  //set zoom first, center second
         mapView.controller.setCenter(position.toGeoPoint())
     }
@@ -207,6 +280,7 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
 
     override fun resetMapOrientation() {
         orientationAnimator?.cancel()
+        glideTurn = Float.NaN
         var start = mapView.mapOrientation % 360f
         if (start > 180f) start -= 360f
         if (start < -180f) start += 360f
@@ -224,14 +298,17 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
     }
 
     /**
-     * Straight to an angle, with no animation: this is called on every heading
-     * the model sends, and an animation would be forever chasing the last one.
+     * Turned towards an angle by the same loop that follows the model, so the
+     * rate is the screen's and not the telemetry's.
+     *
+     * Easing it as each heading arrived meant the map turned in one step per
+     * message — five differently sized jerks a second, and a link at half the
+     * rate took twice as long to come round.
      */
     override fun setMapOrientation(degrees: Float) {
         orientationAnimator?.cancel()
-        mapView.mapOrientation = degrees
-        markers.forEach { m -> m.updateForMapOrientation() }
-        onOrientationChangedListener?.invoke(degrees)
+        glideTurn = degrees
+        startGliding()
     }
 
     override fun invalidate() {

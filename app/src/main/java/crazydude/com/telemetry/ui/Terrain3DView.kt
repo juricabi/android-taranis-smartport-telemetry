@@ -45,6 +45,17 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
 
     /** The ground is up: until it is, there is nothing to draw anything on. */
     private var terrainReady = false
+
+    /**
+     * Whether a flight belongs on screen. Set when one is handed in at the
+     * start, and when a fix arrives afterwards — so a finished flight left in
+     * memory is not brought back the moment the ground finishes loading.
+     */
+    private var flightShown = false
+
+    /** Plans already laid on the ground, by the plan they were laid from. */
+    private val drapedPlans =
+        HashMap<Pair<List<crazydude.com.telemetry.maps.Position>, Int>, TerrainRenderer.LineSet>()
     private var started = false
 
     private var myLat = Double.NaN
@@ -62,6 +73,11 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     private val ticker = Handler()
     private val poll = object : Runnable {
         override fun run() {
+            if (!started) {
+                LiveFlightPath.latest()?.let {
+                    start(LiveFlightPath.snapshot(), it.lat, it.lon, myLat, myLon, myAccuracy)
+                }
+            }
             pickUpNewPoints()
             // the camera turns itself while chasing, so the heading in the
             // corner is read off it rather than told to it
@@ -111,6 +127,10 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         if (!hasFlight) {
             if (fallbackLat.isNaN() || fallbackLon.isNaN()) {
                 status.text = "No position yet"
+                // Not started, so nothing is loading and nothing will draw. The
+                // tick still runs: the first fix to arrive starts the ground.
+                started = false
+                ticker.post(poll)
                 return
             }
             scene.setOrigin(fallbackLat, fallbackLon, 0f)
@@ -140,6 +160,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         // no notice that it is loading: the empty screen says so already
 
         val worker = Thread(Runnable {
+            try {
             scene.loadTerrain(flight,
                 // deliberately silent: a count that changed on every tile read
                 // as a flicker in the corner of the screen
@@ -165,6 +186,17 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
                 }
                 loadingTerrain = false
             }
+            } catch (e: Throwable) {
+                // Whatever went wrong out here — no signal, a tile that would
+                // not decode, memory — the ground is as ready as it is ever
+                // going to be. Left false, nothing would ever draw again and
+                // the screen would stay black with nothing said.
+                post {
+                    terrainReady = true
+                    loadingTerrain = false
+                    rebuildOverlays()
+                }
+            }
         })
         worker.name = "terrain-load"
         worker.start()
@@ -182,16 +214,39 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     }
 
     /**
-     * Told when a fix lands, so the model moves with the one on the map instead
-     * of up to a tick behind it. The poll stays as a backstop for anything that
-     * fills the path without going past here, a replay among them.
+     * Told when a fix lands, so the model moves with the one on the map rather
+     * than up to a tick behind it.
+     *
+     * Only the model. Rebuilding the flight, its curtain and every overlay is
+     * the tick's work: doing it here meant doing it for every fix, and a replay
+     * — which delivers a whole flight in a minute — left no time on the main
+     * thread for the buttons that were meant to control it.
      */
     fun onNewPoint() {
-        if (started) pickUpNewPoints()
+        if (!started || !terrainReady) return
+        flightShown = true
+        placeModel()
+    }
+
+    /** Where the model is now, from the newest point; cheap enough for every fix. */
+    private fun placeModel() {
+        val last = LiveFlightPath.latest() ?: return
+        // the nose when the model says so, and otherwise the course the tick
+        // last worked out from the path
+        if (hasAttitude) lastModelHeading = modelHeading
+        applyChaseBearing()
+        val x = scene.east(last.lon)
+        val y = scene.aboveSeaLevel(last.altitudeMsl) - scene.originAltitude
+        val z = -scene.north(last.lat)
+        renderer.setModel(x, y, z, lastModelHeading,
+            Math.max(15f, scene.extent / 40f), modelPitch, modelRoll)
+        if (following) {
+            renderer.target = floatArrayOf(x + panX, y, z + panZ)
+        }
     }
 
     private fun pickUpNewPoints() {
-        if (!terrainReady) return
+        if (!terrainReady || !flightShown) return
         val version = LiveFlightPath.version
         if (version == seenVersion) return
         seenVersion = version
@@ -206,24 +261,8 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         // Where the nose is pointing when the model says so, since that differs
         // from the course over the ground in any wind; the course is the
         // fallback for links that carry no attitude.
-        val heading = if (hasAttitude) modelHeading else courseBetween(before, last)
-        lastModelHeading = heading
-        applyChaseBearing()
-        renderer.setModel(
-            scene.east(last.lon),
-            scene.aboveSeaLevel(last.altitudeMsl) - scene.originAltitude,
-            -scene.north(last.lat),
-            heading,
-            Math.max(15f, scene.extent / 40f),
-            modelPitch, modelRoll
-        )
-        if (following) {
-            renderer.target = floatArrayOf(
-                scene.east(last.lon) + panX,
-                scene.aboveSeaLevel(last.altitudeMsl) - scene.originAltitude,
-                -scene.north(last.lat) + panZ
-            )
-        }
+        if (!hasAttitude) lastModelHeading = courseBetween(before, last)
+        placeModel()
 
         rebuildOverlays()
 
@@ -302,7 +341,9 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     fun lookAt(lat: Double, lon: Double, altitudeMsl: Float?) {
         val ground = scene.groundAt(lat, lon)
         val height = when {
-            altitudeMsl != null -> altitudeMsl - scene.originAltitude
+            // through the same reference as the model, or following it aimed
+            // the camera at a point buried under the hill it is flying over
+            altitudeMsl != null -> scene.aboveSeaLevel(altitudeMsl) - scene.originAltitude
             ground != null -> ground - scene.originAltitude
             else -> 0f
         }
@@ -408,6 +449,11 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
             val plan = entry.first
             if (plan.size < 2) continue
             val planColor = colorOf(entry.second)
+            val already = drapedPlans[entry]
+            if (already != null) {
+                sets.add(already)
+                continue
+            }
             val draped = ArrayList<Float>(plan.size * 30)
 
             fun layOnGround(lat: Double, lon: Double) {
@@ -436,8 +482,12 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
 
             val points = FloatArray(draped.size)
             for (i in draped.indices) points[i] = draped[i]
-            sets.add(TerrainRenderer.LineSet(points, planColor[0], planColor[1], planColor[2],
-                planColor[3], true, 4f, true))
+            // The ground it is laid on does not change between ticks, and
+            // walking every leg twice a second is work for nothing.
+            val set = TerrainRenderer.LineSet(points, planColor[0], planColor[1], planColor[2],
+                planColor[3], true, 4f, true)
+            drapedPlans[entry] = set
+            sets.add(set)
         }
 
         // Traffic, at the height it is actually flying: a post from the ground
@@ -787,6 +837,9 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
 
     fun onResume() {
         surface.onResume()
+        // once, however many times this is called: start() posts it too, and
+        // two chains of it ran the whole first session at twice the rate
+        ticker.removeCallbacks(poll)
         ticker.post(poll)
         listenToCompass()
     }

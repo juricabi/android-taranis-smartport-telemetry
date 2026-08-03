@@ -193,6 +193,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private fun worthBelieving(fix: Location): Boolean {
         val held = bestPhoneFix ?: return true
+        // A provider with a skewed clock can stamp a fix in the future, and
+        // every honest one after it looks old by comparison. Age is measured
+        // against now as well, so nothing can lock this shut.
+        if (System.currentTimeMillis() - held.time > 20000L) return true
         val newer = fix.time - held.time
         if (newer > 20000L) return true
         if (newer < -20000L) return false
@@ -521,6 +525,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             setChaseMode(false)
             terrain3D?.let {
                 setFollowMode(false)
+                it.setFollowing(false)
                 if (!it.goToMyLocation()) {
                     Toast.makeText(this, "Phone location not available", Toast.LENGTH_SHORT).show()
                 }
@@ -668,6 +673,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val osmMap = OsmMapWrapper(applicationContext, mapView, tileSource, { initHeadingLine() }, overlayTileSources)
         map = osmMap
         map?.setOnCameraMoveStartedListener {
+            // Dragging the map is taking it somewhere, which ends both ways of
+            // watching the model — otherwise the chase button stayed lit and
+            // the map went on turning to the heading while no longer following.
+            setChaseMode(false)
             setFollowMode(false);
         }
         osmMap.setOnOrientationChangedListener { orientation ->
@@ -2498,12 +2507,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * model armed.
      */
     private fun launchGroundLift(): Float {
-        for (p in flightPath) {
-            val ground = crazydude.com.telemetry.utils.Elevation.elevationAt(p.lat, p.lon)
-                ?: continue
-            return if (Math.abs(p.altitudeMsl - ground) > 60f) ground else 0f
-        }
-        return 0f
+        // The same answer the 3D ground works from, from the same code. This
+        // used to ask whether the first fix read within sixty metres of the
+        // terrain under it — a test the 3D view documents as unsound, and which
+        // disagreed with it: a flight starting high above a valley was declared
+        // to be measured from the launch and drawn a few hundred metres up.
+        return crazydude.com.telemetry.gl.TerrainScene.referenceOf(
+            flightPath, crazydude.com.telemetry.utils.Elevation.TILE_ZOOM)?.lift ?: 0f
     }
 
     /**
@@ -3845,23 +3855,19 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private fun applyHeadingUp() {
         if (!chaseMode || terrain3D != null) return
-        val wanted = -lastHeading
-        if (shownMapHeading.isNaN()) {
-            shownMapHeading = wanted
-        } else {
-            var turn = wanted - shownMapHeading
-            while (turn > 180f) turn -= 360f
-            while (turn < -180f) turn += 360f
-            if (Math.abs(turn) < 0.4f) return
-            shownMapHeading += turn * 0.2f
-        }
-        map?.setMapOrientation(shownMapHeading)
+        // Just the angle it should end at. The map eases towards it on its own
+        // clock, which is the screen's rather than the telemetry's.
+        map?.setMapOrientation(-lastHeading)
     }
 
     fun commitRouteLinePoints() {
         var maxCount = preferenceManager.getMaxRoutePoints()
         if ( maxCount < 0) {
-            maxCount = 10000
+            // osmdroid re-projects and re-clips the whole line on every draw,
+            // so this is a per-frame cost. Ten thousand of them was a flight
+            // that grew heavier the longer it went on; two and a half thousand
+            // is more than a screen can resolve.
+            maxCount = 2500
         }
         polyLine?.commitPoints(maxCount)
     }
@@ -4154,7 +4160,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private fun startFr24() {
         if (preferenceManager.isFr24Enabled()) {
             fr24Manager = Fr24Manager(preferenceManager, this)
-            fr24Manager?.start { map?.getMyLocation() }
+            fr24Manager?.start { myLastKnownPlace() }
         }
     }
 

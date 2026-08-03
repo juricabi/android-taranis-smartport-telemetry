@@ -147,6 +147,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
      * made the ground feel heavy.
      */
     private class Tile(
+        val key: Long,
         val vertexBuffer: Int,
         val indexBuffer: Int,
         val count: Int,
@@ -583,25 +584,28 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             // one quad per point is more than a screen can show; a couple of
             // thousand is plenty for a whole flight
             val step = Math.max(1, trackCount / 2000)
-            val quads = ArrayList<Float>()
+            // Straight into the array it is going to live in. Growing a list of
+            // boxed floats made fifty thousand objects of a curtain that is
+            // rebuilt every time the flight gains a point.
+            val quads = (trackCount - 1) / step
+            val array = FloatArray(quads * 18)
+            var at = 0
             var i = 0
-            while (i + step < trackCount) {
+            while (i + step < trackCount && at + 18 <= array.size) {
                 val a = i * 3
                 val b = (i + step) * 3
                 // two triangles: flight to shadow, along one step of the path
-                quads.add(track[a]); quads.add(track[a + 1]); quads.add(track[a + 2])
-                quads.add(shadow[a]); quads.add(shadow[a + 1]); quads.add(shadow[a + 2])
-                quads.add(track[b]); quads.add(track[b + 1]); quads.add(track[b + 2])
+                array[at++] = track[a]; array[at++] = track[a + 1]; array[at++] = track[a + 2]
+                array[at++] = shadow[a]; array[at++] = shadow[a + 1]; array[at++] = shadow[a + 2]
+                array[at++] = track[b]; array[at++] = track[b + 1]; array[at++] = track[b + 2]
 
-                quads.add(track[b]); quads.add(track[b + 1]); quads.add(track[b + 2])
-                quads.add(shadow[a]); quads.add(shadow[a + 1]); quads.add(shadow[a + 2])
-                quads.add(shadow[b]); quads.add(shadow[b + 1]); quads.add(shadow[b + 2])
+                array[at++] = track[b]; array[at++] = track[b + 1]; array[at++] = track[b + 2]
+                array[at++] = shadow[a]; array[at++] = shadow[a + 1]; array[at++] = shadow[a + 2]
+                array[at++] = shadow[b]; array[at++] = shadow[b + 1]; array[at++] = shadow[b + 2]
                 i += step
             }
-            val array = FloatArray(quads.size)
-            for (j in quads.indices) array[j] = quads[j]
             dropBuffer = floats(array)
-            dropCount = array.size / 3
+            dropCount = at / 3
         }
     }
 
@@ -716,19 +720,37 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         drawLines()
     }
 
+    /**
+     * Upload what is new and throw away what has gone.
+     *
+     * Extending the ground hands back the tiles already on screen along with
+     * the new one. Uploading the lot meant deleting and re-sending nine 16MB
+     * textures in a single frame, which is a freeze of the better part of a
+     * second — and it happened every time the flight neared the edge of what
+     * was loaded.
+     */
     private fun uploadPending() {
         val meshes: List<TerrainScene.TileMesh>
         synchronized(this) {
             if (pending.isEmpty()) return
             meshes = ArrayList(pending)
             pending.clear()
-            for (t in tiles) {
+            val wanted = HashSet<Long>()
+            for (mesh in meshes) wanted.add(mesh.key)
+            val gone = ArrayList<Tile>()
+            for (t in tiles) if (!wanted.contains(t.key)) gone.add(t)
+            for (t in gone) {
                 if (t.textureId != 0) GLES20.glDeleteTextures(1, intArrayOf(t.textureId), 0)
                 GLES20.glDeleteBuffers(2, intArrayOf(t.vertexBuffer, t.indexBuffer), 0)
+                tiles.remove(t)
             }
-            tiles.clear()
         }
         for (mesh in meshes) {
+            var already = false
+            synchronized(this) {
+                for (t in tiles) if (t.key == mesh.key) already = true
+            }
+            if (already) continue
             var texture = 0
             val bitmap = mesh.texture
             if (bitmap != null && !bitmap.isRecycled) {
@@ -736,8 +758,11 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                 GLES20.glGenTextures(1, ids, 0)
                 texture = ids[0]
                 GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
+                // Zoomed out, a 2048px texture lands on a few hundred pixels of
+                // screen, and without a chain of smaller copies every one of
+                // them reads a different corner of it: slow, and it shimmers.
                 GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER,
-                    GLES20.GL_LINEAR)
+                    GLES20.GL_LINEAR_MIPMAP_LINEAR)
                 GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER,
                     GLES20.GL_LINEAR)
                 GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S,
@@ -745,6 +770,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                 GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T,
                     GLES20.GL_CLAMP_TO_EDGE)
                 GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
+                GLES20.glGenerateMipmap(GLES20.GL_TEXTURE_2D)
             }
             val ids = IntArray(2)
             GLES20.glGenBuffers(2, ids, 0)
@@ -759,7 +785,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
             GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, 0)
             synchronized(this) {
-                tiles.add(Tile(ids[0], ids[1], mesh.indices.size, texture))
+                tiles.add(Tile(mesh.key, ids[0], ids[1], mesh.indices.size, texture))
             }
         }
     }
@@ -838,6 +864,11 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val uColor = GLES20.glGetUniformLocation(lineProgram, "uColor")
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
         GLES20.glEnableVertexAttribArray(aPosition)
+        // Every line here is given an alpha — the shadow, the curtain, the
+        // accuracy ring, and the traffic posts most of all, which are meant to
+        // be faint. Without this they all drew solid and the alpha was a lie.
+        GLES20.glEnable(GLES20.GL_BLEND)
+        GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
 
         val track: FloatBuffer?
         val shadow: FloatBuffer?
@@ -861,6 +892,9 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         GLES20.glUniformMatrix4fv(uMvp, 1, false, liftMvp, 0)
 
         if (shadow != null && sCount > 1) {
+            // its own width, rather than whatever the last pass left set: the
+            // shadow changed thickness as other lines came and went
+            GLES20.glLineWidth(2f)
             shadow.position(0)
             GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, shadow)
             // the route colour darkened, rather than an anonymous black line
@@ -872,14 +906,12 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             drops.position(0)
             GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, drops)
             GLES20.glUniform4f(uColor, trackColor[0], trackColor[1], trackColor[2], 0.18f)
-            GLES20.glEnable(GLES20.GL_BLEND)
-            GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+            // translucent, so what is behind it must still be drawn
             // no depth writing: the curtain is see through, so what is behind it
             // has to keep drawing, and it must not hide the flight above it
             GLES20.glDepthMask(false)
             GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, dCount)
             GLES20.glDepthMask(true)
-            GLES20.glDisable(GLES20.GL_BLEND)
         }
         val marker: FloatBuffer?
         val mCount: Int
@@ -932,6 +964,8 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glDrawArrays(GLES20.GL_LINE_STRIP, 0, tCount)
         }
         GLES20.glDisableVertexAttribArray(aPosition)
+        // put back what the ground and the model expect to find
+        GLES20.glDisable(GLES20.GL_BLEND)
     }
 
     /**
@@ -943,8 +977,14 @@ class TerrainRenderer : GLSurfaceView.Renderer {
      */
     private fun drawModelLit() {
         val buffer: FloatBuffer?
-        synchronized(this) { buffer = if (modelVisible) modelBuffer else null }
-        if (buffer == null || modelCount < 3 || modelProgram == 0) return
+        // count and buffer together: they are replaced as a pair when the
+        // shape changes, and a new count against an old buffer reads off its end
+        val count: Int
+        synchronized(this) {
+            buffer = if (modelVisible) modelBuffer else null
+            count = modelCount
+        }
+        if (buffer == null || count < 3 || modelProgram == 0) return
 
         GLES20.glUseProgram(modelProgram)
         val aPosition = GLES20.glGetAttribLocation(modelProgram, "aPosition")
@@ -990,7 +1030,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // forward settles which one wins, every frame.
         GLES20.glEnable(GLES20.GL_POLYGON_OFFSET_FILL)
         GLES20.glPolygonOffset(-2f, -4f)
-        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, modelCount)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, count)
         GLES20.glDisable(GLES20.GL_POLYGON_OFFSET_FILL)
 
         GLES20.glDisableVertexAttribArray(aPosition)
