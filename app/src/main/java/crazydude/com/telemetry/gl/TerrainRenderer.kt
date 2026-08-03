@@ -156,6 +156,8 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     private var modelCount = 0
     private val modelMatrix = FloatArray(16)
     private val modelMvp = FloatArray(16)
+    private val outlineMatrix = FloatArray(16)
+    private val outlineMvp = FloatArray(16)
     @Volatile private var modelVisible = false
     @Volatile private var modelX = 0f
     @Volatile private var modelY = 0f
@@ -787,9 +789,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         Matrix.scaleM(modelMatrix, 0, drawSize, drawSize / verticalScale, drawSize)
         Matrix.multiplyMM(modelMvp, 0, mvp, 0, modelMatrix, 0)
 
-        GLES20.glUniformMatrix4fv(uMvp, 1, false, modelMvp, 0)
         GLES20.glUniform1f(uHasTexture, 0f)
-        GLES20.glUniform3f(uBase, modelColor[0], modelColor[1], modelColor[2])
 
         val stride = FLOATS_PER_VERTEX * 4
         buffer.position(0)
@@ -802,6 +802,26 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         GLES20.glVertexAttribPointer(aNormal, 3, GLES20.GL_FLOAT, false, stride, buffer)
         GLES20.glEnableVertexAttribArray(aNormal)
 
+        // The same trick the map markers use: a dark copy underneath, a little
+        // larger, so what is left showing round the edges is an outline. Drawn
+        // without writing depth, so the model itself still covers it — only the
+        // fringe survives — while the terrain in front still hides both.
+        Matrix.setIdentityM(outlineMatrix, 0)
+        Matrix.translateM(outlineMatrix, 0, modelX, modelY, modelZ)
+        Matrix.rotateM(outlineMatrix, 0, -modelHeading, 0f, 1f, 0f)
+        Matrix.rotateM(outlineMatrix, 0, modelPitch, 1f, 0f, 0f)
+        Matrix.rotateM(outlineMatrix, 0, -modelRoll, 0f, 0f, 1f)
+        val outlineSize = drawSize * 1.14f
+        Matrix.scaleM(outlineMatrix, 0, outlineSize, outlineSize / verticalScale, outlineSize)
+        Matrix.multiplyMM(outlineMvp, 0, mvp, 0, outlineMatrix, 0)
+        GLES20.glUniformMatrix4fv(uMvp, 1, false, outlineMvp, 0)
+        GLES20.glUniform3f(uBase, 0f, 0f, 0f)
+        GLES20.glDepthMask(false)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, modelCount)
+        GLES20.glDepthMask(true)
+
+        GLES20.glUniformMatrix4fv(uMvp, 1, false, modelMvp, 0)
+        GLES20.glUniform3f(uBase, modelColor[0], modelColor[1], modelColor[2])
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, modelCount)
 
         GLES20.glDisableVertexAttribArray(aPosition)
