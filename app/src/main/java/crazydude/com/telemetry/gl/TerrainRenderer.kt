@@ -100,6 +100,8 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     private val projection = FloatArray(16)
     private val view = FloatArray(16)
     private val mvp = FloatArray(16)
+    private val liftMatrix = FloatArray(16)
+    private val liftMvp = FloatArray(16)
 
     /** Orbit: degrees round, degrees up, and how far out. */
     @Volatile var azimuth = 30f
@@ -534,6 +536,15 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             drops = dropBuffer; dCount = dropCount
         }
 
+        // Anything lying on the ground fights with it once the camera is far
+        // enough out that a metre is below what the depth buffer can tell
+        // apart. Lift them with distance instead of by a fixed metre.
+        val lift = Math.max(1f, distance * 0.004f)
+        Matrix.setIdentityM(liftMatrix, 0)
+        Matrix.translateM(liftMatrix, 0, 0f, lift / verticalScale, 0f)
+        Matrix.multiplyMM(liftMvp, 0, mvp, 0, liftMatrix, 0)
+        GLES20.glUniformMatrix4fv(uMvp, 1, false, liftMvp, 0)
+
         if (shadow != null && sCount > 1) {
             shadow.position(0)
             GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, shadow)
@@ -551,6 +562,10 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val marker: FloatBuffer?
         val mCount: Int
         synchronized(this) { marker = markerBuffer; mCount = markerCount }
+        // the track and the model are up in the air, so they go back to the
+        // plain matrix
+        GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
+
         val mine: FloatBuffer?
         synchronized(this) { mine = if (myVisible) arrowBuffer else null }
         if (mine != null) {
@@ -581,11 +596,13 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val rCount: Int
         synchronized(this) { ring = circleBuffer; rCount = circleCount }
         if (ring != null && rCount > 2) {
+            GLES20.glUniformMatrix4fv(uMvp, 1, false, liftMvp, 0)
             ring.position(0)
             GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, ring)
             GLES20.glUniform4f(uColor, 0.2f, 0.6f, 1f, 0.9f)
             GLES20.glLineWidth(3f)
             GLES20.glDrawArrays(GLES20.GL_LINE_LOOP, 0, rCount)
+            GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
         }
         if (marker != null && mCount > 1) {
             marker.position(0)
