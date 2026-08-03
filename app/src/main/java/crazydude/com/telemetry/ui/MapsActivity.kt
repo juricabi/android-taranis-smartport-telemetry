@@ -476,6 +476,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
 
         chaseButton.setOnClickListener {
+            shownMapHeading = Float.NaN
             setChaseMode(!chaseMode)
         }
 
@@ -3798,10 +3799,28 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
-    /** The map turned so the model's heading is up. The 3D view does its own. */
+    private var shownMapHeading = Float.NaN
+
+    /**
+     * The map turned so the model's heading is up. The 3D view does its own.
+     *
+     * Eased, and only when the angle has really moved: a heading arrives many
+     * times a second and wanders by a degree or two on each, and redrawing the
+     * whole map for that is both a shake and a waste.
+     */
     private fun applyHeadingUp() {
         if (!chaseMode || terrain3D != null) return
-        map?.setMapOrientation(-lastHeading)
+        val wanted = -lastHeading
+        if (shownMapHeading.isNaN()) {
+            shownMapHeading = wanted
+        } else {
+            var turn = wanted - shownMapHeading
+            while (turn > 180f) turn -= 360f
+            while (turn < -180f) turn += 360f
+            if (Math.abs(turn) < 0.4f) return
+            shownMapHeading += turn * 0.2f
+        }
+        map?.setMapOrientation(shownMapHeading)
     }
 
     fun commitRouteLinePoints() {

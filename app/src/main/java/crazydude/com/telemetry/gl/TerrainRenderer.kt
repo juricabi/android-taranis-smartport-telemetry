@@ -127,6 +127,9 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             void main() { gl_FragColor = uColor; }
         """
 
+        /** How much of the way to what it has been told, each frame. */
+        private const val SMOOTHING = 0.18f
+
         private const val FLOATS_PER_VERTEX = 8
 
         /** The model layout: position, corner weights, normal. */
@@ -177,10 +180,78 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     private val liftMatrix = FloatArray(16)
     private val liftMvp = FloatArray(16)
 
+    /** How much the camera is being held up off the ground, eased over frames. */
+    private var floorLift = 0f
+
+    /**
+     * Where the camera and the model actually are this frame, as against where
+     * they have been told to be.
+     *
+     * Telemetry lands a few times a second and the screen draws sixty: taken
+     * literally, everything steps rather than moves. Both are eased at the same
+     * rate, so the model does not wander around the middle of the screen while
+     * the camera catches up with it.
+     */
+    private val shownTarget = FloatArray(3)
+    private var shownX = 0f
+    private var shownY = 0f
+    private var shownZ = 0f
+    private var shownHeading = 0f
+    private var shownPitch = 0f
+    private var shownRoll = 0f
+    private var placed = false
+
+    private fun ease(from: Float, to: Float): Float = from + (to - from) * SMOOTHING
+
+    /** The short way round, so a turn through north is not a lap of the compass. */
+    private fun easeAngle(from: Float, to: Float): Float {
+        var turn = to - from
+        while (turn > 180f) turn -= 360f
+        while (turn < -180f) turn += 360f
+        return ((from + turn * SMOOTHING) % 360f + 360f) % 360f
+    }
+
+    /**
+     * Follow where things have been put, unless they have been put somewhere
+     * else entirely — a jump to your own location, or the first position of
+     * all, should arrive rather than glide.
+     */
+    private fun settle() {
+        val t = target
+        val far = Math.max(200f, distance * 0.5f)
+        val dx = t[0] - shownTarget[0]
+        val dy = t[1] - shownTarget[1]
+        val dz = t[2] - shownTarget[2]
+        if (!placed || dx * dx + dy * dy + dz * dz > far * far) {
+            placed = true
+            shownTarget[0] = t[0]; shownTarget[1] = t[1]; shownTarget[2] = t[2]
+            shownX = modelX; shownY = modelY; shownZ = modelZ
+            shownHeading = modelHeading; shownPitch = modelPitch; shownRoll = modelRoll
+            return
+        }
+        shownTarget[0] = ease(shownTarget[0], t[0])
+        shownTarget[1] = ease(shownTarget[1], t[1])
+        shownTarget[2] = ease(shownTarget[2], t[2])
+        shownX = ease(shownX, modelX)
+        shownY = ease(shownY, modelY)
+        shownZ = ease(shownZ, modelZ)
+        shownHeading = easeAngle(shownHeading, modelHeading)
+        shownPitch = easeAngle(shownPitch, modelPitch)
+        shownRoll = easeAngle(shownRoll, modelRoll)
+    }
+
     /** Orbit: degrees round, degrees up, and how far out. */
     @Volatile var azimuth = 30f
     @Volatile var elevation = 28f
     @Volatile var distance = 1500f
+
+    /**
+     * Where something else wants the camera to look from, eased into rather
+     * than snapped to. An aircraft's heading arrives many times a second and
+     * wanders by a degree or two on every one of them; taken literally the
+     * camera shakes. Not a number when nothing is steering it.
+     */
+    @Volatile var azimuthWanted = Float.NaN
 
     /** As far out as the ground goes; set from the flight, not guessed. */
     @Volatile var maxDistance = 3000f
@@ -586,30 +657,47 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val far = Math.max(4000f, distance * 8f)
         Matrix.perspectiveM(projection, 0, 50f, ratio, near, far)
 
+        settle()
+
+        val wanted = azimuthWanted
+        if (!wanted.isNaN()) {
+            var turn = wanted - azimuth
+            while (turn > 180f) turn -= 360f
+            while (turn < -180f) turn += 360f
+            azimuth = ((azimuth + turn * 0.15f) % 360f + 360f) % 360f
+        }
+
         val az = Math.toRadians(azimuth.toDouble())
         val el = Math.toRadians(elevation.toDouble().coerceIn(3.0, 87.0))
         // The ground is drawn stretched by verticalScale, so the camera has to
         // live in that same stretched space. Placing it in unstretched metres
         // put it below hills it was supposed to clear — which is why it could
         // still end up inside them.
-        val targetFloorRaw = groundUnderCamera?.invoke(target[0], target[2])
-        val targetYRaw = if (targetFloorRaw != null && target[1] < targetFloorRaw + 5f) {
+        val targetFloorRaw = groundUnderCamera?.invoke(shownTarget[0], shownTarget[2])
+        val targetYRaw = if (targetFloorRaw != null && shownTarget[1] < targetFloorRaw + 5f) {
             targetFloorRaw + 5f
         } else {
-            target[1]
+            shownTarget[1]
         }
         val targetY = targetYRaw * verticalScale
 
-        val eyeX = target[0] + (distance * Math.cos(el) * Math.sin(az)).toFloat()
+        val eyeX = shownTarget[0] + (distance * Math.cos(el) * Math.sin(az)).toFloat()
         var eyeY = targetY + (distance * Math.sin(el)).toFloat()
-        val eyeZ = target[2] + (distance * Math.cos(el) * Math.cos(az)).toFloat()
+        val eyeZ = shownTarget[2] + (distance * Math.cos(el) * Math.cos(az)).toFloat()
         // never under the ground: it is opaque from below and the view becomes
         // a meaningless slab
+        // Eased, not snapped. Riding behind the model puts the camera low,
+        // where swinging it round the model runs it over ground of changing
+        // height — and a lift applied the moment it is needed and dropped the
+        // moment it is not is a camera that jumps every frame.
         val floorY = groundUnderCamera?.invoke(eyeX, eyeZ)
-        if (floorY != null && eyeY < floorY * verticalScale + 40f) {
-            eyeY = floorY * verticalScale + 40f
+        val wantLift = if (floorY == null) 0f else {
+            Math.max(0f, floorY * verticalScale + 40f - eyeY)
         }
-        Matrix.setLookAtM(view, 0, eyeX, eyeY, eyeZ, target[0], targetY, target[2], 0f, 1f, 0f)
+        floorLift += (wantLift - floorLift) * 0.15f
+        eyeY += floorLift
+        Matrix.setLookAtM(view, 0, eyeX, eyeY, eyeZ,
+            shownTarget[0], targetY, shownTarget[2], 0f, 1f, 0f)
 
         // the exaggeration lives in the matrix, so nothing has to be rebuilt,
         // and the camera above was placed in the same stretched space
@@ -896,12 +984,12 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val uBase = GLES20.glGetUniformLocation(modelProgram, "uBase")
 
         Matrix.setIdentityM(modelMatrix, 0)
-        Matrix.translateM(modelMatrix, 0, modelX, modelY, modelZ)
+        Matrix.translateM(modelMatrix, 0, shownX, shownY, shownZ)
         // yaw, then pitch, then roll — the order an aircraft's attitude is
         // built in, so a banked turn looks like a banked turn
-        Matrix.rotateM(modelMatrix, 0, -modelHeading, 0f, 1f, 0f)
-        Matrix.rotateM(modelMatrix, 0, modelPitch, 1f, 0f, 0f)
-        Matrix.rotateM(modelMatrix, 0, -modelRoll, 0f, 0f, 1f)
+        Matrix.rotateM(modelMatrix, 0, -shownHeading, 0f, 1f, 0f)
+        Matrix.rotateM(modelMatrix, 0, shownPitch, 1f, 0f, 0f)
+        Matrix.rotateM(modelMatrix, 0, -shownRoll, 0f, 0f, 1f)
         // undo the vertical exaggeration on the dart itself, or it grows a
         // taller fin the more the ground is stretched
         // Held at a size on screen rather than in metres — a model drawn to

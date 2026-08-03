@@ -63,6 +63,9 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     private val poll = object : Runnable {
         override fun run() {
             pickUpNewPoints()
+            // the camera turns itself while chasing, so the heading in the
+            // corner is read off it rather than told to it
+            if (chasing) onBearingChanged?.invoke(renderer.azimuth)
             ticker.postDelayed(this, FOLLOW_INTERVAL_MS)
         }
     }
@@ -276,6 +279,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         // north up and behind the model are two different answers to the same
         // question, so asking for one lets go of the other
         chasing = false
+        renderer.azimuthWanted = Float.NaN
         renderer.azimuth = 0f
         renderer.elevation = 30f
         onBearingChanged?.invoke(renderer.azimuth)
@@ -624,13 +628,16 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
 
     fun setChasing(on: Boolean) {
         chasing = on
-        if (!on) return
+        if (!on) {
+            renderer.azimuthWanted = Float.NaN
+            return
+        }
         chaseYaw = 0f
         // over its shoulder means keeping up with it, and from a low angle
         following = true
         panX = 0f
         panZ = 0f
-        renderer.elevation = 16f
+        renderer.elevation = 22f
         renderer.distance = renderer.distance.coerceIn(80f, 400f)
         LiveFlightPath.latest()?.let { lookAt(it.lat, it.lon, it.altitudeMsl) }
         applyChaseBearing()
@@ -647,8 +654,9 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
      */
     private fun applyChaseBearing() {
         if (!chasing) return
-        renderer.azimuth = ((-lastModelHeading + chaseYaw) % 360f + 360f) % 360f
-        onBearingChanged?.invoke(renderer.azimuth)
+        // asked for, not set: the renderer eases the camera round, so a heading
+        // that wanders between one attitude and the next does not shake it
+        renderer.azimuthWanted = ((-lastModelHeading + chaseYaw) % 360f + 360f) % 360f
     }
 
     /** Only a button does this now: no gesture gives up following. */
@@ -656,6 +664,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         if (!following) return
         following = false
         chasing = false
+        renderer.azimuthWanted = Float.NaN
         onFollowingLost?.invoke()
     }
 

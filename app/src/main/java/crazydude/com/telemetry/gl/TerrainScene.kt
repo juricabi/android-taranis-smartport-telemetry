@@ -141,19 +141,42 @@ class TerrainScene {
             }
             thinned
         }
-        val out = FloatArray(points.size * 3)
+        val raw = FloatArray(points.size * 3)
         var i = 0
         for (p in points) {
-            out[i++] = east(p.lon)
-            out[i++] = aboveSeaLevel(p.altitudeMsl) - originAltitude
-            out[i++] = -north(p.lat)
+            raw[i++] = east(p.lon)
+            raw[i++] = aboveSeaLevel(p.altitudeMsl) - originAltitude
+            raw[i++] = -north(p.lat)
             if (p.lat < minLat) minLat = p.lat
             if (p.lat > maxLat) maxLat = p.lat
             if (p.lon < minLon) minLon = p.lon
             if (p.lon > maxLon) maxLon = p.lon
         }
-        track = out
+        track = smoothed(raw)
         buildShadow(points)
+    }
+
+    /**
+     * Each point drawn a quarter of the way towards each of its neighbours.
+     *
+     * A position is good to a few metres and the next one is wrong by a
+     * different few, so a line through them saws back and forth about a path
+     * that was flown smoothly. The ends stay put: the first point is the launch
+     * and the last is where the model is now.
+     */
+    private fun smoothed(raw: FloatArray): FloatArray {
+        if (raw.size < 9) return raw
+        val out = FloatArray(raw.size)
+        for (axis in 0..2) {
+            out[axis] = raw[axis]
+            out[raw.size - 3 + axis] = raw[raw.size - 3 + axis]
+        }
+        var i = 3
+        while (i < raw.size - 3) {
+            out[i] = 0.25f * raw[i - 3] + 0.5f * raw[i] + 0.25f * raw[i + 3]
+            i++
+        }
+        return out
     }
 
     fun setTrack(points: List<TrackPoint>): Boolean {
