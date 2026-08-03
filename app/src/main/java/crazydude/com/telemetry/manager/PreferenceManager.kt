@@ -117,6 +117,19 @@ class PreferenceManager(context: Context) {
         sharedPreferences.edit().putInt("map_type", mapType).apply()
     }
 
+    /**
+     * The 3D ground is chosen from the same list as the map types, so it is
+     * remembered the same way. It is not one of them, though — the map keeps
+     * its own type underneath, for coming back to.
+     */
+    fun is3DMapChosen(): Boolean {
+        return sharedPreferences.getBoolean("map_3d", false)
+    }
+
+    fun set3DMapChosen(chosen: Boolean) {
+        sharedPreferences.edit().putBoolean("map_3d", chosen).apply()
+    }
+
     fun getRouteColor(): Int {
         return sharedPreferences.getInt("route_color", defaultRouteColor)
     }

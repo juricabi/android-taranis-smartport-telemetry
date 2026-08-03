@@ -146,8 +146,6 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
                 showMyLocation()
                 status.text = when {
                     scene.tiles.isEmpty() -> "No terrain here"
-                    // worth saying, since it changes what the height means
-                    scene.altitudeIsAboveLaunch -> "Heights are above launch"
                     else -> ""
                 }
                 loadingTerrain = false
@@ -260,7 +258,14 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     fun faceNorth() {
         renderer.azimuth = 0f
         renderer.elevation = 30f
+        onBearingChanged?.invoke(renderer.azimuth)
     }
+
+    /**
+     * Which way the camera looks, whenever it turns. The map reports the same
+     * thing as it is rotated, and the heading in the corner is drawn from it.
+     */
+    var onBearingChanged: ((Float) -> Unit)? = null
 
     /** Put the camera on a place, without following anything. */
     fun lookAt(lat: Double, lon: Double, altitudeMsl: Float?) {
@@ -493,7 +498,10 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
                     var turn = angle - lastAngle
                     while (turn > 180f) turn -= 360f
                     while (turn < -180f) turn += 360f
-                    if (Math.abs(turn) < 40f) renderer.azimuth += turn
+                    if (Math.abs(turn) < 40f) {
+                        renderer.azimuth += turn
+                        onBearingChanged?.invoke(renderer.azimuth)
+                    }
 
                     // both fingers sliding together tilt the view
                     val tilt = focusY - lastFocusY

@@ -818,12 +818,17 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             myHeading = (myHeading + turn * 0.12f + 360f) % 360f
 
             // a fraction of the distance out, so it is the same size on screen
-            // however far the camera is
-            // rounded, so a camera drifting in or out does not resize it every
-            // frame — which reads as a flicker rather than as movement
-            val size = Math.max(2f, Math.round(distance * 0.014f).toFloat())
+            // however far the camera is. Not rounded: a whole metre is a third
+            // of it at close range, and a camera drifting across the rounding
+            // point made it jump between two sizes.
+            val size = Math.max(2f, distance * 0.014f)
+            // Clearance in proportion, because the arrow lies flat: zoomed out
+            // it is tens of metres across, and a fixed quarter of a metre left
+            // its uphill half buried in any slope. That is why it came and went
+            // with the zoom. Far too small to see at the range it applies to.
+            val lift = groundLift() + size * 0.3f
             Matrix.setIdentityM(arrowMatrix, 0)
-            Matrix.translateM(arrowMatrix, 0, myX, myY + groundLift() / verticalScale, myZ)
+            Matrix.translateM(arrowMatrix, 0, myX, myY + lift / verticalScale, myZ)
             Matrix.rotateM(arrowMatrix, 0, -myHeading, 0f, 1f, 0f)
             Matrix.scaleM(arrowMatrix, 0, size, size / verticalScale, size)
             Matrix.multiplyMM(arrowMvp, 0, mvp, 0, arrowMatrix, 0)
@@ -898,7 +903,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // than it was, which made a quad look the size of a hangar.
         // the same fraction of the distance the position arrow uses, so the two
         // read as one family rather than two scales
-        val drawSize = Math.max(3f, Math.round(distance * 0.02f).toFloat())
+        val drawSize = Math.max(3f, distance * 0.02f)
         Matrix.scaleM(modelMatrix, 0, drawSize, drawSize / verticalScale, drawSize)
         Matrix.multiplyMM(modelMvp, 0, mvp, 0, modelMatrix, 0)
 
@@ -915,7 +920,13 @@ class TerrainRenderer : GLSurfaceView.Renderer {
 
         GLES20.glUniformMatrix4fv(uMvp, 1, false, modelMvp, 0)
         GLES20.glUniform3f(uBase, modelColor[0], modelColor[1], modelColor[2])
+        // The track ends inside the model, so the two share depths where they
+        // cross and flickered against each other. Pulling the model a hair
+        // forward settles which one wins, every frame.
+        GLES20.glEnable(GLES20.GL_POLYGON_OFFSET_FILL)
+        GLES20.glPolygonOffset(-2f, -4f)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, modelCount)
+        GLES20.glDisable(GLES20.GL_POLYGON_OFFSET_FILL)
 
         GLES20.glDisableVertexAttribArray(aPosition)
         GLES20.glDisableVertexAttribArray(aCorner)

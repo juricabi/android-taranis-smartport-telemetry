@@ -553,6 +553,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         checkAppInstallDate()
         initMap(false)
         map?.onCreate(savedInstanceState)
+        // Chosen last time from the map type list, so it opens that way again.
+        // Quietly: with nothing to show yet the map stays, rather than greeting
+        // a cold start with a complaint.
+        if (preferenceManager.is3DMapChosen()) show3DView(quiet = true)
 
         updateWindowFullscreenDecoration()
 
@@ -1347,7 +1351,15 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         updateHomeLine()
         if (checkCallingOrSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             val lm = getSystemService(LOCATION_SERVICE) as LocationManager
-            lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 1f, phoneLocationListener)
+            // both, because indoors the satellites never come in and the 3D
+            // view would be left without the arrow the map is showing
+            for (provider in arrayOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
+                try {
+                    lm.requestLocationUpdates(provider, 1000L, 1f, phoneLocationListener)
+                } catch (e: Exception) {
+                    // a phone without that provider; the other one still runs
+                }
+            }
         }
         startFr24()
     }
@@ -2431,8 +2443,32 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         return 0f
     }
 
-    private fun show3DView() {
-        val mine = map?.getMyLocation()
+    /**
+     * Where this phone is, from the map if it has a fix and from the system's
+     * last known one otherwise. The map's own arrow comes from a provider that
+     * has usually heard something long before the satellites are in; without
+     * this the 3D view could sit there with no arrow at all, having been opened
+     * a moment too early.
+     */
+    private fun myLastKnownPlace(): Position? {
+        map?.getMyLocation()?.let { return it }
+        if (checkCallingOrSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
+            != PackageManager.PERMISSION_GRANTED) {
+            return null
+        }
+        val lm = getSystemService(LOCATION_SERVICE) as LocationManager
+        var best: Location? = null
+        for (provider in arrayOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
+            val fix = try { lm.getLastKnownLocation(provider) } catch (e: Exception) { null }
+            if (fix != null && (best == null || fix.time > best!!.time)) best = fix
+        }
+        val found = best ?: return null
+        if (phoneAccuracy <= 0f && found.hasAccuracy()) phoneAccuracy = found.accuracy
+        return Position(found.latitude, found.longitude)
+    }
+
+    private fun show3DView(quiet: Boolean = false) {
+        val mine = myLastKnownPlace()
         // No flight yet is no reason to refuse: the ground is there either way.
         // Anywhere we know about will do — the model, where it was last seen,
         // or here.
@@ -2442,8 +2478,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             else -> mine
         }
         if (where == null && crazydude.com.telemetry.gl.LiveFlightPath.size() < 2) {
-            Toast.makeText(this, "No position yet, from the model or this phone",
-                Toast.LENGTH_SHORT).show()
+            if (!quiet) {
+                Toast.makeText(this, "No position yet, from the model or this phone",
+                    Toast.LENGTH_SHORT).show()
+            }
             return
         }
 
@@ -2467,6 +2505,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         applyTerrainSettings(view)
         view.setTraffic(lastAirplanes)
         view.onFollowingLost = { setFollowMode(false) }
+        view.onBearingChanged = { updateCompassHeading(it) }
+        updateCompassHeading(0f)
         setFollowMode(true)
         view.start(
             crazydude.com.telemetry.gl.LiveFlightPath.snapshot(),
@@ -2900,9 +2940,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // The last two are not map types but the same ground in three
             // dimensions, so they open that screen and leave the map as it was.
             if (item == ITEM_3D) {
+                preferenceManager.set3DMapChosen(true)
                 show3DView()
                 return@setSingleChoiceItems
             }
+            preferenceManager.set3DMapChosen(false)
             hide3DView()
             mapHolder.removeAllViews()
             map = null
