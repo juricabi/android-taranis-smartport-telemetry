@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Section heading for the settings list. The stock layout draws the title in
-     the accent colour and at list-item size; this keeps it plain, a little
-     larger, and lined up with the rows underneath. -->
+     the accent colour; this keeps it the same size as the rows, just bold, and
+     lined up with them. -->
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
           android:id="@android:id/title"
           android:layout_width="match_parent"
@@ -13,5 +13,5 @@
           android:paddingTop="20dp"
           android:paddingBottom="6dp"
           android:textColor="?android:attr/textColorPrimary"
-          android:textSize="18sp"
+          android:textAppearance="?android:attr/textAppearanceListItem"
           android:textStyle="bold" />
