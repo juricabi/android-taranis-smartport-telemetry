@@ -650,8 +650,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             updateCompassHeading(orientation)
         }
         polyLine = map?.addPolyline(preferenceManager.getRouteColor())
-        val p = dataService?.points;
-        if (p != null) {
+        // Only a flight that is still going, or one being replayed. The service
+        // outlives this screen and keeps the points of whatever it last heard,
+        // so an unconnected map opened afterwards drew the last flight as
+        // though it were happening — which the 3D ground never did.
+        val p = dataService?.points
+        if (p != null && (dataService?.isConnected() == true || isInReplayMode())) {
             polyLine?.submitPoints(p)
         }
         homeLine = map?.addPolyline(2f, preferenceManager.getHomeLineColor())
@@ -2555,8 +2559,15 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         if (chaseMode) view.setChasing(true)
         updateCompassHeading(view.bearing())
         setFollowMode(true)
+        // the same rule the map follows: a flight still going, or one being
+        // replayed, and otherwise bare ground
+        val flown = if (dataService?.isConnected() == true || isInReplayMode()) {
+            crazydude.com.telemetry.gl.LiveFlightPath.snapshot()
+        } else {
+            emptyList()
+        }
         view.start(
-            crazydude.com.telemetry.gl.LiveFlightPath.snapshot(),
+            flown,
             where?.lat ?: Double.NaN, where?.lon ?: Double.NaN,
             mine?.lat ?: Double.NaN, mine?.lon ?: Double.NaN, phoneAccuracy
         )
