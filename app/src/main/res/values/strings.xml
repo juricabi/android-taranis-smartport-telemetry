@@ -166,4 +166,26 @@
         <item>7</item>
         <item>8</item>
     </string-array>
+    <!-- network telemetry -->
+    <string name="network">Network (Wi-Fi)</string>
+    <string name="network_title">Network telemetry</string>
+    <string name="network_preset">Preset</string>
+    <string name="network_transport">Transport</string>
+    <string name="network_host">Address</string>
+    <string name="network_host_hint">module IP address</string>
+    <string name="network_port">Port</string>
+    <string name="network_protocol">Protocol</string>
+    <string name="network_no_wifi">Not connected to Wi-Fi. Join the module&#8217;s network first.</string>
+    <string name="network_on_wifi">Wi-Fi: %1$s</string>
+    <string name="network_on_wifi_unknown">Connected to Wi-Fi</string>
+    <string name="network_host_unused">Address (not needed for UDP)</string>
+    <string name="network_host_hint_udp">not needed when listening</string>
+    <string name="network_hint_tcp">Connects out to the module. If the phone joined the module&#8217;s own network, its address is the gateway shown above.</string>
+    <string name="network_hint_udp">Listens on this port. The module&#8217;s address is not needed — ExpressLRS broadcasts its telemetry.</string>
+    <string name="network_interface">Network</string>
+    <string name="network_interface_auto">Automatic</string>
+    <string name="network_find">Find</string>
+    <string name="network_searching">Searching the subnet…</string>
+    <string name="network_found_none">Nothing answering on that port. Check the module is on this network and the port is right.</string>
+    <string name="network_connect">Connect</string>
 </resources>

@@ -21,7 +21,9 @@ import crazydude.com.telemetry.protocol.pollers.BluetoothDataPoller
 import crazydude.com.telemetry.protocol.pollers.BluetoothLeDataPoller
 import crazydude.com.telemetry.protocol.decoder.DataDecoder
 import crazydude.com.telemetry.protocol.pollers.DataPoller
+import crazydude.com.telemetry.protocol.pollers.NetworkDataPoller
 import crazydude.com.telemetry.protocol.pollers.UsbDataPoller
+import crazydude.com.telemetry.utils.WifiNetworkBinder
 import crazydude.com.telemetry.ui.MapsActivity
 import java.io.File
 import java.io.FileOutputStream
@@ -149,6 +151,47 @@ class DataService : Service(), DataDecoder.Listener {
             connection,
             logFile
         )
+    }
+
+    /**
+     * Telemetry over the network: a TCP server such as a TBS Crossfire WiFi
+     * module, or a UDP sender such as an ExpressLRS backpack.
+     *
+     * Nothing touches the network here — the poller does all of it on its own
+     * thread, because this runs on the UI thread and a socket call would throw
+     * NetworkOnMainThreadException.
+     */
+    fun connect(host: String, port: Int, useTcp: Boolean) {
+        try {
+            dataPoller?.disconnect()
+
+            val logFile = createLogFile()
+            createLogger()
+
+            // Pinning to Wi-Fi and holding the multicast lock: without these a
+            // transmitter's own access point, which has no internet, loses to
+            // mobile data and the broadcast never arrives.
+            // Only when the user left the network on Automatic. Choosing a
+            // specific interface — a hotspot the module joined, say — means the
+            // route is local and forcing Wi-Fi would break it.
+            val binder = if (preferenceManager.getNetworkPinWifi()) {
+                WifiNetworkBinder(this).also { it.acquire() }
+            } else {
+                null
+            }
+
+            dataPoller = NetworkDataPoller(
+                useTcp,
+                host,
+                port,
+                preferenceManager.getNetworkProtocol(),
+                this,
+                logFile,
+                binder
+            )
+        } catch (e: IOException) {
+            Toast.makeText(this, "Failed to open the telemetry log", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun createLogger() {

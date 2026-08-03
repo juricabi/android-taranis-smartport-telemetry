@@ -36,6 +36,13 @@
 
     <SwitchPreference
             app:iconSpaceReserved="false"
+            android:title="Automatically reconnect lost network connection"
+            android:summary="Try to reconnect if a Wi-Fi (TCP/UDP) telemetry connection has failed"
+            android:defaultValue="true"
+            android:key="network_reconnect"/>
+
+    <SwitchPreference
+            app:iconSpaceReserved="false"
             android:title="Voice messages on conection status changes"
             android:summary="Play voice messages when connection status chages."
             android:defaultValue="true"
@@ -199,14 +206,16 @@
             android:layout="@layout/preference_category_title"
             app:iconSpaceReserved="false" android:title="Sensors">
 
+        <!-- No targetPackage: it was hardcoded to jauler.com.telemetry, which
+             is the release applicationId. A debug build is
+             jauler.com.telemetry.debug, so the intent pointed at a different
+             app and the screen could not open at all. Naming only the class
+             keeps it inside whichever build is running. -->
         <Preference
             app:iconSpaceReserved="false"
+                android:key="sensor_display_settings"
                 android:title="Sensor display settings"
-                android:summary="Click to edit sensor widgets placement on the main screen">
-            <intent android:targetClass="crazydude.com.telemetry.ui.SensorsActivity"
-                    android:targetPackage="jauler.com.telemetry"
-                    android:action="android.intent.action.VIEW"/>
-        </Preference>
+                android:summary="Click to edit sensor widgets placement on the main screen"/>
 
         <ListPreference
             app:iconSpaceReserved="false"

@@ -159,6 +159,16 @@ class PreferenceManager(context: Context) {
         return sharedPreferences.getBoolean("connection_reconnect", true)
     }
 
+    /**
+     * Kept separate from the Bluetooth setting on purpose: a network drop and a
+     * Bluetooth drop are not the same event, and someone may well want the
+     * radio link retried but not a Wi-Fi one that is retrying against an access
+     * point they have deliberately walked away from.
+     */
+    fun getNetworkReconnectionEnabled(): Boolean {
+        return sharedPreferences.getBoolean("network_reconnect", true)
+    }
+
     fun getConnectionVoiceMessagesEnabled(): Boolean {
         return sharedPreferences.getBoolean("connection_voice_messages", true)
     }
@@ -201,6 +211,76 @@ class PreferenceManager(context: Context) {
 
     fun setLastSelectedBLEDeviceAddress(pooler: String) {
         sharedPreferences.edit().putString("last_ble_address", pooler).apply()
+    }
+
+    // Network telemetry.
+    //
+    // Deliberately not exposed in res/xml/preferences.xml: these are chosen in
+    // the connection dialog at the moment of connecting, and a port kept here
+    // as an Int would collide with an EditTextPreference of the same key, which
+    // stores everything as a String and would throw on read.
+
+    /**
+     * True for TCP — a TBS Crossfire WiFi module is a server you connect to.
+     * False for a UDP listen, which is what an ExpressLRS backpack needs since
+     * it broadcasts and there is nothing to address.
+     */
+    fun getNetworkUseTcp(): Boolean {
+        return sharedPreferences.getBoolean("network_use_tcp", false)
+    }
+
+    fun setNetworkUseTcp(useTcp: Boolean) {
+        sharedPreferences.edit().putBoolean("network_use_tcp", useTcp).apply()
+    }
+
+    fun getNetworkHost(): String {
+        return sharedPreferences.getString("network_host", "") ?: ""
+    }
+
+    fun setNetworkHost(host: String) {
+        sharedPreferences.edit().putString("network_host", host).apply()
+    }
+
+    /** 14550 is where an ExpressLRS backpack sends. TBS defaults to 8888. */
+    fun getNetworkPort(): Int {
+        return sharedPreferences.getInt("network_port", 14550)
+    }
+
+    fun setNetworkPort(port: Int) {
+        sharedPreferences.edit().putInt("network_port", port).apply()
+    }
+
+    /** A name from ProtocolFactory.choices, or "Auto-detect". */
+    fun getNetworkProtocol(): String {
+        return sharedPreferences.getString("network_protocol", "Auto-detect") ?: "Auto-detect"
+    }
+
+    fun setNetworkProtocol(protocol: String) {
+        sharedPreferences.edit().putString("network_protocol", protocol).apply()
+    }
+
+    /**
+     * Whether to pin the telemetry socket to the Wi-Fi network.
+     *
+     * Right when the phone has joined a module's access point, and wrong when
+     * the module has joined this phone's hotspot: a hotspot client is reached
+     * over the local subnet, and pinning to a joined Wi-Fi network would send
+     * the traffic somewhere it can never arrive.
+     */
+    fun getNetworkPinWifi(): Boolean {
+        return sharedPreferences.getBoolean("network_pin_wifi", true)
+    }
+
+    fun setNetworkPinWifi(pin: Boolean) {
+        sharedPreferences.edit().putBoolean("network_pin_wifi", pin).apply()
+    }
+
+    fun getNetworkPreset(): Int {
+        return sharedPreferences.getInt("network_preset", 0)
+    }
+
+    fun setNetworkPreset(preset: Int) {
+        sharedPreferences.edit().putInt("network_preset", preset).apply()
     }
 
     fun isFlightPlansEnabled(): Boolean {
