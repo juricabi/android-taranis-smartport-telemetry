@@ -23,12 +23,28 @@ import java.util.concurrent.TimeUnit
  */
 object LocalNetworks {
 
+    /**
+     * How useful an interface is for telemetry, lowest first.
+     *
+     * Wi-Fi is where a module lives, whether the phone joined the module's
+     * access point or the module joined the phone's hotspot. Mobile data never
+     * carries telemetry and only gets in the way, so it sinks to the bottom.
+     */
+    private fun rank(name: String, hotspot: Boolean): Int = when {
+        name.startsWith("wlan") && !hotspot -> 0
+        hotspot -> 1
+        name.startsWith("rmnet") || name.startsWith("ccmni") ||
+            name.startsWith("rmnet_data") -> 3
+        else -> 2
+    }
+
     /** One usable IPv4 interface. */
     class Iface(
         val name: String,
         val address: String,
         val prefix: Int,
-        val likelyHotspot: Boolean
+        val likelyHotspot: Boolean,
+        val rank: Int
     ) {
         /** What the spinner shows. */
         fun label(): String {
@@ -70,12 +86,22 @@ object LocalNetworks {
                     val name = iface.name ?: ""
                     val hotspot = name.startsWith("ap") || name.startsWith("swlan") ||
                         name == "wlan1" || host.startsWith("192.168.43.")
-                    out.add(Iface(name, host, ia.networkPrefixLength.toInt(), hotspot))
+                    out.add(
+                        Iface(
+                            name, host, ia.networkPrefixLength.toInt(), hotspot,
+                            rank(name, hotspot)
+                        )
+                    )
                 }
             }
         } catch (e: Exception) {
             // an interface list is a nicety; never let it stop a connection
         }
+        // Wi-Fi at the top, mobile at the bottom, so the useful one is the one
+        // already in view.
+        out.sortWith(Comparator { a, b ->
+            if (a.rank != b.rank) a.rank - b.rank else a.name.compareTo(b.name)
+        })
         return out
     }
 
@@ -90,13 +116,21 @@ object LocalNetworks {
      * Runs its own threads and calls [onResult] on the caller's thread, so the
      * caller must not be the main thread.
      */
-    fun scan(iface: Iface, port: Int, timeoutMs: Int, onResult: (List<String>) -> Unit) {
+    fun scan(
+        iface: Iface,
+        port: Int,
+        timeoutMs: Int,
+        onProgress: (Int, Int) -> Unit,
+        onResult: (List<String>) -> Unit
+    ) {
         val base = iface.subnet24()
         if (base.isEmpty()) {
             onResult(emptyList())
             return
         }
         val found = java.util.Collections.synchronizedList(ArrayList<String>())
+        val done = java.util.concurrent.atomic.AtomicInteger(0)
+        val total = 254
         val pool = Executors.newFixedThreadPool(32)
         try {
             for (host in 1..254) {
@@ -115,6 +149,10 @@ object LocalNetworks {
                         } catch (e: Exception) {
                             // ignore
                         }
+                        val n = done.incrementAndGet()
+                        // a heartbeat rather than every host, so the UI is not
+                        // asked to redraw two hundred times
+                        if (n % 16 == 0 || n == total) onProgress(n, total)
                     }
                 }
             }

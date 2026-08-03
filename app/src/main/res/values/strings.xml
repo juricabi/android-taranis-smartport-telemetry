@@ -185,7 +185,12 @@
     <string name="network_interface">Network</string>
     <string name="network_interface_auto">Automatic</string>
     <string name="network_find">Find</string>
-    <string name="network_searching">Searching the subnet…</string>
+    <string name="network_searching">Searching %1$s …</string>
+    <string name="network_searching_short">Searching…</string>
+    <string name="network_searching_progress">Searching %1$s — %2$d of %3$d</string>
+    <string name="network_found_one">Found %1$s</string>
+    <string name="network_found_many">%1$d devices are listening on that port</string>
+    <string name="network_found_title">Which one is the module?</string>
     <string name="network_found_none">Nothing answering on that port. Check the module is on this network and the port is right.</string>
     <string name="network_connect">Connect</string>
 </resources>

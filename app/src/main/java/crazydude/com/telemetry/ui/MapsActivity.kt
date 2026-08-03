@@ -1841,6 +1841,33 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // first real choice or lets the initial one through. Comparing against
         // what was set programmatically is not timing dependent: the echo has
         // the same position and does nothing, a real change does not.
+        // Picking a network says where to look on it. On a hotspot the phone is
+        // the gateway, so the module is a client somewhere in the subnet and the
+        // useful thing to offer is the subnet itself, ready for the last octet
+        // or for Find. On a joined network the gateway is usually the module.
+        fun applyInterface(pos: Int) {
+            val idx = pos - 1
+            if (idx < 0 || idx >= interfaces.size) return
+            val iface = interfaces[idx]
+            val fill = if (iface.likelyHotspot) {
+                iface.subnet24()
+            } else {
+                binder.gatewayAddress() ?: iface.subnet24()
+            }
+            hostField.setText(fill)
+            hostField.setSelection(hostField.text.length)
+        }
+
+        var appliedIface = interfaceSpinner.selectedItemPosition
+        interfaceSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                if (pos == appliedIface) return
+                appliedIface = pos
+                applyInterface(pos)
+            }
+        }
+
         var appliedPreset = presetSpinner.selectedItemPosition
         presetSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onNothingSelected(parent: AdapterView<*>?) {}
@@ -1875,20 +1902,45 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     .show()
                 return@setOnClickListener
             }
+            val findLabel = findButton.text
             findButton.isEnabled = false
-            hint.text = getString(R.string.network_searching)
+            findButton.text = getString(R.string.network_searching_short)
+            hint.text = getString(R.string.network_searching, iface.subnet24() + "x")
+
             AsyncTask.execute {
-                LocalNetworks.scan(iface, port, 300) { hits ->
+                LocalNetworks.scan(iface, port, 300, { done, total ->
+                    runOnUiThread {
+                        hint.text = getString(
+                            R.string.network_searching_progress,
+                            iface.subnet24() + "x", done, total
+                        )
+                    }
+                }) { hits ->
                     runOnUiThread {
                         findButton.isEnabled = true
-                        if (hits.isEmpty()) {
-                            hint.text = getString(R.string.network_found_none)
-                        } else {
-                            hostField.setText(hits[0])
-                            hint.text = if (hits.size == 1) {
-                                "Found " + hits[0]
-                            } else {
-                                "Found " + hits.joinToString(", ") + " — using the first"
+                        findButton.text = findLabel
+                        when {
+                            hits.isEmpty() -> hint.text = getString(R.string.network_found_none)
+                            hits.size == 1 -> {
+                                hostField.setText(hits[0])
+                                hint.text = getString(R.string.network_found_one, hits[0])
+                            }
+                            else -> {
+                                // more than one thing is listening on that port,
+                                // so say so and let the user choose rather than
+                                // silently picking one
+                                hint.text = getString(R.string.network_found_many, hits.size)
+                                showDialog(
+                                    AlertDialog.Builder(this)
+                                        .setTitle(R.string.network_found_title)
+                                        .setItems(hits.toTypedArray()) { d, which ->
+                                            hostField.setText(hits[which])
+                                            hint.text =
+                                                getString(R.string.network_found_one, hits[which])
+                                            d.dismiss()
+                                        }
+                                        .create()
+                                )
                             }
                         }
                     }
