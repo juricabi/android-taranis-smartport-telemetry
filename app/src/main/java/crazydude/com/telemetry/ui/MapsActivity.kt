@@ -1847,11 +1847,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // restore what was used last
         val savedPreset = preferenceManager.getNetworkPreset()
         transportSpinner.setSelection(if (preferenceManager.getNetworkUseTcp()) 1 else 0)
+        // Reopening is restoring the last session, so the fallback is the port
+        // that session used — not the preset's documented default. Falling back
+        // to the default threw away a port that had been typed and connected
+        // with, which is exactly the one worth keeping. (Switching preset is a
+        // different question, and applyPreset answers it differently.)
         portField.setText(
             preferenceManager.getNetworkPortFor(
-                preferenceManager.getNetworkPreset(),
-                networkPresets.getOrNull(preferenceManager.getNetworkPreset())?.port
-                    ?: preferenceManager.getNetworkPort()
+                savedPreset, preferenceManager.getNetworkPort()
             ).toString())
         val savedHost = preferenceManager.getNetworkHost()
         hostField.setText(if (savedHost.isEmpty()) (binder.gatewayAddress() ?: "") else savedHost)
