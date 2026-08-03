@@ -33,7 +33,9 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                 vTexture = aTexture;
                 // a fixed light from the north west, the way a printed map is lit
                 vec3 light = normalize(vec3(-0.5, 0.8, -0.4));
-                vShade = 0.65 + 0.35 * max(dot(normalize(aNormal), light), 0.0);
+                // a gentle light: enough to tell one face from another, not
+                // enough to lose the colour a face is supposed to be
+                vShade = 0.82 + 0.18 * max(dot(normalize(aNormal), light), 0.0);
             }
         """
 
