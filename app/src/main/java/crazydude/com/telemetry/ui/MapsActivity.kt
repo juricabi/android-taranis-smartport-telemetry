@@ -2416,6 +2416,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         hide3DView()
         mapHolder.removeAllViews()
         map = null
+        // Taking the map view away detaches every overlay on it, and osmdroid
+        // empties them as it goes — so the lines and the marker held here are
+        // now hollow, and touching one throws. They belong to the map, and the
+        // map has gone.
+        forgetMapOverlays()
 
         val view = Terrain3DView(this)
         terrain3D = view
@@ -2432,6 +2437,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             where?.lat ?: Double.NaN, where?.lon ?: Double.NaN,
             mine?.lat ?: Double.NaN, mine?.lon ?: Double.NaN, phoneAccuracy
         )
+    }
+
+    private fun forgetMapOverlays() {
+        polyLine = null
+        homeLine = null
+        headingPolyline = null
+        marker = null
+        flightPlanLines.clear()
     }
 
     private fun hide3DView() {
@@ -2822,6 +2835,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             hide3DView()
             mapHolder.removeAllViews()
             map = null
+            forgetMapOverlays()
             mapType = item + OsmMapWrapper.MAP_TYPE_DEFAULT
             preferenceManager.setMapType(mapType)
             initMap(true)

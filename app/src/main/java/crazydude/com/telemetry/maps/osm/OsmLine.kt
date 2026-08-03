@@ -30,8 +30,14 @@ class OsmLine(private val mapView: MapView) : MapLine() {
 
     override fun clear() {
         spoints.clear()
-        line.actualPoints.clear()
-        mapView.invalidate()
+        // A line whose map has been taken away has already been emptied by
+        // osmdroid, and asking it for its points throws.
+        try {
+            line.actualPoints.clear()
+            mapView.invalidate()
+        } catch (e: Exception) {
+            // nothing left to clear
+        }
     }
 
     override fun removeAt(index: Int) {
@@ -40,7 +46,11 @@ class OsmLine(private val mapView: MapView) : MapLine() {
     }
 
     override val size: Int
-        get() = line.actualPoints.size
+        get() = try {
+            line.actualPoints.size
+        } catch (e: Exception) {
+            0
+        }
     override var color: Int
         get() = line.color
         // redrawn straight away: without this a colour picked in the settings
