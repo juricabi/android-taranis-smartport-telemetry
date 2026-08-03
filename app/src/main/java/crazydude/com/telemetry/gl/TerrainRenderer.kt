@@ -355,19 +355,31 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         shadowBuffer = floats(shadow)
         shadowCount = shadow.size / 3
 
-        // a rung between the flight and its shadow every so often, which is what
-        // makes height readable on a flat screen
+        // A curtain hanging from the flight down to its shadow, rather than a
+        // ladder of separate rungs: height reads as a surface where it only
+        // ever read as a hint before, and a translucent one does not bury the
+        // ground it stands on.
         if (track.size == shadow.size && trackCount > 1) {
-            val step = Math.max(1, trackCount / 60)
-            val rungs = ArrayList<Float>()
+            // one quad per point is more than a screen can show; a couple of
+            // thousand is plenty for a whole flight
+            val step = Math.max(1, trackCount / 2000)
+            val quads = ArrayList<Float>()
             var i = 0
-            while (i < trackCount) {
-                rungs.add(track[i * 3]); rungs.add(track[i * 3 + 1]); rungs.add(track[i * 3 + 2])
-                rungs.add(shadow[i * 3]); rungs.add(shadow[i * 3 + 1]); rungs.add(shadow[i * 3 + 2])
+            while (i + step < trackCount) {
+                val a = i * 3
+                val b = (i + step) * 3
+                // two triangles: flight to shadow, along one step of the path
+                quads.add(track[a]); quads.add(track[a + 1]); quads.add(track[a + 2])
+                quads.add(shadow[a]); quads.add(shadow[a + 1]); quads.add(shadow[a + 2])
+                quads.add(track[b]); quads.add(track[b + 1]); quads.add(track[b + 2])
+
+                quads.add(track[b]); quads.add(track[b + 1]); quads.add(track[b + 2])
+                quads.add(shadow[a]); quads.add(shadow[a + 1]); quads.add(shadow[a + 2])
+                quads.add(shadow[b]); quads.add(shadow[b + 1]); quads.add(shadow[b + 2])
                 i += step
             }
-            val array = FloatArray(rungs.size)
-            for (j in rungs.indices) array[j] = rungs[j]
+            val array = FloatArray(quads.size)
+            for (j in quads.indices) array[j] = quads[j]
             dropBuffer = floats(array)
             dropCount = array.size / 3
         }
@@ -592,11 +604,18 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glUniform4f(uColor, 0f, 0f, 0f, 0.5f)
             GLES20.glDrawArrays(GLES20.GL_LINE_STRIP, 0, sCount)
         }
-        if (drops != null && dCount > 1) {
+        if (drops != null && dCount > 2) {
             drops.position(0)
             GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, drops)
-            GLES20.glUniform4f(uColor, 1f, 1f, 1f, 0.25f)
-            GLES20.glDrawArrays(GLES20.GL_LINES, 0, dCount)
+            GLES20.glUniform4f(uColor, trackColor[0], trackColor[1], trackColor[2], 0.18f)
+            GLES20.glEnable(GLES20.GL_BLEND)
+            GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+            // no depth writing: the curtain is see through, so what is behind it
+            // has to keep drawing, and it must not hide the flight above it
+            GLES20.glDepthMask(false)
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, dCount)
+            GLES20.glDepthMask(true)
+            GLES20.glDisable(GLES20.GL_BLEND)
         }
         drawModel(aPosition, uMvp, uColor)
 
