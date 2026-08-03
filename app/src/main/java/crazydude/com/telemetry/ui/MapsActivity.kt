@@ -93,7 +93,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         )
 
         private val ESRI_SATELLITE_TILE_SOURCE = object : OnlineTileSourceBase(
-            "ESRISatellite", 0, 19, 256, "",
+            "ESRISatellite", 0, 18, 256, "",
             arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/")
         ) {
             override fun getTileURLString(pMapTileIndex: Long): String {
@@ -104,7 +104,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
 
         private val ESRI_TRANSPORTATION_OVERLAY_TILE_SOURCE = object : OnlineTileSourceBase(
-            "ESRITransportation", 0, 19, 256, "",
+            "ESRITransportation", 0, 18, 256, "",
             arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/")
         ) {
             override fun getTileURLString(pMapTileIndex: Long): String {
@@ -115,7 +115,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
 
         private val ESRI_BOUNDARIES_PLACES_OVERLAY_TILE_SOURCE = object : OnlineTileSourceBase(
-            "ESRIBoundariesPlaces", 0, 19, 256, "",
+            "ESRIBoundariesPlaces", 0, 18, 256, "",
             arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/")
         ) {
             override fun getTileURLString(pMapTileIndex: Long): String {
