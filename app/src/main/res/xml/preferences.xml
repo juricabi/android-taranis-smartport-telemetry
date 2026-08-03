@@ -3,6 +3,7 @@
                   xmlns:app="http://schemas.android.com/apk/res-auto">
 
     <SwitchPreference
+            app:iconSpaceReserved="false"
             android:title="Telemetry logging RAW"
             android:summary="Save telemetry RAW data to sdcard. They are saved to TelemetryLog at external storage (sdcard) and can be replayed in this application (.tlm)"
             android:text="Logging enabled"
@@ -10,6 +11,7 @@
             android:key="logging_enabled"/>
 
     <SwitchPreference
+            app:iconSpaceReserved="false"
             android:title="Telemetry logging to CSV"
             android:summary="Save telemetry data to sdcard in OpenTX CSV format (.csv)"
             android:text="Logging enabled"
@@ -17,6 +19,7 @@
             android:key="csv_logging_enabled"/>
 
     <ListPreference
+            app:iconSpaceReserved="false"
             android:title="Lock screen orientation"
             android:summary="%s"
             android:entries="@array/ScreenOrientationLock"
@@ -25,18 +28,21 @@
             android:key="screen_orientation_lock"/>
 
     <SwitchPreference
+            app:iconSpaceReserved="false"
             android:title="Automatically reconnect lost Bluetooth connection"
             android:summary="Try to reconnect if Bluetooth/BLE connection has failed"
             android:defaultValue="true"
             android:key="connection_reconnect"/>
 
     <SwitchPreference
+            app:iconSpaceReserved="false"
             android:title="Voice messages on conection status changes"
             android:summary="Play voice messages when connection status chages."
             android:defaultValue="true"
             android:key="connection_voice_messages"/>
 
-    <PreferenceCategory android:title="Map markers">
+    <PreferenceCategory
+            app:iconSpaceReserved="false" android:title="Map markers">
 
         <com.jaredrummler.android.colorpicker.ColorPreferenceCompat
                 android:defaultValue="@color/colorPlane"
@@ -48,6 +54,7 @@
                 android:title="Plane color"/>
 
         <SwitchPreference
+            app:iconSpaceReserved="false"
                 android:title="Show heading line"
                 android:summary="Shows heading line on the map"
                 android:defaultValue="true"
@@ -64,7 +71,8 @@
 
     </PreferenceCategory>
 
-    <PreferenceCategory android:title="Route line">
+    <PreferenceCategory
+            app:iconSpaceReserved="false" android:title="Route line">
 
         <com.jaredrummler.android.colorpicker.ColorPreferenceCompat
                 android:defaultValue="@color/colorRoute"
@@ -76,6 +84,7 @@
                 android:title="Route line color"/>
 
         <ListPreference
+            app:iconSpaceReserved="false"
                 android:title="Limit number of points"
                 android:summary="%s"
                 android:entries="@array/RouteLinePoints"
@@ -85,9 +94,11 @@
 
     </PreferenceCategory>
 
-    <PreferenceCategory android:title="Flight plans">
+    <PreferenceCategory
+            app:iconSpaceReserved="false" android:title="Flight plans">
 
         <SwitchPreference
+            app:iconSpaceReserved="false"
                 android:title="Show flight plans"
                 android:summary="Show imported flight plan lines on the map"
                 android:defaultValue="true"
@@ -103,20 +114,24 @@
                 android:title="Flight plan line color"/>
 
         <Preference
+            app:iconSpaceReserved="false"
                 android:title="Import flight plan"
                 android:summary="Import a CSV file with waypoints (lat,lon per line)"
                 android:key="import_flight_plan"/>
 
         <Preference
+            app:iconSpaceReserved="false"
                 android:title="Manage flight plans"
                 android:summary="View, toggle, or delete imported flight plans"
                 android:key="manage_flight_plans"/>
 
     </PreferenceCategory>
 
-    <PreferenceCategory android:title="Home line">
+    <PreferenceCategory
+            app:iconSpaceReserved="false" android:title="Home line">
 
         <SwitchPreference
+            app:iconSpaceReserved="false"
                 android:title="Show home line"
                 android:summary="Draw a line from the drone to the phone's current position"
                 android:defaultValue="true"
@@ -133,8 +148,10 @@
 
     </PreferenceCategory>
 
-    <PreferenceCategory android:title="USB Serial">
+    <PreferenceCategory
+            app:iconSpaceReserved="false" android:title="USB Serial">
         <ListPreference
+            app:iconSpaceReserved="false"
             android:title="Baudrate"
             android:key="usb_serial_baudrate"
             android:summary="%s"
@@ -144,15 +161,18 @@
             />
     </PreferenceCategory>
 
-    <PreferenceCategory android:title="Playback">
+    <PreferenceCategory
+            app:iconSpaceReserved="false" android:title="Playback">
 
         <SwitchPreference
+            app:iconSpaceReserved="false"
                 android:title="Automatic playback start"
                 android:summary="Start playback after loading log file"
                 android:defaultValue="true"
                 android:key="playback_autostart"/>
 
         <ListPreference
+            app:iconSpaceReserved="false"
                 android:title="Playback duration"
                 android:key="playback_duration"
                 android:summary="Total duration of log playback\n%s"
@@ -164,9 +184,11 @@
     </PreferenceCategory>
 
 
-    <PreferenceCategory android:title="Sensors">
+    <PreferenceCategory
+            app:iconSpaceReserved="false" android:title="Sensors">
 
         <Preference
+            app:iconSpaceReserved="false"
                 android:title="Sensor display settings"
                 android:summary="Click to edit sensor widgets placement on the main screen">
             <intent android:targetClass="crazydude.com.telemetry.ui.SensorsActivity"
@@ -175,6 +197,7 @@
         </Preference>
 
         <ListPreference
+            app:iconSpaceReserved="false"
                 android:title="Battery units"
                 android:summary="(CLI smartport_fuel_unit)\n%s"
                 android:entries="@array/BatteryUnits"
@@ -183,6 +206,7 @@
                 android:key="battery_units"/>
 
         <ListPreference
+            app:iconSpaceReserved="false"
                 android:title="Voltage reported by telemetry"
                 android:summary="(CRSF, FrSky)\n(CLI report_cell_voltage)\n%s"
                 android:entries="@array/ReportVoltage"
@@ -191,6 +215,7 @@
                 android:key="report_voltage"/>
 
         <SwitchPreference
+            app:iconSpaceReserved="false"
                 android:title="Show artificial horizon view"
                 android:summary="Shows attitude. Please set frsky_pitch_roll = ON in CLI for Inav 2.0.+."
                 android:defaultValue="true"
@@ -198,15 +223,18 @@
 
     </PreferenceCategory>
 
-    <PreferenceCategory android:title="FlightRadar24 Nearby Aircraft">
+    <PreferenceCategory
+            app:iconSpaceReserved="false" android:title="FlightRadar24 Nearby Aircraft">
 
         <SwitchPreference
+            app:iconSpaceReserved="false"
                 android:title="Show nearby aircraft"
                 android:summary="Display real aircraft positions from FlightRadar24 on the map"
                 android:defaultValue="false"
                 android:key="fr24_enabled"/>
 
         <ListPreference
+            app:iconSpaceReserved="false"
                 android:title="Search radius"
                 android:summary="Fetch aircraft within this radius\n%s"
                 android:entries="@array/Fr24RadiusEntries"
@@ -216,6 +244,7 @@
                 android:dependency="fr24_enabled"/>
 
         <ListPreference
+            app:iconSpaceReserved="false"
                 android:title="Display altitude ceiling (meters)"
                 android:summary="Hide aircraft above this altitude\n%s"
                 android:entries="@array/Fr24AltEntries"
@@ -225,6 +254,7 @@
                 android:dependency="fr24_enabled"/>
 
         <ListPreference
+            app:iconSpaceReserved="false"
                 android:title="Warning altitude ceiling (meters)"
                 android:summary="Only warn about aircraft below this altitude\n%s"
                 android:entries="@array/Fr24AltEntries"
@@ -234,6 +264,7 @@
                 android:dependency="fr24_enabled"/>
 
         <ListPreference
+            app:iconSpaceReserved="false"
                 android:title="Warning distance (meters)"
                 android:summary="Warn when aircraft is closer than this to drone\n%s"
                 android:entries="@array/Fr24WarningDistEntries"
@@ -243,6 +274,7 @@
                 android:dependency="fr24_enabled"/>
 
         <ListPreference
+            app:iconSpaceReserved="false"
                 android:title="Poll interval (seconds)"
                 android:summary="How often to refresh aircraft positions\n%s"
                 android:entries="@array/Fr24PollEntries"
@@ -253,11 +285,14 @@
 
     </PreferenceCategory>
 
-    <PreferenceCategory android:title="Diagnostics">
-        <Preference android:title="Copy debug info"
+    <PreferenceCategory
+            app:iconSpaceReserved="false" android:title="Diagnostics">
+        <Preference
+            app:iconSpaceReserved="false" android:title="Copy debug info"
                 android:key="copy_debug_info">
         </Preference>
-        <Preference android:title="Clear debug info"
+        <Preference
+            app:iconSpaceReserved="false" android:title="Clear debug info"
                 android:key="clear_debug_info">
         </Preference>
     </PreferenceCategory>
