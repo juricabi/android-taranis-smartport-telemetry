@@ -2197,19 +2197,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     this.lastCellVoltage = perCell
                 }
             } else {
-                // reported value is one cell
+                // reported value is one cell; the pack is not shown because
+                // multiplying one cell by an assumed count is a guess
                 this.sensorTimeoutManager.onCellVoltageData(voltage)
                 this.cell_voltage.text = "${"%.2f".format(voltage)} V"
                 this.lastCellVoltage = voltage
-
-                // the pack can only be shown if the cell count is known
-                val setting = preferenceManager.getBatteryCells()
-                val cells = setting.toIntOrNull() ?: 0
-                if (cells > 0) {
-                    val pack = voltage * cells
-                    this.sensorTimeoutManager.onVBATData(pack)
-                    this.voltage.text = "${"%.2f".format(pack)} V"
-                }
             }
         }
     }

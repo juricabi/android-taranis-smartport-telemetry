@@ -229,8 +229,7 @@
         <ListPreference
             app:iconSpaceReserved="false"
                 android:title="Battery cells"
-                android:summary="Used to work out volts per cell
-%s"
+                android:summary="Divides the pack voltage to show volts per cell. Auto works it out from the first reading.\n%s"
                 android:entries="@array/BatteryCells"
                 android:entryValues="@array/BatteryCellValues"
                 android:defaultValue="auto"
