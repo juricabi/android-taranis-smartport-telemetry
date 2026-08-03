@@ -783,7 +783,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // than it was, which made a quad look the size of a hangar.
         // the same fraction of the distance the position arrow uses, so the two
         // read as one family rather than two scales
-        val drawSize = Math.max(2f, Math.round(distance * 0.014f).toFloat())
+        val drawSize = Math.max(3f, Math.round(distance * 0.02f).toFloat())
         Matrix.scaleM(modelMatrix, 0, drawSize, drawSize / verticalScale, drawSize)
         Matrix.multiplyMM(modelMvp, 0, mvp, 0, modelMatrix, 0)
 
