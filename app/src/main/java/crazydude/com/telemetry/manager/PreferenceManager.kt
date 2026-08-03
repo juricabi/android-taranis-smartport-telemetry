@@ -115,13 +115,28 @@ class PreferenceManager(context: Context) {
         return sharedPreferences.getInt("route_color", defaultRouteColor)
     }
 
+    /**
+     * The storage key for a sensor, which is its name unless it has been
+     * renamed.
+     *
+     * "ELRS Rate" became "CRSF Rate", and the name doubles as the key — so the
+     * rename quietly threw away everyone's saved position and visibility for
+     * it. Because that sensor is hidden by default, it did not fall back to
+     * something sensible, it disappeared off the screen. Keeping the original
+     * key makes a rename only a rename.
+     */
+    private fun keyFor(name: String): String {
+        return if (name == "CRSF Rate") "ELRS Rate" else name
+    }
+
     fun getSensorsSettings(): List<SensorSetting> {
         return sensors.map {
+            val key = keyFor(it.name)
             SensorSetting(
                 it.name,
-                sharedPreferences.getInt(it.name + "_index", it.index),
-                sharedPreferences.getString(it.name + "_position", it.position),
-                sharedPreferences.getBoolean(it.name + "_shown", it.shown)
+                sharedPreferences.getInt(key + "_index", it.index),
+                sharedPreferences.getString(key + "_position", it.position),
+                sharedPreferences.getBoolean(key + "_shown", it.shown)
             )
         }
     }
@@ -129,9 +144,10 @@ class PreferenceManager(context: Context) {
     fun setSensorsSettings(data: List<SensorSetting>) {
         val commit = sharedPreferences.edit()
         data.forEach {
-            commit.putInt(it.name + "_index", it.index)
-            commit.putString(it.name + "_position", it.position)
-            commit.putBoolean(it.name + "_shown", it.shown)
+            val key = keyFor(it.name)
+            commit.putInt(key + "_index", it.index)
+            commit.putString(key + "_position", it.position)
+            commit.putBoolean(key + "_shown", it.shown)
         }
         commit.apply()
     }

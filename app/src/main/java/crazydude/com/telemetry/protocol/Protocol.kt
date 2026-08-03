@@ -98,6 +98,9 @@ abstract class Protocol(val dataDecoder: DataDecoder) {
 
         const val STATUSTEXT = 120
 
+        /** The transmitter's own name, from a CRSF DEVICE_INFO frame. */
+        const val DEVICE_NAME = 123
+
         const val IMAGE_HANDSHAKE = 121
         const val IMAGE_DATA = 122
 

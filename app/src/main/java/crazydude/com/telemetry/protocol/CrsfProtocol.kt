@@ -28,6 +28,13 @@ class CrsfProtocol : Protocol {
         private const val BAROALT_SENSOR = 0x09
         private const val AIRSPEED_SENSOR = 0x0A
         private const val LINK_STATS = 0x14
+
+        /**
+         * DEVICE_INFO. Answered when a device is pinged, and the only reliable
+         * way to tell an ExpressLRS transmitter from a Crossfire or a Tracer —
+         * they all speak CRSF and number their RF modes differently.
+         */
+        private const val DEVICE_INFO_TYPE = 0x29
         private const val ATTITUDE_TYPE = 0x1E
         private const val FLIGHT_MODE = 0x21
         private const val RC_CHANNELS_PACKED = 0x16
@@ -161,6 +168,26 @@ class CrsfProtocol : Protocol {
                         val vspeed = data.short
 
                         dataDecoder.decodeData( Protocol.Companion.TelemetryData( VSPEED, vspeed.toInt()))
+                    }
+                }
+                DEVICE_INFO_TYPE.toByte() -> {
+                    // type, destination, origin, then a null terminated name
+                    if (inputData.size > 3) {
+                        data.get()      // destination
+                        data.get()      // origin
+                        val name = StringBuilder()
+                        while (data.hasRemaining() && name.length < 32) {
+                            val c = data.get().toInt() and 0xFF
+                            if (c == 0) break
+                            if (c in 32..126) name.append(c.toChar())
+                        }
+                        if (name.isNotEmpty()) {
+                            dataDecoder.decodeData(
+                                Protocol.Companion.TelemetryData(
+                                    Protocol.DEVICE_NAME, 0, name.toString().toByteArray()
+                                )
+                            )
+                        }
                     }
                 }
                 LINK_STATS.toByte() -> {

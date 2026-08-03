@@ -202,6 +202,15 @@ abstract class DataDecoder(protected val listener: Listener) {
         fun onSuccessDecode()
         fun onDecoderRestart()
         fun onProtocolDetected( protocolName: String)
+
+        /**
+         * The transmitter's own name, once it says one.
+         *
+         * Given a body so the half dozen classes implementing this interface
+         * are untouched; only the map screen cares, and only to tell an
+         * ExpressLRS module from a Crossfire or a Tracer.
+         */
+        fun onDeviceName(name: String) {}
         fun commit()
     }
 

@@ -2045,7 +2045,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 .create())
     }
 
+    private fun clearCrsfSystem() {
+        crsfSystem = null
+    }
+
     private fun connectToNetwork(host: String, port: Int, mode: Int) {
+        clearCrsfSystem()
         // connect() clears this before the chooser opens, so every transport
         // has to set it again or it becomes silently non-reconnectable
         lastConnectionType = CONNTYPE_NET;
@@ -2497,11 +2502,54 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
+    /**
+     * Which radio system is on the other end, learned from the name it reports
+     * in a CRSF DEVICE_INFO frame.
+     *
+     * It matters because rf_mode is a CRSF field that ExpressLRS, Crossfire and
+     * Tracer all send and all number differently: mode 2 is 50 Hz on ExpressLRS
+     * and 150 Hz on a Crossfire. Showing one system's table for another is not
+     * a cosmetic problem — it is the wrong number.
+     */
+    private var crsfSystem: String? = null
+
+    override fun onDeviceName(name: String) {
+        val lower = name.toLowerCase(java.util.Locale.US)
+        val system = when {
+            lower.contains("tracer") -> "TRACER"
+            lower.contains("elrs") || lower.contains("expresslrs") -> "ELRS"
+            // TBS names its Crossfire hardware "XF ..." — "XF Micro TX", "XF WiFi"
+            lower.startsWith("xf ") || lower.contains("crossfire") -> "XF"
+            else -> null
+        }
+        if (system != null && system != crsfSystem) {
+            crsfSystem = system
+        }
+    }
+
+    /**
+     * Crossfire and Tracer RF modes, from ArduPilot's table: 4, 50, 150, 250 Hz.
+     * ExpressLRS keeps its own, longer list, which is what the labels below are.
+     */
+    private fun crossfireRate(mode: Int): String {
+        val rates = intArrayOf(4, 50, 150, 250)
+        return if (mode in rates.indices) rates[mode].toString() + "Hz" else mode.toString()
+    }
+
     override fun onElrsModeModeData(mode: Int) {
         this.sensorTimeoutManager.onElrsModeModeData(mode);
         if (detectedProtocol == "GHST") {
             runOnUiThread {
                 this.elrsRate.text = GHST_RF_PROFILES.getOrNull(mode) ?: mode.toString()
+            }
+            return
+        }
+        // A Crossfire or Tracer numbers these differently, so use its own table
+        // and say which system the number came from.
+        val system = crsfSystem
+        if (system == "XF" || system == "TRACER") {
+            runOnUiThread {
+                this.elrsRate.text = system.substring(0, 2) + " " + crossfireRate(mode)
             }
             return
         }

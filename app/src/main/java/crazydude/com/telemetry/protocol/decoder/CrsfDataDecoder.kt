@@ -135,6 +135,9 @@ https://github.com/iNavFlight/inav/blob/135456936834ab4129e6ed540038b2e88dcb3c44
             Protocol.ELRS_RF_MODE -> {
                 listener.onElrsModeModeData(data.data)
             }
+            Protocol.DEVICE_NAME -> {
+                data.rawData?.let { listener.onDeviceName(String(it)) }
+            }
             Protocol.FUEL -> {
                 listener.onFuelData(data.data)
             }
