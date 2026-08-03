@@ -1716,14 +1716,15 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val useGateway: Boolean
     )
 
-    // The port each preset fills in is shown in the port field the moment it is
-    // picked, so repeating it in the name is noise.
+    // The transport stays in the name because it is the thing that decides
+    // whether an address is needed at all. The port does not: it lands in the
+    // port field the moment the preset is picked.
     private val networkPresets = listOf(
-        NetworkPreset("ExpressLRS backpack", false, 14550, false),
-        NetworkPreset("TBS Crossfire / Tracer — TCP", true, 8888, true),
-        NetworkPreset("TBS Crossfire / Tracer — UDP", false, 8888, false),
-        NetworkPreset("MAVLink router / ground station", false, 14550, false),
-        NetworkPreset("Serial to Wi-Fi bridge", true, 23, true),
+        NetworkPreset("ExpressLRS backpack (UDP)", false, 14550, false),
+        NetworkPreset("TBS Crossfire / Tracer (TCP)", true, 8888, true),
+        NetworkPreset("TBS Crossfire / Tracer (UDP)", false, 8888, false),
+        NetworkPreset("MAVLink router / ground station (UDP)", false, 14550, false),
+        NetworkPreset("Serial to Wi-Fi bridge (TCP)", true, 23, true),
         NetworkPreset("Custom", false, 14550, false)
     )
 
