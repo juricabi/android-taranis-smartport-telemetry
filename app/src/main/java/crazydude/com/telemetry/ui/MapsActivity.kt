@@ -1866,7 +1866,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             preferenceManager.getNetworkPortFor(
                 savedPreset, preferenceManager.getNetworkPort()
             ).toString())
-        val savedHost = preferenceManager.getNetworkHost()
+        // The address is remembered per network, the same way the port is
+        // remembered per preset: a module is 10.0.0.1 on its own access point
+        // and something else on a home network, so a single remembered address
+        // was wrong every time you moved between the two.
+        val network = binder.ssid() ?: ""
+        val savedHost = preferenceManager.getNetworkHostFor(
+            network, savedPreset, preferenceManager.getNetworkHost()
+        )
         hostField.setText(if (savedHost.isEmpty()) (binder.gatewayAddress() ?: "") else savedHost)
         if (savedPreset in networkPresets.indices) presetSpinner.setSelection(savedPreset)
         if (!preferenceManager.getNetworkPinWifi() && interfaces.isNotEmpty()) {
@@ -2036,6 +2043,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     preferenceManager.setNetworkUseTcp(useTcp)
                     preferenceManager.setNetworkMode(mode)
                     preferenceManager.setNetworkHost(host)
+                    preferenceManager.setNetworkHostFor(
+                        binder.ssid() ?: "", presetSpinner.selectedItemPosition, host)
                     preferenceManager.setNetworkPort(port)
                     preferenceManager.setNetworkPortFor(
                         presetSpinner.selectedItemPosition, port)

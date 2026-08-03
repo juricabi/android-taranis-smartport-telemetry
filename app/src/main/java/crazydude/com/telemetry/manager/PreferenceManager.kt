@@ -263,6 +263,35 @@ class PreferenceManager(context: Context) {
         sharedPreferences.edit().putString("network_host", host).apply()
     }
 
+    /**
+     * The address last used on this Wi-Fi network, for this preset.
+     *
+     * An address only means anything on the network it was reached over: a
+     * module is 10.0.0.1 on its own access point and something else entirely on
+     * a home network, so one remembered address was wrong every time you moved
+     * between them. Falls back to whatever was used on this network for another
+     * preset, then to the last address used anywhere.
+     */
+    fun getNetworkHostFor(network: String, preset: Int, fallback: String): String {
+        val exact = sharedPreferences.getString(hostKey(network, preset), null)
+        if (!exact.isNullOrEmpty()) return exact
+        val sameNetwork = sharedPreferences.getString(hostKey(network, -1), null)
+        if (!sameNetwork.isNullOrEmpty()) return sameNetwork
+        return fallback
+    }
+
+    fun setNetworkHostFor(network: String, preset: Int, host: String) {
+        sharedPreferences.edit()
+            .putString(hostKey(network, preset), host)
+            .putString(hostKey(network, -1), host)
+            .apply()
+    }
+
+    private fun hostKey(network: String, preset: Int): String {
+        // an unknown network still gets a slot of its own rather than none
+        return "network_host_" + network + "|" + preset
+    }
+
     /** 14550 is where an ExpressLRS backpack sends. TBS defaults to 8888. */
     fun getNetworkPort(): Int {
         return sharedPreferences.getInt("network_port", 14550)
