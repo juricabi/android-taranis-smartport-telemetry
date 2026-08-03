@@ -50,7 +50,9 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
         for (overlay in overlayTileSources) {
             if (overlay.maximumZoomLevel < maxZoom) maxZoom = overlay.maximumZoomLevel
         }
-        mapView.setMaxZoomLevel(maxZoom.toDouble())
+        // Allow two levels past the imagery: osmdroid upscales the deepest real
+        // tiles rather than drawing nothing, so it goes blurry instead of blank.
+        mapView.setMaxZoomLevel((maxZoom + 2).toDouble())
         mapView.setMinZoomLevel(tileSource.minimumZoomLevel.toDouble())
         for (overlayTileSource in overlayTileSources) {
             val overlayProvider = MapTileProviderBasic(context, overlayTileSource)
