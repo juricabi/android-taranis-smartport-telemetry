@@ -30,7 +30,11 @@ class PreferenceManager(context: Context) {
             SensorSetting("Downlink SNR", 7, "top", false ),
             SensorSetting("Uplink LQ", 8, "top", false ),
             SensorSetting("Downlink LQ", 9, "top", false ),
-            SensorSetting("ELRS Rate", 10, "top", false ),
+            // "CRSF Rate", not ELRS: the rf_mode field belongs to CRSF and is
+            // sent by ExpressLRS, Crossfire and Tracer alike. Renaming does
+            // reset this one sensor's saved position and visibility, since the
+            // name is also its preference key.
+            SensorSetting("CRSF Rate", 10, "top", false ),
             SensorSetting("Active Antena", 11, "top", false ),
             SensorSetting("Uplink Power", 12, "top", false ),
             SensorSetting("Uplink Antena 1 RSSI, dbm", 13, "top", false ),
