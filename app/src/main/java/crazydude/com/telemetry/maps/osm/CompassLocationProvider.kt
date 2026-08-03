@@ -28,10 +28,10 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
     override fun startLocationProvider(myLocationConsumer: IMyLocationConsumer?): Boolean {
         consumer = myLocationConsumer
         sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_FASTEST)
         }
         sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_FASTEST)
         }
         // ask for frequent updates so a GPS fix replaces the first coarse one quickly
         gpsProvider.locationUpdateMinTime = 1000
@@ -103,13 +103,13 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
                     // shortest way round the circle, then ease towards it so the
                     // needle does not jitter on every sample
                     var diff = ((raw - compassBearing + 540f) % 360f) - 180f
-                    compassBearing = (compassBearing + diff * 0.2f + 360f) % 360f
+                    compassBearing = (compassBearing + diff * 0.08f + 360f) % 360f
                 }
 
                 // the arrow used to turn only when a location update arrived, about
                 // once a second, which looked like it was stepping
                 val now = System.currentTimeMillis()
-                if (now - lastBearingPush > 50) {
+                if (now - lastBearingPush > 33) {
                     lastBearingPush = now
                     accepted?.let { consumer?.onLocationChanged(injectBearing(Location(it)), this) }
                 }

@@ -22,7 +22,8 @@
                 android:src="@drawable/ic_play"
                 android:visibility="gone"
                 app:fabSize="mini"
-                tools:visibility="visible" />
+                tools:visibility="visible"
+                    app:backgroundTint="@color/colorAccent" />
 
         <SeekBar
                 android:id="@+id/seekbar"
@@ -122,7 +123,8 @@
                     android:layout_height="wrap_content"
                     android:layout_margin="8dp"
                     android:src="@drawable/ic_layers"
-                    app:fabSize="mini" />
+                    app:fabSize="mini"
+                    app:backgroundTint="@color/colorAccent" />
 
             <com.google.android.material.floatingactionbutton.FloatingActionButton
                     android:id="@+id/follow_button"
@@ -130,7 +132,8 @@
                     android:layout_height="wrap_content"
                     android:layout_margin="8dp"
                     android:src="@drawable/ic_follow"
-                    app:fabSize="mini" />
+                    app:fabSize="mini"
+                    app:backgroundTint="@color/colorAccent" />
 
             <com.google.android.material.floatingactionbutton.FloatingActionButton
                     android:id="@+id/my_location_button"
@@ -138,7 +141,8 @@
                     android:layout_height="wrap_content"
                     android:layout_margin="8dp"
                     android:src="@drawable/ic_my_location"
-                    app:fabSize="mini" />
+                    app:fabSize="mini"
+                    app:backgroundTint="@color/colorAccent" />
 
             <com.google.android.material.floatingactionbutton.FloatingActionButton
                     android:id="@+id/north_up_button"
@@ -146,7 +150,8 @@
                     android:layout_height="wrap_content"
                     android:layout_margin="8dp"
                     android:src="@drawable/ic_compass"
-                    app:fabSize="mini" />
+                    app:fabSize="mini"
+                    app:backgroundTint="@color/colorAccent" />
 
             <com.google.android.material.floatingactionbutton.FloatingActionButton
                     android:id="@+id/replay_menu_button"
@@ -156,7 +161,8 @@
                     android:src="@drawable/ic_menu"
                     android:visibility="gone"
                     app:fabSize="mini"
-                    tools:visibility="visible" />
+                    tools:visibility="visible"
+                    app:backgroundTint="@color/colorAccent" />
 
         </com.google.android.flexbox.FlexboxLayout>
 
