@@ -162,35 +162,40 @@ class DataService : Service(), DataDecoder.Listener {
      * NetworkOnMainThreadException.
      */
     fun connect(host: String, port: Int, mode: Int) {
-        try {
-            dataPoller?.disconnect()
+        dataPoller?.disconnect()
 
-            val logFile = createLogFile()
-            createLogger()
-
-            // Pinning to Wi-Fi and holding the multicast lock: without these a
-            // transmitter's own access point, which has no internet, loses to
-            // mobile data and the broadcast never arrives.
-            // Always taken, whatever network was chosen: the multicast lock is
-            // what stops Wi-Fi power saving from quietly dropping broadcast
-            // telemetry, and an ExpressLRS backpack and a TBS module in UDP
-            // mode both broadcast. Only the socket *pinning* is conditional —
-            // forcing Wi-Fi is wrong when the module is a client of this
-            // phone's own hotspot.
-            val binder = WifiNetworkBinder(this)
-            binder.acquire(preferenceManager.getNetworkPinWifi())
-
-            dataPoller = NetworkDataPoller(
-                mode,
-                host,
-                port,
-                this,
-                logFile,
-                binder
-            )
+        // A log that cannot be opened is worth saying so about, and worth
+        // connecting anyway. It used to abandon the connection instead, which
+        // left the button on "Connecting…" with nothing on its way to clear it,
+        // because no poller was ever created to report a failure.
+        val logFile = try {
+            createLogFile()
         } catch (e: IOException) {
             Toast.makeText(this, "Failed to open the telemetry log", Toast.LENGTH_LONG).show()
+            null
         }
+        createLogger()
+
+        // Pinning to Wi-Fi and holding the multicast lock: without these a
+        // transmitter's own access point, which has no internet, loses to
+        // mobile data and the broadcast never arrives.
+        // Always taken, whatever network was chosen: the multicast lock is
+        // what stops Wi-Fi power saving from quietly dropping broadcast
+        // telemetry, and an ExpressLRS backpack and a TBS module in UDP
+        // mode both broadcast. Only the socket *pinning* is conditional —
+        // forcing Wi-Fi is wrong when the module is a client of this
+        // phone's own hotspot.
+        val binder = WifiNetworkBinder(this)
+        binder.acquire(preferenceManager.getNetworkPinWifi())
+
+        dataPoller = NetworkDataPoller(
+            mode,
+            host,
+            port,
+            this,
+            logFile,
+            binder
+        )
     }
 
     private fun createLogger() {

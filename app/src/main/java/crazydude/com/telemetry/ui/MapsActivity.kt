@@ -1697,6 +1697,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         if (lastConnectionType != CONNTYPE_NET || lastNetworkPort == 0) {
             return
         }
+        // A retry is scheduled five seconds out, which is long enough for
+        // someone to have got there first. Without this it would tear down the
+        // link they just made and start again.
+        if (dataService?.isConnected() == true) {
+            return
+        }
         if (preferenceManager.getConnectionVoiceMessagesEnabled()) {
             soundPool!!.play(reconnectingSoundId, 1f, 1f, 0, 0, 1f)
         }

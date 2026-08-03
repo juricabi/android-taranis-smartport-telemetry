@@ -40,6 +40,10 @@ import java.net.SocketTimeoutException
  * class's own thread, connection state is posted to the main thread, and the
  * per byte telemetry callbacks are delivered on the poller thread, which is
  * where they have always come from.
+ *
+ * A quiet link is never taken for a dead one. A module with no receiver bound
+ * says nothing for long stretches and looks exactly like one that has lost
+ * power, so only the far end closing, or an error, ends a connection.
  */
 class NetworkDataPoller(
     private val mode: Int,
@@ -82,6 +86,16 @@ class NetworkDataPoller(
         private const val RECEIVE_TIMEOUT_MS = 1000
         private const val ANNOUNCE_EVERY_MS = 1000L
         private const val MAX_PEERS = 4
+
+        /**
+         * A datagram is delivered whole or truncated — there is no reading the
+         * rest of it later. So the receive buffer is a full datagram's worth
+         * rather than a stream sized one: a sender that packs several MAVLink
+         * messages into one packet would otherwise have the tail silently cut
+         * off, which does not look like packet loss, it looks like corruption.
+         */
+        private const val DATAGRAM_BUFFER = 65535
+
         private const val MAX_FRAME = 1 shl 20
         private const val DEVICE_PING_EVERY_MS = 5000L
 
@@ -194,6 +208,7 @@ class NetworkDataPoller(
                 finish()
             }
         })
+        thread.name = "telemetry-net"
         thread.start()
     }
 
@@ -212,6 +227,9 @@ class NetworkDataPoller(
         connectedOnce = true
         runOnMainThread(Runnable { listener.onConnected() })
 
+        // No receive timeout here on purpose: there is nothing this loop would
+        // do with the wakeup. Stopping already unblocks it, by closing the
+        // socket out from under the read.
         val buffer = ByteArray(BUFFER)
         val input = socket.getInputStream()
         while (!stopping && !finished) {
@@ -303,6 +321,11 @@ class NetworkDataPoller(
         // socket opens and stays silent forever.
         writeFrame(out, OPCODE_BINARY, DEVICE_PING)
 
+        // Without this the repeat ping below could never fire on the module it
+        // exists for: a silent module means readFrame blocks, and the timer is
+        // only ever looked at between frames.
+        socket.soTimeout = RECEIVE_TIMEOUT_MS
+
         var lastPing = System.currentTimeMillis()
         while (!stopping && !finished) {
             // Ask again now and then: the first ping is answered only if the
@@ -313,7 +336,13 @@ class NetworkDataPoller(
                 lastPing = now
                 writeFrame(out, OPCODE_BINARY, DEVICE_PING)
             }
-            val frame = readFrame(input) ?: break
+            val frame = try {
+                readFrame(input)
+            } catch (e: SocketTimeoutException) {
+                // Nothing this second, which is ordinary: a module with no
+                // receiver bound answers the ping and otherwise says nothing.
+                continue
+            } ?: break
             when (frame.first) {
                 OPCODE_BINARY, OPCODE_TEXT, OPCODE_CONTINUATION ->
                     feed(frame.second, 0, frame.second.size)
@@ -326,9 +355,16 @@ class NetworkDataPoller(
         finish()
     }
 
+    /**
+     * One generator, kept. Seeding a new one from the clock on every call gave
+     * the same mask to every frame written within the same millisecond, which
+     * is the one thing a mask is not supposed to be.
+     */
+    private val random = java.util.Random()
+
     private fun randomBytes(n: Int): ByteArray {
         val out = ByteArray(n)
-        java.util.Random(System.currentTimeMillis()).nextBytes(out)
+        random.nextBytes(out)
         return out
     }
 
@@ -343,20 +379,43 @@ class NetworkDataPoller(
         return sb.toString()
     }
 
-    private fun readFully(input: InputStream, n: Int): ByteArray? {
+    /**
+     * Read exactly [n] bytes.
+     *
+     * The socket has a receive timeout on it, which is a problem here: a frame
+     * arrives in as many pieces as the network feels like, so a timeout part
+     * way through one means nothing is wrong and the rest is still coming. Give
+     * up then and the bytes already taken are lost from a stream that has no
+     * way to resynchronise — every frame after it would be read at the wrong
+     * offset.
+     *
+     * So a timeout is only ever allowed to escape at a frame boundary, before
+     * any of the frame has been read, which is the one moment where "nothing
+     * arrived" is a complete and true answer. [mayTimeOut] marks that call.
+     */
+    private fun readFully(input: InputStream, n: Int, mayTimeOut: Boolean = false): ByteArray? {
         val out = ByteArray(n)
         var read = 0
         while (read < n) {
-            val r = input.read(out, read, n - read)
+            val r = try {
+                input.read(out, read, n - read)
+            } catch (e: SocketTimeoutException) {
+                if (read == 0 && mayTimeOut) throw e
+                if (stopping || finished) return null
+                continue
+            }
             if (r < 0) return null
             read += r
         }
         return out
     }
 
-    /** opcode to payload, or null when the stream ends. */
+    /**
+     * opcode to payload, null when the stream ends, or SocketTimeoutException
+     * when no frame has begun to arrive.
+     */
     private fun readFrame(input: InputStream): Pair<Int, ByteArray>? {
-        val head = readFully(input, 2) ?: return null
+        val head = readFully(input, 2, mayTimeOut = true) ?: return null
         val opcode = head[0].toInt() and 0x0F
         val masked = (head[1].toInt() and 0x80) != 0
         var length = (head[1].toInt() and 0x7F).toLong()
@@ -420,6 +479,14 @@ class NetworkDataPoller(
         binder?.bind(socket)
         socket.bind(InetSocketAddress(port))
 
+        // Room for a burst to sit in while we are busy decoding the last one.
+        // A request, not a demand: the system may give less, and does not fail.
+        try {
+            socket.receiveBufferSize = 256 * 1024
+        } catch (e: SocketException) {
+            // ignore
+        }
+
         connectedOnce = true
         runOnMainThread(Runnable { listener.onConnected() })
 
@@ -436,7 +503,7 @@ class NetworkDataPoller(
         // forever and there is never a moment to re-announce.
         socket.soTimeout = RECEIVE_TIMEOUT_MS
         var lastAnnounce = 0L
-        val buffer = ByteArray(BUFFER)
+        val buffer = ByteArray(DATAGRAM_BUFFER)
         val packet = DatagramPacket(buffer, buffer.size)
         while (!stopping && !finished) {
             val now = System.currentTimeMillis()
@@ -507,6 +574,10 @@ class NetworkDataPoller(
             }
         }
         synchronized(peers) { targets.addAll(peers) }
+        // Nobody to talk to yet is a perfectly ordinary state: it means nothing
+        // has arrived. Broadcasting a hello at the whole network to try to shake
+        // something loose is not this app's business — QGroundControl does not
+        // do it either, and every module we have met announces itself.
         for (target in targets) {
             try {
                 socket.send(DatagramPacket(HEARTBEAT, HEARTBEAT.size, target.first, target.second))
@@ -524,7 +595,13 @@ class NetworkDataPoller(
 
     private fun feed(buffer: ByteArray, offset: Int, size: Int) {
         if (size <= 0) return
-        logFile?.write(buffer, offset, size)
+        try {
+            logFile?.write(buffer, offset, size)
+        } catch (e: IOException) {
+            // A full card must not take the link down with it. Nothing else
+            // depends on the log, and someone flying is better served by
+            // telemetry that keeps working than by a recording of it.
+        }
         for (i in offset until offset + size) {
             // Unsigned. A sign extended byte silently breaks every decoder's
             // state machine and detection then never fires at all.
