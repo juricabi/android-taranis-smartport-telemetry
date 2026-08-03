@@ -168,6 +168,15 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         return highest
     }
 
+    /**
+     * Told when a fix lands, so the model moves with the one on the map instead
+     * of up to a tick behind it. The poll stays as a backstop for anything that
+     * fills the path without going past here, a replay among them.
+     */
+    fun onNewPoint() {
+        if (started) pickUpNewPoints()
+    }
+
     private fun pickUpNewPoints() {
         val version = LiveFlightPath.version
         if (version == seenVersion) return

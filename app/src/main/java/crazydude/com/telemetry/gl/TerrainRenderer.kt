@@ -56,6 +56,62 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             }
         """
 
+        /** The model: shaded, with its own edges drawn in the same pass. */
+        private const val MODEL_VERTEX = """
+            uniform mat4 uMvp;
+            attribute vec4 aPosition;
+            attribute vec3 aCorner;
+            attribute vec3 aNormal;
+            varying vec3 vCorner;
+            varying float vShade;
+            void main() {
+                gl_Position = uMvp * aPosition;
+                vCorner = aCorner;
+                // How much a face lies across the light, not which way it faces
+                // it. A solid built from boxes and posts does not wind every
+                // triangle alike, and a signed dot leaves whichever came out
+                // backwards flat black; this cannot, and still tells a top from
+                // a side from an end.
+                vec3 light = normalize(vec3(-0.5, 0.8, -0.4));
+                vShade = 0.70 + 0.30 * abs(dot(normalize(aNormal), light));
+            }
+        """
+
+        /**
+         * Screen space edges: how fast a corner weight changes across a pixel
+         * says how wide a line of even thickness has to be, whatever the size or
+         * angle of the triangle. Without it a long thin face gets a hairline
+         * down its side and a fat band across its end.
+         */
+        private const val MODEL_FRAGMENT_EVEN = """
+            #extension GL_OES_standard_derivatives : enable
+            precision mediump float;
+            uniform vec3 uBase;
+            varying vec3 vCorner;
+            varying float vShade;
+            void main() {
+                vec3 wide = fwidth(vCorner) * 2.2;
+                vec3 near = smoothstep(vec3(0.0), wide, vCorner);
+                float ink = min(min(near.x, near.y), near.z);
+                vec3 colour = mix(vec3(0.03, 0.03, 0.04), uBase * vShade, ink);
+                gl_FragColor = vec4(colour, 1.0);
+            }
+        """
+
+        /** The same, for anything without derivatives: a line of even share. */
+        private const val MODEL_FRAGMENT = """
+            precision mediump float;
+            uniform vec3 uBase;
+            varying vec3 vCorner;
+            varying float vShade;
+            void main() {
+                float edge = min(min(vCorner.x, vCorner.y), vCorner.z);
+                float ink = smoothstep(0.0, 0.06, edge);
+                vec3 colour = mix(vec3(0.03, 0.03, 0.04), uBase * vShade, ink);
+                gl_FragColor = vec4(colour, 1.0);
+            }
+        """
+
         private const val LINE_VERTEX = """
             uniform mat4 uMvp;
             attribute vec4 aPosition;
@@ -72,6 +128,9 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         """
 
         private const val FLOATS_PER_VERTEX = 8
+
+        /** The model layout: position, corner weights, normal. */
+        private const val MODEL_FLOATS = 9
     }
 
     /**
@@ -109,6 +168,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     private var dropCount = 0
 
     private var terrainProgram = 0
+    private var modelProgram = 0
     private var lineProgram = 0
 
     private val projection = FloatArray(16)
@@ -196,7 +256,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             // eight floats a vertex now, not three: dividing by three drew far
             // more triangles than the mesh has and read whatever lay past its
             // end, which is what tore the model apart
-            modelCount = mesh.size / FLOATS_PER_VERTEX
+            modelCount = mesh.size / MODEL_FLOATS
             builtShape = modelShape
         }
     }
@@ -206,14 +266,24 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     private var builtShape = ""
 
     /**
-     * Geometry in the layout the ground uses: position, an unused pair of
-     * texture coordinates, and a normal. The normal is what the light reads,
-     * and is the whole difference between a model and a silhouette.
+     * Geometry for the model: position, which corner of its triangle each
+     * vertex is, and a normal. The normal is what the light reads, and is the
+     * whole difference between a model and a silhouette; the corner weights are
+     * what let one pass both fill a face and draw its edges.
      */
     private class Solid {
         val out = ArrayList<Float>()
 
-        fun tri(a: FloatArray, b: FloatArray, c: FloatArray) {
+        /**
+         * [hide] names edges that are not really there. Bit j holds the weight
+         * of the edge opposite vertex j at one, so a fragment never approaches
+         * a border there and the shader draws no line.
+         *
+         * A rectangle is two triangles with a seam down the middle. The seam is
+         * not an edge of the model, and drawing it puts a diagonal across every
+         * flat face.
+         */
+        fun tri(a: FloatArray, b: FloatArray, c: FloatArray, hide: Int = 0) {
             val ux = b[0] - a[0]; val uy = b[1] - a[1]; val uz = b[2] - a[2]
             val vx = c[0] - a[0]; val vy = c[1] - a[1]; val vz = c[2] - a[2]
             var nx = uy * vz - uz * vy
@@ -221,11 +291,22 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             var nz = ux * vy - uy * vx
             val len = Math.sqrt((nx * nx + ny * ny + nz * nz).toDouble()).toFloat()
             if (len > 0.00001f) { nx /= len; ny /= len; nz /= len }
-            for (p in arrayOf(a, b, c)) {
+            for (i in 0..2) {
+                val p = when (i) { 0 -> a; 1 -> b; else -> c }
                 out.add(p[0]); out.add(p[1]); out.add(p[2])
-                out.add(0f); out.add(0f)
+                // one at its own corner, nought at the others: the weights fall
+                // to nought along the far edge, which is how near one is measured
+                for (j in 0..2) {
+                    out.add(if (j == i || (hide shr j) and 1 == 1) 1f else 0f)
+                }
                 out.add(nx); out.add(ny); out.add(nz)
             }
+        }
+
+        /** A flat four cornered face, seamless: only its border is an edge. */
+        fun face(a: FloatArray, b: FloatArray, c: FloatArray, d: FloatArray) {
+            tri(a, b, c, 1 shl 1)
+            tri(a, c, d, 1 shl 2)
         }
 
         /** A box, from its two opposite corners. */
@@ -234,12 +315,12 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             val c = floatArrayOf(x1, y0, z1); val d = floatArrayOf(x0, y0, z1)
             val e = floatArrayOf(x0, y1, z0); val f = floatArrayOf(x1, y1, z0)
             val g = floatArrayOf(x1, y1, z1); val h = floatArrayOf(x0, y1, z1)
-            tri(e, f, g); tri(e, g, h)
-            tri(a, d, c); tri(a, c, b)
-            tri(a, b, f); tri(a, f, e)
-            tri(d, h, g); tri(d, g, c)
-            tri(a, e, h); tri(a, h, d)
-            tri(b, c, g); tri(b, g, f)
+            face(e, f, g, h)
+            face(a, d, c, b)
+            face(a, b, f, e)
+            face(d, h, g, c)
+            face(a, e, h, d)
+            face(b, c, g, f)
         }
 
         /** A box laid along a direction in the ground plane: an arm, or a wing. */
@@ -253,16 +334,17 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             val c = at(to, halfWidth, y0);    val d = at(from, halfWidth, y0)
             val e = at(from, -halfWidth, y1); val f = at(to, -halfWidth, y1)
             val g = at(to, halfWidth, y1);    val h = at(from, halfWidth, y1)
-            tri(e, f, g); tri(e, g, h)
-            tri(a, d, c); tri(a, c, b)
-            tri(a, b, f); tri(a, f, e)
-            tri(d, h, g); tri(d, g, c)
-            tri(a, e, h); tri(a, h, d)
-            tri(b, c, g); tri(b, g, f)
+            face(e, f, g, h)
+            face(a, d, c, b)
+            face(a, b, f, e)
+            face(d, h, g, c)
+            face(a, e, h, d)
+            face(b, c, g, f)
         }
 
         /** A short many sided post: a motor, or a propeller when it is flat. */
         fun post(cx: Float, cz: Float, radius: Float, y0: Float, y1: Float, sides: Int) {
+            val spokes = (1 shl 1) or (1 shl 2)
             for (i in 0 until sides) {
                 val a0 = 2.0 * Math.PI * i / sides
                 val a1 = 2.0 * Math.PI * (i + 1) / sides
@@ -270,12 +352,14 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                 val z0 = cz + (radius * Math.sin(a0)).toFloat()
                 val x1 = cx + (radius * Math.cos(a1)).toFloat()
                 val z1 = cz + (radius * Math.sin(a1)).toFloat()
-                tri(floatArrayOf(x0, y0, z0), floatArrayOf(x1, y0, z1), floatArrayOf(x1, y1, z1))
-                tri(floatArrayOf(x0, y0, z0), floatArrayOf(x1, y1, z1), floatArrayOf(x0, y1, z0))
-                // flat top, in the same plane as the rim: a cap drawn to a
-                // point above it turned every motor into a spike
-                tri(floatArrayOf(cx, y1, cz), floatArrayOf(x0, y1, z0), floatArrayOf(x1, y1, z1))
-                tri(floatArrayOf(cx, y0, cz), floatArrayOf(x1, y0, z1), floatArrayOf(x0, y0, z0))
+                face(floatArrayOf(x0, y0, z0), floatArrayOf(x1, y0, z1),
+                     floatArrayOf(x1, y1, z1), floatArrayOf(x0, y1, z0))
+                // flat caps, drawn as a fan from the centre. Only the rim is an
+                // edge — the spokes would draw a cartwheel on every motor.
+                tri(floatArrayOf(cx, y1, cz), floatArrayOf(x0, y1, z0),
+                    floatArrayOf(x1, y1, z1), spokes)
+                tri(floatArrayOf(cx, y0, cz), floatArrayOf(x1, y0, z1),
+                    floatArrayOf(x0, y0, z0), spokes)
             }
         }
 
@@ -462,6 +546,10 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         GLES20.glClearColor(0.09f, 0.11f, 0.14f, 1f)
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
         terrainProgram = program(TERRAIN_VERTEX, TERRAIN_FRAGMENT)
+        // even lines where the driver can measure a pixel, plain ones where
+        // it cannot; the extension is old and common, but not promised
+        modelProgram = program(MODEL_VERTEX, MODEL_FRAGMENT_EVEN)
+        if (modelProgram == 0) modelProgram = program(MODEL_VERTEX, MODEL_FRAGMENT)
         lineProgram = program(LINE_VERTEX, LINE_FRAGMENT)
         // a new context throws away every texture and buffer we had, so put
         // the meshes back in the queue to be uploaded again
@@ -787,15 +875,14 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     private fun drawModelLit() {
         val buffer: FloatBuffer?
         synchronized(this) { buffer = if (modelVisible) modelBuffer else null }
-        if (buffer == null || modelCount < 3 || terrainProgram == 0) return
+        if (buffer == null || modelCount < 3 || modelProgram == 0) return
 
-        GLES20.glUseProgram(terrainProgram)
-        val aPosition = GLES20.glGetAttribLocation(terrainProgram, "aPosition")
-        val aTexture = GLES20.glGetAttribLocation(terrainProgram, "aTexture")
-        val aNormal = GLES20.glGetAttribLocation(terrainProgram, "aNormal")
-        val uMvp = GLES20.glGetUniformLocation(terrainProgram, "uMvp")
-        val uHasTexture = GLES20.glGetUniformLocation(terrainProgram, "uHasTexture")
-        val uBase = GLES20.glGetUniformLocation(terrainProgram, "uBase")
+        GLES20.glUseProgram(modelProgram)
+        val aPosition = GLES20.glGetAttribLocation(modelProgram, "aPosition")
+        val aCorner = GLES20.glGetAttribLocation(modelProgram, "aCorner")
+        val aNormal = GLES20.glGetAttribLocation(modelProgram, "aNormal")
+        val uMvp = GLES20.glGetUniformLocation(modelProgram, "uMvp")
+        val uBase = GLES20.glGetUniformLocation(modelProgram, "uBase")
 
         Matrix.setIdentityM(modelMatrix, 0)
         Matrix.translateM(modelMatrix, 0, modelX, modelY, modelZ)
@@ -815,16 +902,14 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         Matrix.scaleM(modelMatrix, 0, drawSize, drawSize / verticalScale, drawSize)
         Matrix.multiplyMM(modelMvp, 0, mvp, 0, modelMatrix, 0)
 
-        GLES20.glUniform1f(uHasTexture, 0f)
-
-        val stride = FLOATS_PER_VERTEX * 4
+        val stride = MODEL_FLOATS * 4
         buffer.position(0)
         GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, stride, buffer)
         GLES20.glEnableVertexAttribArray(aPosition)
         buffer.position(3)
-        GLES20.glVertexAttribPointer(aTexture, 2, GLES20.GL_FLOAT, false, stride, buffer)
-        GLES20.glEnableVertexAttribArray(aTexture)
-        buffer.position(5)
+        GLES20.glVertexAttribPointer(aCorner, 3, GLES20.GL_FLOAT, false, stride, buffer)
+        GLES20.glEnableVertexAttribArray(aCorner)
+        buffer.position(6)
         GLES20.glVertexAttribPointer(aNormal, 3, GLES20.GL_FLOAT, false, stride, buffer)
         GLES20.glEnableVertexAttribArray(aNormal)
 
@@ -833,7 +918,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, modelCount)
 
         GLES20.glDisableVertexAttribArray(aPosition)
-        GLES20.glDisableVertexAttribArray(aTexture)
+        GLES20.glDisableVertexAttribArray(aCorner)
         GLES20.glDisableVertexAttribArray(aNormal)
     }
 

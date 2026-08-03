@@ -3473,6 +3473,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 }
                 marker?.let { it.position = lastGPS }
                 rememberForProfile(latitude, longitude)
+                terrain3D?.onNewPoint()
                 updateHomeLine()
                 updateHeading()
                 if (followMode) {
