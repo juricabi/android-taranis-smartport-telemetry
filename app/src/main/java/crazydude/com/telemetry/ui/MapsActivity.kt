@@ -2654,27 +2654,32 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             return setting.toIntOrNull() ?: 1
         }
 
-        // A count that would put a live pack below 2.5V a cell is not a flat
-        // pack, it is the wrong count — a smaller battery fitted without
-        // reconnecting. Nothing working ever reaches here, even sagging under
-        // full throttle, so start again from what is actually on the model.
-        if (detectedCells > 0 && packVoltage > 2f && packVoltage / detectedCells < 2.5f) {
-            detectedCells = 0
-            highestPackVoltage = 0f
-            cellsAsked = false
-            cellsAnswered = false
-        }
-
+        // Deliberately nothing here that revisits the count when the volts per
+        // cell look too low. That would fire on the one reading which must
+        // never lie: a pack being run into the ground. A 6S at 2.4V a cell is
+        // 14.4V, which on its own looks like a 4S and would then read a healthy
+        // 3.60V a cell on a battery destroying itself. Holding the count keeps
+        // the number falling, which is the truth.
+        //
+        // The cost is a smaller pack fitted without reconnecting: the count
+        // stays high, the reading reads low, which is visible and harmless, and
+        // connecting again clears it.
         if (cellsAnswered) return detectedCells
 
         if (packVoltage > 2f && packVoltage > highestPackVoltage) {
             highestPackVoltage = packVoltage
 
-            // Sizes that would make this a plausible pack as connected. Rare
-            // sizes are left out so their neighbours do not muddy the question;
-            // they can still be set by hand.
+            // Sizes that would make this a plausible pack as connected. The top
+            // of the range is where 4.35V belongs — the most a cell can hold,
+            // and exactly what a high voltage cell is charged to, so a hair
+            // above it keeps LiHV packs on the right count instead of one too
+            // many. As a *divisor* that same 4.35 is what read a 6S at 3.6V a
+            // cell as a fully charged 5S.
+            //
+            // Rare sizes are left out so their neighbours do not muddy the
+            // question; they can still be set by hand.
             val plausible = intArrayOf(1, 2, 3, 4, 5, 6, 8, 12, 16)
-                .filter { packVoltage / it in 3.5f..4.35f }
+                .filter { packVoltage / it in 3.5f..4.4f }
 
             if (plausible.size > 1) {
                 // The larger count reads lower volts per cell, which is the safe
