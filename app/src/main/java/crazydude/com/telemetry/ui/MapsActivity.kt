@@ -78,7 +78,10 @@ import kotlin.math.roundToInt
 class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Listener, SensorTimeoutManager.Listener, Fr24Manager.Listener {
 
     @Volatile private var detectedProtocol: String = ""
-    private var detectedCells = 0
+    @Volatile private var detectedCells = 0
+    @Volatile private var highestPackVoltage = 0f
+    private var cellsAsked = false
+    private var cellsAnswered = false
 
     companion object {
 
@@ -844,6 +847,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     private fun startReplay(file: File?) {
         GhstProtocol.forgetLaunchAltitude()
+        detectedCells = 0
+        highestPackVoltage = 0f
+        cellsAsked = false
+        cellsAnswered = false
         file?.also {
             val progressDialog = ProgressDialog(this)
             progressDialog.setCancelable(false)
@@ -2041,6 +2048,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     /** Called when a link is started by hand: none of the previous one carries over. */
     private fun clearCrsfSystem() {
         GhstProtocol.forgetLaunchAltitude()
+        detectedCells = 0
+        highestPackVoltage = 0f
+        cellsAsked = false
+        cellsAnswered = false
         crsfSystem = null
         // else the next link would redraw the old rate under its own table
         lastRfMode = null
@@ -2627,33 +2638,95 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     // how the flight controller is set up (report_cell_voltage). Work out the
     // other one from the cell count, which is either set by hand or taken from
     // the first sensible pack reading.
+    /**
+     * How many cells the pack has, when the flight controller reports the whole
+     * pack and the setting is left on Auto.
+     *
+     * One reading cannot always settle this: 21.0V is a full 5S or a half used
+     * 6S, and both are ordinary. So the best guess is made and shown straight
+     * away, and where two sizes people actually fly are both plausible, the
+     * question is put to the one person who knows — once, without stopping
+     * anything, with the safer of the two in use until it is answered.
+     */
     private fun cellCount(packVoltage: Float): Int {
         val setting = preferenceManager.getBatteryCells()
         if (setting != "auto") {
             return setting.toIntOrNull() ?: 1
         }
-        if (detectedCells == 0 && packVoltage > 2f) {
-            // The fewest cells that could hold this voltage, since a cell cannot
-            // exceed about 4.35V: 25.2V must be at least 6S, never 7S.
-            var cells = Math.ceil((packVoltage / 4.35f).toDouble()).toInt()
-            // Then round up to a pack people actually fly. 5S and 7S are rare
-            // enough that the guess is better spent elsewhere, and this is what
-            // makes a part-used pack come out right: a 6S at 3.6V/cell is 21.6V,
-            // which the line above sizes as 5S and would then report as a full
-            // 4.32V per cell. Erring towards more cells errs towards a lower
-            // reading, which is the safe direction to be wrong in — and anyone
-            // flying 5S or 7S can say so in the settings.
-            for (common in intArrayOf(1, 2, 3, 4, 6, 8, 10, 12, 14, 16)) {
-                if (common >= cells) {
-                    cells = common
-                    break
-                }
-            }
-            if (cells < 1) cells = 1
-            if (cells > 16) cells = 16
-            detectedCells = cells
+
+        // A count that would put a live pack below 2.5V a cell is not a flat
+        // pack, it is the wrong count — a smaller battery fitted without
+        // reconnecting. Nothing working ever reaches here, even sagging under
+        // full throttle, so start again from what is actually on the model.
+        if (detectedCells > 0 && packVoltage > 2f && packVoltage / detectedCells < 2.5f) {
+            detectedCells = 0
+            highestPackVoltage = 0f
+            cellsAsked = false
+            cellsAnswered = false
         }
-        return detectedCells
+
+        if (cellsAnswered) return detectedCells
+
+        if (packVoltage > 2f && packVoltage > highestPackVoltage) {
+            highestPackVoltage = packVoltage
+
+            // Sizes that would make this a plausible pack as connected. Rare
+            // sizes are left out so their neighbours do not muddy the question;
+            // they can still be set by hand.
+            val plausible = intArrayOf(1, 2, 3, 4, 5, 6, 8, 12, 16)
+                .filter { packVoltage / it in 3.5f..4.35f }
+
+            if (plausible.size > 1) {
+                // The larger count reads lower volts per cell, which is the safe
+                // way to be wrong while waiting for an answer.
+                val safest = plausible.max() ?: plausible[0]
+                if (safest > detectedCells) detectedCells = safest
+                if (!cellsAsked && logPlayer == null) {
+                    cellsAsked = true
+                    askCellCount(packVoltage, plausible)
+                }
+            } else if (plausible.size == 1) {
+                if (plausible[0] > detectedCells) detectedCells = plausible[0]
+            } else {
+                // Nothing plausible: the pack is well used, or these are high
+                // voltage cells. Divide by the most a cell can hold and round up
+                // to a real size — erring towards more cells, and so towards a
+                // lower reading.
+                var cells = Math.ceil((packVoltage / 4.25f).toDouble()).toInt()
+                for (common in intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16)) {
+                    if (common >= cells) {
+                        cells = common
+                        break
+                    }
+                }
+                if (cells < 1) cells = 1
+                if (cells > 16) cells = 16
+                if (cells > detectedCells) detectedCells = cells
+            }
+        }
+        return if (detectedCells > 0) detectedCells else 1
+    }
+
+    private fun askCellCount(packVoltage: Float, options: List<Int>) {
+        val labels = options
+            .map { it.toString() + "S — " + "%.2f".format(packVoltage / it) + " V per cell" }
+            .toTypedArray()
+        this.showDialog(
+            AlertDialog.Builder(this)
+                .setTitle("Which battery?")
+                .setMessage(
+                    "%.1f".format(packVoltage) + " V could be either of these." +
+                        10.toChar() + 10.toChar() +
+                        "This only affects the volts per cell reading, and is asked once " +
+                        "per connection. Settings has a fixed cell count if you always fly the same."
+                )
+                .setItems(labels) { d, which ->
+                    detectedCells = options[which]
+                    cellsAnswered = true
+                    d.dismiss()
+                }
+                .create()
+        )
     }
 
     override fun onVBATOrCellData(voltage: Float) {
@@ -2988,7 +3061,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     override fun onDecoderRestart() {
-        detectedCells = 0
         runOnUiThread {
             this.lastGPS = Position(0.0, 0.0);
             this.hasGPSFix = false;
