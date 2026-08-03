@@ -787,11 +787,17 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 )
             } else {
                 val dir = Environment.getExternalStoragePublicDirectory("TelemetryLogs")
-                if (dir.exists()) {
-                    val files =
-                        dir.listFiles { file -> ((file.extension == "log") || (file.extension == "tlm")) && (file.length() > 0) }
-                            .sorted()
-                            .reversed()
+                val listed = if (dir.exists()) {
+                    dir.listFiles { file ->
+                        ((file.extension == "log") || (file.extension == "tlm")) && (file.length() > 0)
+                    }
+                } else {
+                    null
+                }
+                if (listed == null || listed.isEmpty()) {
+                    Toast.makeText(this, "No logs available", Toast.LENGTH_SHORT).show()
+                } else {
+                    val files = listed.sorted().reversed()
 
                     if ( lastFileDialogSelectionIndex >= files.size) {
                         lastFileDialogSelectionIndex = files.size-1;
@@ -3413,15 +3419,22 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         if (!requestWritePermission(RequestWritePermissionSequenceType.RENAME)) return;
 
         val currentFileName = fileName ?: replayFileString ?: "";
+        val dot = currentFileName.lastIndexOf('.')
+        val extension = if (dot > 0) currentFileName.substring(dot) else ""
         val editText = EditText(this)
-        editText.setText(currentFileName)
+        editText.setText(if (dot > 0) currentFileName.substring(0, dot) else currentFileName)
+        editText.setSelection(editText.text.length)
 
         this.showDialog( AlertDialog.Builder(this)
         .setTitle("Rename Log")
         .setView(editText)
         .setPositiveButton("Rename") { dialog: DialogInterface, which: Int ->
-            val newFileName = editText.text.toString()
-            renameLog(currentFileName, newFileName)
+            val typed = editText.text.toString().trim()
+            if (typed.isEmpty()) {
+                Toast.makeText(this, "Name cannot be empty", Toast.LENGTH_SHORT).show()
+            } else {
+                renameLog(currentFileName, typed + extension)
+            }
             dialog.dismiss()
         }
         .setNegativeButton("Cancel") { dialog: DialogInterface, which: Int ->
