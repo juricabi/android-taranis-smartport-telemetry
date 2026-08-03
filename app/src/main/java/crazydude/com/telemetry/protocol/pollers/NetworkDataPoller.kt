@@ -15,6 +15,7 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.SocketException
+import java.net.SocketTimeoutException
 
 /**
  * Telemetry over the network, from a TCP server or a UDP sender.
@@ -49,6 +50,8 @@ class NetworkDataPoller(
     companion object {
         private const val TCP_CONNECT_TIMEOUT_MS = 8000
         private const val BUFFER = 2048
+        private const val RECEIVE_TIMEOUT_MS = 1000
+        private const val ANNOUNCE_EVERY_MS = 1000L
 
         /**
          * A MAVLink v1 HEARTBEAT from a ground station: length 9, sysid 255,
@@ -170,18 +173,37 @@ class NetworkDataPoller(
         connectedOnce = true
         runOnMainThread(Runnable { listener.onConnected() })
 
-        // Some senders unicast back to whoever spoke first rather than
-        // broadcasting. ExpressLRS does not need this — it broadcasts — but a
-        // mavlink-router in unicast mode does, and an empty datagram is free.
-        announce()
-
+        // Keep saying hello for as long as we are listening.
+        //
+        // A sender that unicasts points itself at whoever spoke to it most
+        // recently, so announcing once at connect is not enough: anything else
+        // that talks to the module — another phone, a ground station on a
+        // laptop — takes the stream away and this one is starved until it is
+        // restarted. A ground station sends heartbeats continuously for exactly
+        // this reason, so this does the same and recovers on its own.
+        //
+        // The timeout is what makes it possible: without it receive() blocks
+        // forever and there is never a moment to re-announce.
+        socket.soTimeout = RECEIVE_TIMEOUT_MS
+        var lastAnnounce = 0L
         val buffer = ByteArray(BUFFER)
         val packet = DatagramPacket(buffer, buffer.size)
         while (!stopping && !finished) {
+            val now = System.currentTimeMillis()
+            if (now - lastAnnounce >= ANNOUNCE_EVERY_MS) {
+                lastAnnounce = now
+                announce()
+            }
             // The length has to be restored every time: receive() shrinks it to
             // the size of the datagram that arrived, and it is never grown back.
             packet.length = buffer.size
-            socket.receive(packet)
+            try {
+                socket.receive(packet)
+            } catch (e: SocketTimeoutException) {
+                // Nothing arrived in the last second. That is not a failure —
+                // it is the gap in which we announce ourselves again.
+                continue
+            }
             feed(packet.data, packet.offset, packet.length)
         }
         finish()
