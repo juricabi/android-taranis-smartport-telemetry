@@ -78,6 +78,14 @@ import kotlin.math.roundToInt
 class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Listener, SensorTimeoutManager.Listener, Fr24Manager.Listener {
 
     @Volatile private var detectedProtocol: String = ""
+    /**
+     * The flight as flown: position with height above sea level, which is what
+     * the profile and the 3D view need and neither the map nor the polyline
+     * keeps. Bounded, so a long session cannot grow without end.
+     */
+    private val flightPath = ArrayList<crazydude.com.telemetry.gl.TerrainScene.TrackPoint>()
+    private var lastGpsAltitudeMsl = Float.NaN
+
     @Volatile private var detectedCells = 0
     @Volatile private var highestPackVoltage = 0f
     private var cellsAsked = false
@@ -457,8 +465,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             val option4 = "Export GPX file...";
             val option5 = "Export KML file...";
             val option6 = "Set playback duration..."
+            val option7 = "Altitude profile...";
+            val option8 = "3D view";
 
-            val options = arrayOf(option4, option5, option6)
+            val options = arrayOf(option7, option8, option4, option5, option6)
 
             this.showDialog( AlertDialog.Builder(this)
             .setTitle("Select an action")
@@ -473,6 +483,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     }
                     option6 -> {
                         showSetPlaybackDurationDialog()
+                    }
+                    option7 -> {
+                        showAltitudeProfile()
+                    }
+                    option8 -> {
+                        show3DView()
                     }
                 }
                 dialog.dismiss()
@@ -857,6 +873,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         highestPackVoltage = 0f
         cellsAsked = false
         cellsAnswered = false
+        flightPath.clear()
+        lastGpsAltitudeMsl = Float.NaN
         file?.also {
             val progressDialog = ProgressDialog(this)
             progressDialog.setCancelable(false)
@@ -2067,6 +2085,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         highestPackVoltage = 0f
         cellsAsked = false
         cellsAnswered = false
+        flightPath.clear()
+        lastGpsAltitudeMsl = Float.NaN
         crsfSystem = null
         // else the next link would redraw the old rate under its own table
         lastRfMode = null
@@ -2225,6 +2245,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     override fun onGPSAltitudeData(altitude: Float) {
         this.sensorTimeoutManager.onGPSAltitudeData(altitude);
+        lastGpsAltitudeMsl = altitude
         runOnUiThread {
             this.altitude_msl.text = this.formatHeight(altitude);
         }
@@ -2284,6 +2305,75 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             this.tryCreateMarker()
             this.satellites.text = if (satellites == 99) "ES" else satellites.toString()
         }
+    }
+
+    /** The flight against the ground under it, which is what shows clearance. */
+    private fun showAltitudeProfile() {
+        if (flightPath.size < 2) {
+            Toast.makeText(this, "No flight with position and altitude yet", Toast.LENGTH_SHORT).show()
+            return
+        }
+        crazydude.com.telemetry.utils.Elevation.init(this)
+        val view = AltitudeProfileView(this)
+        val points = ArrayList<AltitudeProfileView.Point>(flightPath.size)
+        for (p in flightPath) {
+            points.add(AltitudeProfileView.Point(p.lat, p.lon, p.altitudeMsl))
+        }
+        view.setTrack(points)
+        view.minimumHeight = (resources.displayMetrics.density * 220).toInt()
+
+        fetchTerrainFor(flightPath) { view.terrainUpdated() }
+
+        this.showDialog(
+            AlertDialog.Builder(this)
+                .setTitle("Altitude profile")
+                .setView(view)
+                .setPositiveButton("Close", null)
+                .create()
+        )
+    }
+
+    private fun show3DView() {
+        if (flightPath.size < 2) {
+            Toast.makeText(this, "No flight with position and altitude yet", Toast.LENGTH_SHORT).show()
+            return
+        }
+        Scene3DActivity.pending = ArrayList(flightPath)
+        startActivity(Intent(this, Scene3DActivity::class.java))
+    }
+
+    /** Terrain over the flight's area, off the UI thread; [onReady] on it. */
+    private fun fetchTerrainFor(
+        path: List<crazydude.com.telemetry.gl.TerrainScene.TrackPoint>,
+        onReady: () -> Unit
+    ) {
+        var minLat = path[0].lat; var maxLat = path[0].lat
+        var minLon = path[0].lon; var maxLon = path[0].lon
+        for (p in path) {
+            if (p.lat < minLat) minLat = p.lat
+            if (p.lat > maxLat) maxLat = p.lat
+            if (p.lon < minLon) minLon = p.lon
+            if (p.lon > maxLon) maxLon = p.lon
+        }
+        AsyncTask.execute {
+            crazydude.com.telemetry.utils.Elevation.prefetch(
+                minLat, minLon, maxLat, maxLon,
+                crazydude.com.telemetry.utils.Elevation.TILE_ZOOM,
+                { _, _ -> runOnUiThread { if (!isFinishing) onReady() } },
+                { _, _ -> runOnUiThread { if (!isFinishing) onReady() } }
+            )
+        }
+    }
+
+    private fun rememberForProfile(latitude: Double, longitude: Double) {
+        if (lastGpsAltitudeMsl.isNaN()) return
+        if (latitude == 0.0 && longitude == 0.0) return
+        if (flightPath.size >= 20000) return
+        flightPath.add(
+            crazydude.com.telemetry.gl.TerrainScene.TrackPoint(
+                latitude, longitude, lastGpsAltitudeMsl
+            )
+        )
     }
 
     //should be called on ui thread
@@ -3145,6 +3235,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         this.sensorTimeoutManager.onGPSData(list, addToEnd);
         runOnUiThread {
             if (!addToEnd) {
+                // rewound: the path is about to be replayed, so drop what it held
+                flightPath.clear()
                 polyLine?.clear()
                 this.lastTraveledDistance = 0.0;
                 lastGPS = Position(0.0,0.0)
@@ -3192,6 +3284,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     lastKnownGPSAt = System.currentTimeMillis()
                 }
                 marker?.let { it.position = lastGPS }
+                rememberForProfile(latitude, longitude)
                 updateHomeLine()
                 updateHeading()
                 if (followMode) {

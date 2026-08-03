@@ -62,6 +62,8 @@
                 android:name=".ui.SettingsActivity"
                 android:theme="@style/AppTheme"/>
         <activity android:name=".ui.SensorsActivity"/>
+        <activity android:name=".ui.Scene3DActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"/>
 
         <service android:name=".service.DataService"/>
 
