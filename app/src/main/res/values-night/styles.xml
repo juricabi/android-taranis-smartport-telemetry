@@ -4,7 +4,9 @@
     <style name="AppTheme" parent="@style/Theme.AppCompat.NoActionBar">
         <item name="colorPrimary">@color/toolbarBackground</item>
         <item name="colorPrimaryDark">@color/toolbarBackground</item>
-        <item name="colorAccent">@color/settingsAccent</item>
+        <item name="colorAccent">@color/colorAccent</item>
+        <item name="colorControlActivated">@color/settingsAccent</item>
+        <item name="colorControlNormal">@color/settingsTextSecondary</item>
         <item name="android:windowBackground">@color/settingsBackground</item>
         <item name="android:colorBackground">@color/settingsBackground</item>
         <item name="android:textColor">@color/settingsTextPrimary</item>
