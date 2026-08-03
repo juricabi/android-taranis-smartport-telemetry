@@ -174,7 +174,6 @@
     <string name="network_host">Address</string>
     <string name="network_host_hint">module IP address</string>
     <string name="network_port">Port</string>
-    <string name="network_protocol">Protocol</string>
     <string name="network_no_wifi">Not connected to Wi-Fi. Join the module&#8217;s network first.</string>
     <string name="network_on_wifi">Wi-Fi: %1$s</string>
     <string name="network_on_wifi_unknown">Connected to Wi-Fi</string>

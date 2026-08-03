@@ -15,8 +15,6 @@ import crazydude.com.telemetry.protocol.decoder.DataDecoder
  */
 object ProtocolFactory {
 
-    const val AUTO_DETECT = "Auto-detect"
-
     /**
      * A fresh decoder of the same kind as [detected], bound to [listener].
      * Null for anything unrecognised, which every caller treats as a failed
@@ -46,33 +44,5 @@ object ProtocolFactory {
         is MAVLink2Protocol -> "Mavlink v2"
         is LinkTestProtocol -> "Link Test"
         else -> "Unknown"
-    }
-
-    /**
-     * What the user may pick when they would rather name the protocol than let
-     * the detector find it. Worth having on a network connection in
-     * particular: a stream joined half way through a frame can mislead the
-     * detector, and a TBS transmitter switches between CRSF and MAVLink on its
-     * own depending on what it sees from the aircraft.
-     */
-    val choices: List<String> = listOf(
-        AUTO_DETECT,
-        "CRSF",
-        "GHST",
-        "Mavlink v2",
-        "Mavlink v1",
-        "FrSky",
-        "LTM"
-    )
-
-    /** A protocol by the name used in [choices]; null means detect it instead. */
-    fun createByName(name: String?, listener: DataDecoder.Listener): Protocol? = when (name) {
-        "CRSF" -> CrsfProtocol(listener)
-        "GHST" -> GhstProtocol(listener)
-        "Mavlink v1" -> MAVLinkProtocol(listener)
-        "Mavlink v2" -> MAVLink2Protocol(listener)
-        "FrSky" -> FrSkySportProtocol(listener)
-        "LTM" -> LTMProtocol(listener)
-        else -> null
     }
 }

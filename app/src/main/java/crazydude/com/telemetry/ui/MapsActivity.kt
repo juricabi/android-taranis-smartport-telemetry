@@ -53,7 +53,6 @@ import crazydude.com.telemetry.maps.Position
 import crazydude.com.telemetry.maps.osm.OsmMapWrapper
 import crazydude.com.telemetry.utils.GeoUtils
 import crazydude.com.telemetry.utils.PlusCode
-import crazydude.com.telemetry.protocol.ProtocolFactory
 import crazydude.com.telemetry.protocol.decoder.DataDecoder
 import crazydude.com.telemetry.protocol.pollers.LogPlayer
 import crazydude.com.telemetry.utils.LocalNetworks
@@ -1740,7 +1739,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
         val presetSpinner = view.findViewById<Spinner>(R.id.network_preset)
         val transportSpinner = view.findViewById<Spinner>(R.id.network_transport)
-        val protocolSpinner = view.findViewById<Spinner>(R.id.network_protocol)
         val hostField = view.findViewById<EditText>(R.id.network_host)
         val hostLabel = view.findViewById<TextView>(R.id.network_host_label)
         val portField = view.findViewById<EditText>(R.id.network_port)
@@ -1756,8 +1754,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             networkPresets.map { it.label })
         transportSpinner.adapter = ArrayAdapter(
             this, android.R.layout.simple_spinner_dropdown_item, transports)
-        protocolSpinner.adapter = ArrayAdapter(
-            this, android.R.layout.simple_spinner_dropdown_item, ProtocolFactory.choices)
 
         // Which network to work on. The phone can be on two at once — mobile
         // data plus a hotspot that the module has joined — and in that case the
@@ -1833,9 +1829,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         portField.setText(preferenceManager.getNetworkPort().toString())
         val savedHost = preferenceManager.getNetworkHost()
         hostField.setText(if (savedHost.isEmpty()) (binder.gatewayAddress() ?: "") else savedHost)
-        protocolSpinner.setSelection(
-            ProtocolFactory.choices.indexOf(preferenceManager.getNetworkProtocol())
-                .let { if (it < 0) 0 else it })
         if (savedPreset in networkPresets.indices) presetSpinner.setSelection(savedPreset)
         if (!preferenceManager.getNetworkPinWifi() && interfaces.isNotEmpty()) {
             // reopen on the interface the user picked last time, where it still exists
@@ -1986,8 +1979,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     preferenceManager.setNetworkUseTcp(useTcp)
                     preferenceManager.setNetworkHost(host)
                     preferenceManager.setNetworkPort(port)
-                    preferenceManager.setNetworkProtocol(
-                        ProtocolFactory.choices[protocolSpinner.selectedItemPosition])
 
                     connectToNetwork(host, port, useTcp)
                 }

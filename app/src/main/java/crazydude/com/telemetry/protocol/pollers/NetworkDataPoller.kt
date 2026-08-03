@@ -41,7 +41,6 @@ class NetworkDataPoller(
     private val useTcp: Boolean,
     private val host: String,
     private val port: Int,
-    forcedProtocol: String?,
     private val listener: DataDecoder.Listener,
     private val logFile: FileOutputStream?,
     private val binder: WifiNetworkBinder?
@@ -92,15 +91,6 @@ class NetworkDataPoller(
     private val thread: Thread
 
     init {
-        // A named protocol skips detection entirely. Worth having on a network
-        // link: a stream joined half way through a frame can mislead the
-        // detector, and it never gives up on its own.
-        val forced = ProtocolFactory.createByName(forcedProtocol, listener)
-        if (forced != null) {
-            selectedProtocol = forced
-            listener.onProtocolDetected(forcedProtocol!!)
-        }
-
         thread = Thread(Runnable {
             try {
                 if (useTcp) runTcp() else runUdp()

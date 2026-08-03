@@ -184,7 +184,6 @@ class DataService : Service(), DataDecoder.Listener {
                 useTcp,
                 host,
                 port,
-                preferenceManager.getNetworkProtocol(),
                 this,
                 logFile,
                 binder

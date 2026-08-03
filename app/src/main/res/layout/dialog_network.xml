@@ -116,19 +116,6 @@
                 android:singleLine="true"/>
 
         <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:text="@string/network_protocol"
-                android:textColor="?android:textColorSecondary"
-                android:textSize="12sp"/>
-
-        <Spinner
-                android:id="@+id/network_protocol"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"/>
-
-        <TextView
                 android:id="@+id/network_hint"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

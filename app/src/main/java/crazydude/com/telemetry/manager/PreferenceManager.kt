@@ -250,15 +250,6 @@ class PreferenceManager(context: Context) {
         sharedPreferences.edit().putInt("network_port", port).apply()
     }
 
-    /** A name from ProtocolFactory.choices, or "Auto-detect". */
-    fun getNetworkProtocol(): String {
-        return sharedPreferences.getString("network_protocol", "Auto-detect") ?: "Auto-detect"
-    }
-
-    fun setNetworkProtocol(protocol: String) {
-        sharedPreferences.edit().putString("network_protocol", protocol).apply()
-    }
-
     /**
      * Whether to pin the telemetry socket to the Wi-Fi network.
      *
