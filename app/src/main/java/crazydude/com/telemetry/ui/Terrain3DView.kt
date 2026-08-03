@@ -236,24 +236,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     }
 
     private fun showMyLocation() {
-        if (myLat.isNaN() || myLon.isNaN()) return
-        val ground = scene.groundAt(myLat, myLon) ?: return
         placeMyArrow()
-
-        if (myAccuracy < 1f) return
-        val metresPerDegreeLon = 111320.0 * Math.cos(Math.toRadians(myLat))
-        val ring = FloatArray(CIRCLE_SEGMENTS * 3)
-        var i = 0
-        for (step in 0 until CIRCLE_SEGMENTS) {
-            val angle = 2.0 * Math.PI * step / CIRCLE_SEGMENTS
-            val pointLat = myLat + myAccuracy * Math.cos(angle) / 111320.0
-            val pointLon = myLon + myAccuracy * Math.sin(angle) / metresPerDegreeLon
-            val h = scene.groundAt(pointLat, pointLon) ?: ground
-            ring[i++] = scene.east(pointLon)
-            ring[i++] = h - scene.originAltitude + 0.15f
-            ring[i++] = -scene.north(pointLat)
-        }
-        renderer.setAccuracyCircle(ring)
     }
 
     /** The buttons down the side of the map drive this too. */
@@ -444,6 +427,14 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         placeMyArrow()
     }
 
+    /**
+     * The arrow and its ring, together.
+     *
+     * They have to be built in the same breath: the ring used to be worked out
+     * once, when the ground arrived, while the arrow was rebuilt on every
+     * compass sample — so when the altitude reference settled and moved the
+     * origin, the arrow followed and the ring was left hanging where it was.
+     */
     private fun placeMyArrow() {
         if (myLat.isNaN() || myLon.isNaN()) return
         val ground = scene.groundAt(myLat, myLon) ?: return
@@ -451,6 +442,21 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
             scene.east(myLon), ground - scene.originAltitude + 0.1f,
             -scene.north(myLat), myHeading
         )
+
+        if (myAccuracy < 1f) return
+        val metresPerDegreeLon = 111320.0 * Math.cos(Math.toRadians(myLat))
+        val ring = FloatArray(CIRCLE_SEGMENTS * 3)
+        var i = 0
+        for (step in 0 until CIRCLE_SEGMENTS) {
+            val angle = 2.0 * Math.PI * step / CIRCLE_SEGMENTS
+            val pointLat = myLat + myAccuracy * Math.cos(angle) / 111320.0
+            val pointLon = myLon + myAccuracy * Math.sin(angle) / metresPerDegreeLon
+            val h = scene.groundAt(pointLat, pointLon) ?: ground
+            ring[i++] = scene.east(pointLon)
+            ring[i++] = h - scene.originAltitude + 0.15f
+            ring[i++] = -scene.north(pointLat)
+        }
+        renderer.setAccuracyCircle(ring)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {

@@ -320,7 +320,13 @@ class TerrainScene {
         // flight keeps dropping as it descends, and following that would move
         // the frame — and rebuild every tile in it — every few seconds. The
         // origin is only a reference; where it sits is arbitrary.
-        if (altitudeResolved && aboveLaunch == altitudeIsAboveLaunch) return
+        // One way only. Heights that once went below the ground cannot later
+        // turn out to have been sea level ones, and letting the answer flip
+        // back — as more ground loads and the lowest ground beneath the track
+        // drops — would move the whole world under the flight.
+        if (altitudeResolved && (aboveLaunch == altitudeIsAboveLaunch || altitudeIsAboveLaunch)) {
+            return
+        }
         altitudeResolved = true
         altitudeIsAboveLaunch = aboveLaunch
         launchGroundElevation = if (aboveLaunch) groundAtStart else 0f
