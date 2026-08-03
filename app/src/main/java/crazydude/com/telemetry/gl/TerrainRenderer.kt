@@ -78,6 +78,15 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     private val tiles = ArrayList<Tile>()
     private val pending = ArrayList<TerrainScene.TileMesh>()
 
+    /**
+     * The meshes as handed in, kept so they can be uploaded again.
+     *
+     * Leaving the app throws away the GL context and everything in it; without
+     * this the view came back black, because what had been uploaded was gone
+     * and nothing was left to upload.
+     */
+    private val submitted = ArrayList<TerrainScene.TileMesh>()
+
     private var trackBuffer: FloatBuffer? = null
     private var trackCount = 0
     private var shadowBuffer: FloatBuffer? = null
@@ -199,6 +208,8 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     fun submit(meshes: List<TerrainScene.TileMesh>) {
         pending.clear()
         pending.addAll(meshes)
+        submitted.clear()
+        submitted.addAll(meshes)
     }
 
     @Synchronized
@@ -247,8 +258,13 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
         terrainProgram = program(TERRAIN_VERTEX, TERRAIN_FRAGMENT)
         lineProgram = program(LINE_VERTEX, LINE_FRAGMENT)
-        // a new context throws away every texture and buffer we had
-        synchronized(this) { tiles.clear() }
+        // a new context throws away every texture and buffer we had, so put
+        // the meshes back in the queue to be uploaded again
+        synchronized(this) {
+            tiles.clear()
+            pending.clear()
+            pending.addAll(submitted)
+        }
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {

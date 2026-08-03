@@ -23,7 +23,7 @@ import crazydude.com.telemetry.utils.Imagery
  * exactly where it was. Choosing 3D is choosing how to draw the ground, not
  * leaving the app.
  */
-class Terrain3DView(context: Context) : FrameLayout(context) {
+class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.SensorEventListener {
 
     companion object {
         private const val FOLLOW_INTERVAL_MS = 500L
@@ -47,6 +47,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private var myLat = Double.NaN
     private var myLon = Double.NaN
     private var myAccuracy = 0f
+    private var myHeading = 0f
 
     /**
      * Whether the camera rides the model. No mode to pick: with nothing
@@ -82,6 +83,9 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         addView(status, params)
 
         isClickable = true
+        // the context survives leaving the app on most devices, which avoids a
+        // rebuild; the renderer can put the meshes back either way
+        surface.preserveEGLContextOnPause = true
     }
 
     /**
@@ -118,7 +122,12 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             if (h == null) null else h - scene.originAltitude
         }
         renderer.target = floatArrayOf(0f, heightOfTrack() / 2f, 0f)
-        renderer.distance = Math.max(600f, scene.extent * 3f)
+        // close enough to make out the ground; the whole flight if there is one
+        renderer.distance = if (hasFlight) {
+            Math.max(400f, scene.extent * 2.2f)
+        } else {
+            500f
+        }
         status.text = "Loading terrain…"
 
         val worker = Thread(Runnable {
@@ -205,21 +214,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         val x = scene.east(myLon)
         val z = -scene.north(myLat)
         val y = ground - scene.originAltitude + 1f
-        // A small pin with sides, not a big flat arrow: it has to read as
-        // standing on the ground from any angle, and it is a place, not a
-        // heading, so it points up rather than along.
-        val size = Math.max(4f, scene.extent / 120f)
-        val apex = size * 3f
-        val a = floatArrayOf(x, y, z - size)
-        val b = floatArrayOf(x + size * 0.87f, y, z + size * 0.5f)
-        val c = floatArrayOf(x - size * 0.87f, y, z + size * 0.5f)
-        val top = floatArrayOf(x, y + apex, z)
-        renderer.setMyLocation(floatArrayOf(
-            a[0], a[1], a[2], b[0], b[1], b[2], top[0], top[1], top[2],
-            b[0], b[1], b[2], c[0], c[1], c[2], top[0], top[1], top[2],
-            c[0], c[1], c[2], a[0], a[1], a[2], top[0], top[1], top[2],
-            a[0], a[1], a[2], c[0], c[1], c[2], b[0], b[1], b[2]
-        ))
+        buildMyArrow(x, y, z)
 
         if (myAccuracy < 1f) return
         val metresPerDegreeLon = 111320.0 * Math.cos(Math.toRadians(myLat))
@@ -276,6 +271,54 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
      * one finger drags the ground, two fingers pinch to zoom, twist to turn,
      * and slide together to tilt.
      */
+    /**
+     * An arrow with a body, pointing where the phone is pointing.
+     *
+     * A nose, two swept back corners and a raised spine, so it reads as a
+     * direction from above and as a solid from the side.
+     */
+    private fun buildMyArrow(x: Float, y: Float, z: Float) {
+        val size = Math.max(6f, scene.extent / 90f)
+        val heading = Math.toRadians(myHeading.toDouble())
+        val sin = Math.sin(heading).toFloat()
+        val cos = Math.cos(heading).toFloat()
+
+        // in the arrow's own frame: nose ahead, corners behind, tail notched in
+        fun place(forward: Float, side: Float, up: Float): FloatArray {
+            val fx = sin * forward + cos * side
+            val fz = -cos * forward + sin * side
+            return floatArrayOf(x + fx * size, y + up * size, z + fz * size)
+        }
+
+        val nose = place(1.6f, 0f, 0f)
+        val left = place(-1f, -1f, 0f)
+        val right = place(-1f, 1f, 0f)
+        val tail = place(-0.4f, 0f, 0f)
+        val spine = place(-0.1f, 0f, 0.8f)
+
+        renderer.setMyLocation(floatArrayOf(
+            nose[0], nose[1], nose[2], left[0], left[1], left[2], spine[0], spine[1], spine[2],
+            nose[0], nose[1], nose[2], spine[0], spine[1], spine[2], right[0], right[1], right[2],
+            left[0], left[1], left[2], tail[0], tail[1], tail[2], spine[0], spine[1], spine[2],
+            tail[0], tail[1], tail[2], right[0], right[1], right[2], spine[0], spine[1], spine[2],
+            nose[0], nose[1], nose[2], tail[0], tail[1], tail[2], left[0], left[1], left[2],
+            nose[0], nose[1], nose[2], right[0], right[1], right[2], tail[0], tail[1], tail[2]
+        ))
+    }
+
+    /** Which way the phone is pointing, so the arrow means something. */
+    fun setMyHeading(degrees: Float) {
+        if (Math.abs(degrees - myHeading) < 2f) return
+        myHeading = degrees
+        if (!myLat.isNaN() && !myLon.isNaN()) {
+            val ground = scene.groundAt(myLat, myLon)
+            if (ground != null) {
+                buildMyArrow(scene.east(myLon), ground - scene.originAltitude + 1f,
+                    -scene.north(myLat))
+            }
+        }
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -344,11 +387,13 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         val awayX = Math.sin(az).toFloat()
         val awayZ = Math.cos(az).toFloat()
         val t = renderer.target
-        // the ground follows the finger, so the camera goes the other way
+        // the ground follows the finger, so the camera goes the other way, in
+        // both axes — the vertical one was inverted, which is what made
+        // dragging feel wrong however the horizontal was set
         renderer.target = floatArrayOf(
-            t[0] - dx * metresPerPixel * rightX + dy * metresPerPixel * awayX,
+            t[0] - dx * metresPerPixel * rightX - dy * metresPerPixel * awayX,
             t[1],
-            t[2] - dx * metresPerPixel * rightZ + dy * metresPerPixel * awayZ
+            t[2] - dx * metresPerPixel * rightZ - dy * metresPerPixel * awayZ
         )
     }
 
@@ -381,14 +426,54 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         return Math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
     }
 
+    // The compass, so the arrow points where the phone is pointing. Same
+    // sensors the map's own arrow uses, read straight rather than through
+    // osmdroid, since nothing here is an osmdroid overlay.
+    private val sensors =
+        context.getSystemService(Context.SENSOR_SERVICE) as android.hardware.SensorManager?
+    private val gravity = FloatArray(3)
+    private val geomagnetic = FloatArray(3)
+    private var hasGravity = false
+    private var hasGeomagnetic = false
+
+    override fun onSensorChanged(event: android.hardware.SensorEvent) {
+        when (event.sensor.type) {
+            android.hardware.Sensor.TYPE_ACCELEROMETER -> {
+                System.arraycopy(event.values, 0, gravity, 0, 3)
+                hasGravity = true
+            }
+            android.hardware.Sensor.TYPE_MAGNETIC_FIELD -> {
+                System.arraycopy(event.values, 0, geomagnetic, 0, 3)
+                hasGeomagnetic = true
+            }
+        }
+        if (!hasGravity || !hasGeomagnetic) return
+        val r = FloatArray(9)
+        if (!android.hardware.SensorManager.getRotationMatrix(r, null, gravity, geomagnetic)) return
+        val orientation = FloatArray(3)
+        android.hardware.SensorManager.getOrientation(r, orientation)
+        var degrees = Math.toDegrees(orientation[0].toDouble()).toFloat()
+        if (degrees < 0) degrees += 360f
+        setMyHeading(degrees)
+    }
+
+    override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) {}
+
     fun onResume() {
         surface.onResume()
         ticker.post(poll)
+        sensors?.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER)?.let {
+            sensors.registerListener(this, it, android.hardware.SensorManager.SENSOR_DELAY_UI)
+        }
+        sensors?.getDefaultSensor(android.hardware.Sensor.TYPE_MAGNETIC_FIELD)?.let {
+            sensors.registerListener(this, it, android.hardware.SensorManager.SENSOR_DELAY_UI)
+        }
     }
 
     fun onPause() {
         surface.onPause()
         ticker.removeCallbacks(poll)
+        sensors?.unregisterListener(this)
     }
 
     fun release() {
