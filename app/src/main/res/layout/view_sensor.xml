@@ -24,7 +24,7 @@
             android:layout_toStartOf="@id/move"
             android:background="?android:selectableItemBackground"
             android:src="@drawable/ic_settings"
-            android:tint="@android:color/black"
+            android:tint="?android:attr/textColorPrimary"
             android:visibility="gone" />
 
     <ImageView

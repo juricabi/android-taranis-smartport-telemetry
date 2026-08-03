@@ -11,4 +11,8 @@
         <item name="preferenceTheme">@style/PreferenceThemeOverlay</item>
     </style>
 
+
+    <!-- Toolbar contents are dark, because the bar itself is light grey. -->
+    <style name="ToolbarTheme" parent="@style/ThemeOverlay.AppCompat.Light"/>
+
 </resources>

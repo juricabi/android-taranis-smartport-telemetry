@@ -9,4 +9,8 @@
     <color name="colorFlightPlan">#664488FF</color>
     <color name="colorHomeLine">#FFFF9800</color>
     <color name="settingsBackground">#FFFFFF</color>
+    <color name="toolbarBackground">#E0E0E0</color>
+    <color name="settingsTextPrimary">#212121</color>
+    <color name="settingsTextSecondary">#616161</color>
+    <color name="settingsAccent">#0288D1</color>
 </resources>

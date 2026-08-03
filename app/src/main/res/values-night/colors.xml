@@ -1,3 +1,7 @@
 <resources>
     <color name="settingsBackground">#121212</color>
+    <color name="toolbarBackground">#3A3A3A</color>
+    <color name="settingsTextPrimary">#ECECEC</color>
+    <color name="settingsTextSecondary">#B3B3B3</color>
+    <color name="settingsAccent">#4FC3F7</color>
 </resources>

@@ -1,14 +1,19 @@
 <resources>
 
-    <!-- Dark counterpart of AppTheme. Android picks this automatically when the
-         phone is in dark mode, so the settings and sensor screens follow it. -->
+    <!-- Dark counterpart of AppTheme, picked automatically in dark mode. -->
     <style name="AppTheme" parent="@style/Theme.AppCompat.NoActionBar">
-        <item name="colorPrimary">@color/colorPrimary</item>
-        <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
-        <item name="colorAccent">@color/colorAccent</item>
+        <item name="colorPrimary">@color/toolbarBackground</item>
+        <item name="colorPrimaryDark">@color/toolbarBackground</item>
+        <item name="colorAccent">@color/settingsAccent</item>
         <item name="android:windowBackground">@color/settingsBackground</item>
         <item name="android:colorBackground">@color/settingsBackground</item>
+        <item name="android:textColor">@color/settingsTextPrimary</item>
+        <item name="android:textColorPrimary">@color/settingsTextPrimary</item>
+        <item name="android:textColorSecondary">@color/settingsTextSecondary</item>
         <item name="preferenceTheme">@style/PreferenceThemeOverlay</item>
     </style>
+
+    <!-- Toolbar contents are light, because the bar itself is dark grey. -->
+    <style name="ToolbarTheme" parent="@style/ThemeOverlay.AppCompat.Dark"/>
 
 </resources>

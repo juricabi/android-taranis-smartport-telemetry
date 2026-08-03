@@ -13,10 +13,10 @@
                 android:id="@+id/toolbar"
                 android:layout_width="match_parent"
                 android:layout_height="?attr/actionBarSize"
-                android:background="?attr/colorPrimary"
+                android:background="@color/toolbarBackground"
                 android:elevation="4dp"
                 app:title="Settings v hx-.-"
-                android:theme="@style/ThemeOverlay.AppCompat.Dark"
+                android:theme="@style/ToolbarTheme"
                 app:popupTheme="@style/ThemeOverlay.AppCompat"/>
 
     </com.google.android.material.appbar.AppBarLayout>
