@@ -201,9 +201,9 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         )
         if (following) {
             renderer.target = floatArrayOf(
-                scene.east(last.lon),
+                scene.east(last.lon) + panX,
                 scene.aboveSeaLevel(last.altitudeMsl) - scene.originAltitude,
-                -scene.north(last.lat)
+                -scene.north(last.lat) + panZ
             )
         }
 
@@ -250,7 +250,11 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     fun setFollowing(on: Boolean) {
         following = on
         status.text = ""
-        if (on) LiveFlightPath.latest()?.let { lookAt(it.lat, it.lon, it.altitudeMsl) }
+        if (on) {
+            panX = 0f
+            panZ = 0f
+            LiveFlightPath.latest()?.let { lookAt(it.lat, it.lon, it.altitudeMsl) }
+        }
     }
 
     fun isFollowing(): Boolean = following
@@ -283,7 +287,9 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
 
     fun goToMyLocation(): Boolean {
         if (myLat.isNaN() || myLon.isNaN()) return false
-        following = false
+        // asked for somewhere else entirely, which is a different thing from
+        // leaning out of the chase
+        followingOff()
         status.text = ""
         lookAt(myLat, myLon, null)
         renderer.distance = Math.min(renderer.distance, 800f)
@@ -548,7 +554,6 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     /** Drag the ground with the finger, scaled by how far out the camera is. */
     private fun panBy(dx: Float, dy: Float) {
         if (dx == 0f && dy == 0f) return
-        followingOff()
         val height = Math.max(1, resources.displayMetrics.heightPixels)
         val metresPerPixel = renderer.distance * 0.93f / height
         val az = Math.toRadians(renderer.azimuth.toDouble())
@@ -560,14 +565,24 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         // the ground follows the finger, so the camera goes the other way, in
         // both axes — the vertical one was inverted, which is what made
         // dragging feel wrong however the horizontal was set
-        renderer.target = floatArrayOf(
-            t[0] - dx * metresPerPixel * rightX - dy * metresPerPixel * awayX,
-            t[1],
-            t[2] - dx * metresPerPixel * rightZ - dy * metresPerPixel * awayZ
-        )
+        val moveX = -dx * metresPerPixel * rightX - dy * metresPerPixel * awayX
+        val moveZ = -dx * metresPerPixel * rightZ - dy * metresPerPixel * awayZ
+        renderer.target = floatArrayOf(t[0] + moveX, t[1], t[2] + moveZ)
+        // Dragging while following does not end the chase, it leans out of it:
+        // the camera keeps up with the model from where it has been put, so a
+        // look at the ground beside it is not paid for by losing it. The follow
+        // button comes back to the middle.
+        if (following) {
+            panX += moveX
+            panZ += moveZ
+        }
     }
 
-    /** Touching the view takes the camera; the follow button gives it back. */
+    /** How far the camera has been leaned out of the chase, in metres. */
+    private var panX = 0f
+    private var panZ = 0f
+
+    /** Only a button does this now: no gesture gives up following. */
     private fun followingOff() {
         if (!following) return
         following = false
