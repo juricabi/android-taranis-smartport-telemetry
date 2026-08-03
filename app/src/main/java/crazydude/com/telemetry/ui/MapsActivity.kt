@@ -125,6 +125,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             }
         }
 
+        // zoom used when jumping to a position; 18 is the deepest real satellite level
+        private const val LOCATE_ZOOM = 18f
+
         private const val CONNTYPE_NONE = 0
         private const val CONNTYPE_BT = 1
         private const val CONNTYPE_BLE = 2
@@ -411,7 +414,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             val pos = map?.getMyLocation()
             if (pos != null) {
                 setFollowMode(false)
-                map?.moveCamera(pos, 15f)
+                map?.moveCamera(pos, LOCATE_ZOOM)
             } else {
                 Toast.makeText(this, "Phone location not available", Toast.LENGTH_SHORT).show()
             }
@@ -1796,7 +1799,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             marker =
                 map?.addMarker(R.drawable.ic_plane, preferenceManager.getPlaneColor(), lastGPS)
             marker?.rotation = lastHeading;
-            map?.moveCamera(lastGPS, 15f)
+            map?.moveCamera(lastGPS, LOCATE_ZOOM)
         }
     }
 
