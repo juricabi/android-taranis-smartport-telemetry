@@ -83,6 +83,7 @@ class NetworkDataPoller(
         private const val ANNOUNCE_EVERY_MS = 1000L
         private const val MAX_PEERS = 4
         private const val MAX_FRAME = 1 shl 20
+        private const val DEVICE_PING_EVERY_MS = 5000L
 
         private const val OPCODE_CONTINUATION = 0x0
         private const val OPCODE_TEXT = 0x1
@@ -302,7 +303,16 @@ class NetworkDataPoller(
         // socket opens and stays silent forever.
         writeFrame(out, OPCODE_BINARY, DEVICE_PING)
 
+        var lastPing = System.currentTimeMillis()
         while (!stopping && !finished) {
+            // Ask again now and then: the first ping is answered only if the
+            // module was ready for it, and the name it replies with is what
+            // tells a Crossfire from an ExpressLRS.
+            val now = System.currentTimeMillis()
+            if (now - lastPing >= DEVICE_PING_EVERY_MS) {
+                lastPing = now
+                writeFrame(out, OPCODE_BINARY, DEVICE_PING)
+            }
             val frame = readFrame(input) ?: break
             when (frame.first) {
                 OPCODE_BINARY, OPCODE_TEXT, OPCODE_CONTINUATION ->

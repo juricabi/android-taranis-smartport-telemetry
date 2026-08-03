@@ -311,6 +311,17 @@ class DataService : Service(), DataDecoder.Listener {
         dataListener?.onProtocolDetected(protocolName)
     }
 
+    /**
+     * Everything the decoder produces passes through this service on its way to
+     * the screen, so a callback with a default body in the interface is a
+     * callback that stops here. This one has to be forwarded like the rest, or
+     * the map never learns which radio system is sending and shows an
+     * ExpressLRS rate for a Crossfire.
+     */
+    override fun onDeviceName(name: String) {
+        dataListener?.onDeviceName(name)
+    }
+
     override fun commit() {
         dataListener?.commit()
     }
