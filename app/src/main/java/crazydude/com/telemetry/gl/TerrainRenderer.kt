@@ -588,7 +588,15 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             mine.position(0)
             GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, mine)
             GLES20.glUniform4f(uColor, 0.15f, 0.55f, 1f, 1f)
+            // Drawn without the depth test, so it cannot fight the ground it
+            // stands on. Lifting it only ever reduced the flicker — from far
+            // enough out no offset is large enough to separate two surfaces in
+            // a buffer that has run out of resolution. This is a marker rather
+            // than scenery, and a marker belongs on top, which is what every
+            // map does with them.
+            GLES20.glDisable(GLES20.GL_DEPTH_TEST)
             GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 18)
+            GLES20.glEnable(GLES20.GL_DEPTH_TEST)
             GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
         }
 
@@ -601,7 +609,9 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, ring)
             GLES20.glUniform4f(uColor, 0.2f, 0.6f, 1f, 0.9f)
             GLES20.glLineWidth(3f)
+            GLES20.glDisable(GLES20.GL_DEPTH_TEST)
             GLES20.glDrawArrays(GLES20.GL_LINE_LOOP, 0, rCount)
+            GLES20.glEnable(GLES20.GL_DEPTH_TEST)
             GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
         }
         if (marker != null && mCount > 1) {
