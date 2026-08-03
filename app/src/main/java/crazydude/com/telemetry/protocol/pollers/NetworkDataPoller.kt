@@ -82,6 +82,20 @@ class NetworkDataPoller(
     @Volatile
     private var finished = false
 
+    /**
+     * Asked to stop.
+     *
+     * A flag of our own rather than the thread's interrupt status, because the
+     * interrupt status is not ours alone: this thread runs the app's telemetry
+     * callbacks, and anything down there that catches InterruptedException
+     * clears the flag on the way past. While data was arriving the loop was
+     * spending its time inside those callbacks, so the interrupt could be
+     * swallowed before the loop ever looked at it and the connection would not
+     * let go.
+     */
+    @Volatile
+    private var stopping = false
+
     @Volatile
     private var tcpSocket: Socket? = null
 
@@ -121,7 +135,7 @@ class NetworkDataPoller(
 
         val buffer = ByteArray(BUFFER)
         val input = socket.getInputStream()
-        while (!thread.isInterrupted && !finished) {
+        while (!stopping && !finished) {
             // -1 is a clean close by the far end. The Bluetooth poller never
             // has to handle this because RFCOMM throws instead, but a TCP peer
             // that goes away politely would otherwise spin here forever.
@@ -154,7 +168,7 @@ class NetworkDataPoller(
 
         val buffer = ByteArray(BUFFER)
         val packet = DatagramPacket(buffer, buffer.size)
-        while (!thread.isInterrupted && !finished) {
+        while (!stopping && !finished) {
             // The length has to be restored every time: receive() shrinks it to
             // the size of the datagram that arrived, and it is never grown back.
             packet.length = buffer.size
@@ -242,8 +256,10 @@ class NetworkDataPoller(
      * enough, because a blocking socket read ignores interruption.
      */
     override fun disconnect() {
+        stopping = true
         thread.interrupt()
-        if (finished) return
+        // Closing is what unblocks a thread parked in receive() or read(); the
+        // flag is what stops one that is busy handling data.
         try {
             tcpSocket?.close()
         } catch (e: IOException) {
@@ -254,5 +270,10 @@ class NetworkDataPoller(
         } catch (e: Exception) {
             // ignore
         }
+        // Report it here rather than waiting for the thread to notice and do
+        // it: finish() is latched, so whichever gets there first wins and the
+        // other is a no-op. Without this the UI sat on "Disconnecting…" for as
+        // long as the thread took to come back round.
+        finish()
     }
 }
