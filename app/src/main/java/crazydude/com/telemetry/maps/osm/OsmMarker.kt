@@ -1,7 +1,10 @@
 package crazydude.com.telemetry.maps.osm
 
 import android.content.Context
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.LayerDrawable
 import androidx.core.graphics.drawable.DrawableCompat
+import crazydude.com.telemetry.R
 import crazydude.com.telemetry.maps.MapMarker
 import crazydude.com.telemetry.maps.Position
 import org.osmdroid.views.MapView
@@ -12,10 +15,17 @@ class OsmMarker(icon: Int, color: Int?, position: Position, private val mapView:
     private val marker = Marker(mapView)
     private var heading: Float = 0f
 
+    private fun buildIcon(icon: Int, color: Int?): Drawable {
+        val body = context.resources.getDrawable(icon).mutate()
+        if (color != null) DrawableCompat.setTint(body, color)
+        if (icon != R.drawable.ic_plane) return body
+        // dark silhouette underneath, so a light marker stays readable on satellite imagery
+        val outline = context.resources.getDrawable(R.drawable.ic_plane_outline).mutate()
+        return LayerDrawable(arrayOf(outline, body))
+    }
+
     init {
-        marker.icon = context.resources.getDrawable(icon).mutate().also {
-            if (color != null) DrawableCompat.setTint(it, color)
-        }
+        marker.icon = buildIcon(icon, color)
         marker.position = position.toGeoPoint()
         mapView.overlayManager.add(marker)
     }
@@ -43,9 +53,7 @@ class OsmMarker(icon: Int, color: Int?, position: Position, private val mapView:
         set(value) { marker.snippet = value }
 
     override fun setIcon(icon: Int, color: Int) {
-        marker.icon = context.resources.getDrawable(icon).also {
-            DrawableCompat.setTint(it, color)
-        }
+        marker.icon = buildIcon(icon, color)
     }
 
     override fun remove() {

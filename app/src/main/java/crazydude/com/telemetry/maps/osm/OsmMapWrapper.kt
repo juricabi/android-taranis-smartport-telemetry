@@ -42,6 +42,13 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
         mapView.zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
         mapView.setMultiTouchControls(true)
         mapView.setTileSource(tileSource)
+        // do not let the user zoom past the imagery, or the map goes blank
+        var maxZoom = tileSource.maximumZoomLevel
+        for (overlay in overlayTileSources) {
+            if (overlay.maximumZoomLevel < maxZoom) maxZoom = overlay.maximumZoomLevel
+        }
+        mapView.setMaxZoomLevel(maxZoom.toDouble())
+        mapView.setMinZoomLevel(tileSource.minimumZoomLevel.toDouble())
         for (overlayTileSource in overlayTileSources) {
             val overlayProvider = MapTileProviderBasic(context, overlayTileSource)
             val tilesOverlay = TilesOverlay(overlayProvider, context)
