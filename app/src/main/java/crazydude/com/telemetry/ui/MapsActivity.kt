@@ -107,8 +107,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             "OpenStreetMap (can be cached)",
             "OpenTopoMap (can be cached)",
             "Satellite - ESRI (can be cached)",
-            "Satellite + Streets - ESRI (can be cached)"
+            "Satellite + Streets - ESRI (can be cached)",
+            "3D terrain"
         )
+
+        /** The entry that opens the 3D screen instead of changing the map. */
+        private const val ITEM_3D = 4
 
         private val ESRI_SATELLITE_TILE_SOURCE = object : OnlineTileSourceBase(
             "ESRISatellite", 0, 18, 256, "",
@@ -2356,16 +2360,31 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         )
     }
 
-    private fun show3DView(follow: Boolean = false) {
-        if (crazydude.com.telemetry.gl.LiveFlightPath.size() < 2) {
-            Toast.makeText(this, "No flight with position and altitude yet", Toast.LENGTH_SHORT).show()
+    private fun show3DView() {
+        val intent = Intent(this, Scene3DActivity::class.java)
+
+        if (crazydude.com.telemetry.gl.LiveFlightPath.size() >= 2) {
+            Scene3DActivity.pending = crazydude.com.telemetry.gl.LiveFlightPath.snapshot()
+            startActivity(intent)
             return
         }
-        Scene3DActivity.pending = crazydude.com.telemetry.gl.LiveFlightPath.snapshot()
-        val intent = Intent(this, Scene3DActivity::class.java)
-        // following means keep reading the flight as it arrives, and keep the
-        // camera on the model rather than on the whole track
-        intent.putExtra(Scene3DActivity.EXTRA_FOLLOW, follow)
+
+        // No flight yet is no reason to refuse: the ground is there either way,
+        // and looking at it before flying is the point of having it. Anywhere
+        // we know about will do — the model, where it was last seen, or here.
+        val where = when {
+            lastGPS.lat != 0.0 || lastGPS.lon != 0.0 -> lastGPS
+            lastKnownGPS != null -> lastKnownGPS
+            else -> map?.getMyLocation()
+        }
+        if (where == null) {
+            Toast.makeText(this, "No position yet, from the model or this phone",
+                Toast.LENGTH_SHORT).show()
+            return
+        }
+        Scene3DActivity.pending = null
+        intent.putExtra(Scene3DActivity.EXTRA_LAT, where.lat)
+        intent.putExtra(Scene3DActivity.EXTRA_LON, where.lon)
         startActivity(intent)
     }
 
@@ -2734,24 +2753,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             MAP_TYPE_ITEMS,
             checkItem
         ) { dialog, item ->
+            dialog.dismiss()
+            // The last two are not map types but the same ground in three
+            // dimensions, so they open that screen and leave the map as it was.
+            if (item == ITEM_3D) {
+                show3DView()
+                return@setSingleChoiceItems
+            }
             mapHolder.removeAllViews()
             map = null
             mapType = item + OsmMapWrapper.MAP_TYPE_DEFAULT
             preferenceManager.setMapType(mapType)
             initMap(true)
-            dialog.dismiss()
-        }
-
-        // The third dimension is a way of looking at the same ground, so it
-        // belongs on the same button. Following keeps reading the flight as it
-        // arrives; the plain one shows what has been flown so far.
-        builder.setNeutralButton("3D, following") { d, _ ->
-            d.dismiss()
-            show3DView(true)
-        }
-        builder.setPositiveButton("3D, whole flight") { d, _ ->
-            d.dismiss()
-            show3DView(false)
         }
 
         val fMapTypeDialog = builder.create()

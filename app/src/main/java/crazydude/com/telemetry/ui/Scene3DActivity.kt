@@ -29,9 +29,10 @@ class Scene3DActivity : Activity() {
         @Volatile
         var pending: List<TerrainScene.TrackPoint>? = null
 
-        const val EXTRA_FOLLOW = "follow"
+        const val EXTRA_LAT = "lat"
+        const val EXTRA_LON = "lon"
 
-        /** How often a following view picks up what has arrived. */
+        /** How often the view picks up what has arrived. */
         private const val FOLLOW_INTERVAL_MS = 500L
     }
 
@@ -43,9 +44,17 @@ class Scene3DActivity : Activity() {
     private var lastX = 0f
     private var lastY = 0f
     private var lastSpan = 0f
+    private var lastTouchDown = 0L
     private var loader: Thread? = null
 
-    private var follow = false
+    /**
+     * Whether the camera rides the model.
+     *
+     * There is no mode to pick: with nothing arriving the view frames what was
+     * flown, and the moment a new point comes in it follows. Touching the
+     * screen hands control over, a double tap gives it back.
+     */
+    private var following = true
     private var seenVersion = -1
     private var loadingTerrain = false
     private val handler = android.os.Handler()
@@ -80,18 +89,25 @@ class Scene3DActivity : Activity() {
         root.addView(status, statusParams)
         setContentView(root)
 
-        follow = intent.getBooleanExtra(EXTRA_FOLLOW, false)
         val points = pending
         pending = null
-        if (points == null || !scene.setTrack(points)) {
-            status.text = "No flight to show"
-            return
+        val fallbackLat = intent.getDoubleExtra(EXTRA_LAT, Double.NaN)
+        val fallbackLon = intent.getDoubleExtra(EXTRA_LON, Double.NaN)
+
+        val hasFlight = points != null && scene.setTrack(points)
+        if (!hasFlight) {
+            // Terrain is worth looking at before anything has flown over it, so
+            // with no flight yet show the ground around wherever we are.
+            if (fallbackLat.isNaN() || fallbackLon.isNaN()) {
+                status.text = "No flight to show"
+                return
+            }
+            scene.setOrigin(fallbackLat, fallbackLon, 0f)
         }
-        if (follow) {
-            // A following view holds the frame the ground was built in and lets
-            // the flight grow inside it, so the terrain cannot slide underneath.
-            scene.setOrigin(scene.originLat, scene.originLon, scene.originAltitude)
-        }
+        // The frame is fixed from here: the ground is built in it, so
+        // re-centring later would slide the terrain out from under the flight.
+        scene.setOrigin(scene.originLat, scene.originLon, scene.originAltitude)
+        val flight = points ?: emptyList()
 
         renderer.setTrack(scene.track, scene.shadow)
         renderer.target = floatArrayOf(0f, heightOfTrack() / 2f, 0f)
@@ -100,7 +116,7 @@ class Scene3DActivity : Activity() {
 
         // the network and the tile decoding are far too slow for the UI thread
         val worker = Thread(Runnable {
-            scene.loadTerrain(points,
+            scene.loadTerrain(flight,
                 { done, total ->
                     runOnUiThread {
                         status.text = "Loading terrain… " + done + " of " + total
@@ -116,8 +132,6 @@ class Scene3DActivity : Activity() {
                 renderer.setTrack(scene.track, scene.shadow)
                 status.text = if (scene.tiles.isEmpty()) {
                     "No terrain here — showing the flight alone"
-                } else if (follow) {
-                    "Following"
                 } else {
                     ""
                 }
@@ -144,13 +158,15 @@ class Scene3DActivity : Activity() {
         scene.buildTrack(points)
         renderer.setTrack(scene.track, scene.shadow)
 
-        // keep the camera on the model, at the height it is flying
         val last = points[points.size - 1]
-        renderer.target = floatArrayOf(
-            scene.east(last.lon),
-            last.altitudeMsl - scene.originAltitude,
-            -scene.north(last.lat)
-        )
+        if (following) {
+            // on the model, at the height it is flying
+            renderer.target = floatArrayOf(
+                scene.east(last.lon),
+                last.altitudeMsl - scene.originAltitude,
+                -scene.north(last.lat)
+            )
+        }
 
         // flown off the edge of the ground that was built: fetch more
         if (!loadingTerrain && scene.outsideLoaded(last.lat, last.lon)) {
@@ -160,7 +176,7 @@ class Scene3DActivity : Activity() {
                 scene.loadTerrain(points, { _, _ -> }, { })
                 runOnUiThread {
                     renderer.submit(scene.tiles)
-                    status.text = "Following"
+                    status.text = ""
                     loadingTerrain = false
                 }
             })
@@ -182,6 +198,12 @@ class Scene3DActivity : Activity() {
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                val now = System.currentTimeMillis()
+                if (now - lastTouchDown < 300) {
+                    following = true
+                    status.text = ""
+                }
+                lastTouchDown = now
                 lastX = event.x
                 lastY = event.y
             }
@@ -195,6 +217,10 @@ class Scene3DActivity : Activity() {
                     }
                     lastSpan = span
                 } else {
+                    if (following) {
+                        following = false
+                        status.text = "Double tap to follow"
+                    }
                     // a finger drags the world round, so the model stays put
                     renderer.azimuth -= (event.x - lastX) * 0.3f
                     renderer.elevation =
@@ -218,7 +244,7 @@ class Scene3DActivity : Activity() {
     override fun onResume() {
         super.onResume()
         surface.onResume()
-        if (follow) handler.post(poll)
+        handler.post(poll)
     }
 
     override fun onPause() {
