@@ -259,7 +259,16 @@ class PrefsFragment : PreferenceFragmentCompat() {
                 ctx, "android.permission.ACCESS_BACKGROUND_LOCATION"
             ) == PackageManager.PERMISSION_GRANTED
         }
-        pref.summary = when {
+        // Said in the colour it deserves, with a mark beside it while
+        // something is missing. A line that decides whether half of every
+        // replay can be drawn should not read like a note somebody left: in
+        // plain grey among a dozen other summaries, nobody looked at it twice.
+        val warn = when {
+            !fine -> 0xFFD32F2F.toInt()
+            !always -> 0xFFF9A825.toInt()
+            else -> 0
+        }
+        val words = when {
             !fine ->
                 "Not allowed. Tap to allow it — without it a replay cannot show " +
                     "where you were standing, only where the model went."
@@ -270,6 +279,22 @@ class PrefsFragment : PreferenceFragmentCompat() {
                 "Allowed only while the app is open, so a flight watched with the " +
                     "phone in a pocket records no operator position for that stretch. " +
                     "Tap, then Permissions, then Location, then Allow all the time."
+        }
+        if (warn == 0) {
+            pref.icon = null
+            pref.isIconSpaceReserved = false
+            pref.summary = words
+        } else {
+            val mark = ContextCompat.getDrawable(ctx, R.drawable.ic_warning)?.mutate()
+            mark?.setColorFilter(warn, android.graphics.PorterDuff.Mode.SRC_IN)
+            pref.icon = mark
+            pref.isIconSpaceReserved = true
+            val coloured = android.text.SpannableString(words)
+            coloured.setSpan(
+                android.text.style.ForegroundColorSpan(warn), 0, words.length,
+                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+            pref.summary = coloured
         }
     }
 

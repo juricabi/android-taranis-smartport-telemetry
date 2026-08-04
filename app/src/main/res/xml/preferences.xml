@@ -26,7 +26,6 @@
             android:key="ignore_disarmed_height"/>
 
     <Preference
-            app:iconSpaceReserved="false"
             android:key="background_location"
             android:title="Location while the app is away"
             android:summary="Checking..."/>
