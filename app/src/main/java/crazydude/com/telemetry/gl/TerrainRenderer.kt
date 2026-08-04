@@ -555,18 +555,38 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     }
 
 
-    private var circleBuffer: FloatBuffer? = null
-    private var circleCount = 0
+
 
     private var arrowBuffer: FloatBuffer? = null
     private val arrowMatrix = FloatArray(16)
     private val arrowMvp = FloatArray(16)
-    @Volatile private var myVisible = false
-    @Volatile private var myX = 0f
-    @Volatile private var myY = 0f
-    @Volatile private var myZ = 0f
-    @Volatile private var myHeadingTarget = 0f
-    private var myHeading = 0f
+    /**
+     * An arrow standing on the ground, with the ring of its accuracy round it.
+     *
+     * There are two: where this phone is, and — replaying a flight — where it
+     * stood while that flight was recorded. They mean different things and are
+     * drawn in different colours, and they can be a county apart.
+     *
+     * [heading] eases towards [headingTarget] as the thing it belongs to turns,
+     * which is why each keeps its own: they turn independently.
+     */
+    private class Spot(val base: FloatArray, val ink: FloatArray) {
+        @Volatile var visible = false
+        @Volatile var x = 0f
+        @Volatile var y = 0f
+        @Volatile var z = 0f
+        @Volatile var headingTarget = 0f
+        var heading = 0f
+        var ring: FloatBuffer? = null
+        var ringCount = 0
+    }
+
+    private val me = Spot(
+        floatArrayOf(0.42f, 0.76f, 1f), floatArrayOf(0.2f, 0.6f, 1f, 0.9f)
+    )
+    private val logged = Spot(
+        floatArrayOf(1f, 0.62f, 0.13f), floatArrayOf(1f, 0.6f, 0.1f, 0.9f)
+    )
 
     /**
      * Where you are standing and which way you face.
@@ -579,13 +599,26 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     @Synchronized
     /** Nothing known about this phone: the arrow goes, rather than moving. */
     fun hideMyLocation() {
-        myVisible = false
+        me.visible = false
     }
 
     fun setMyLocation(x: Float, y: Float, z: Float, headingDegrees: Float) {
-        myX = x; myY = y; myZ = z
-        myHeadingTarget = headingDegrees
-        myVisible = true
+        place(me, x, y, z, headingDegrees)
+    }
+
+    /** Where the phone stood while the flight being replayed was recorded. */
+    fun hideLoggedLocation() {
+        logged.visible = false
+    }
+
+    fun setLoggedLocation(x: Float, y: Float, z: Float, headingDegrees: Float) {
+        place(logged, x, y, z, headingDegrees)
+    }
+
+    private fun place(spot: Spot, x: Float, y: Float, z: Float, headingDegrees: Float) {
+        spot.x = x; spot.y = y; spot.z = z
+        spot.headingTarget = headingDegrees
+        spot.visible = true
         if (arrowBuffer == null) arrowBuffer = floats(arrowMesh())
     }
 
@@ -615,13 +648,22 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     /** The accuracy ring, already laid on the ground by whoever built it. */
     @Synchronized
     fun setAccuracyCircle(ring: FloatArray) {
+        encircle(me, ring)
+    }
+
+    @Synchronized
+    fun setLoggedCircle(ring: FloatArray) {
+        encircle(logged, ring)
+    }
+
+    private fun encircle(spot: Spot, ring: FloatArray) {
         if (ring.size < 9) {
-            circleBuffer = null
-            circleCount = 0
+            spot.ring = null
+            spot.ringCount = 0
             return
         }
-        circleBuffer = floats(ring)
-        circleCount = ring.size / 3
+        spot.ring = floats(ring)
+        spot.ringCount = ring.size / 3
     }
 
     /** A post at a place worth seeing from the air, such as where you are standing. */
@@ -1308,14 +1350,18 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         }
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
 
-        val ring: FloatBuffer?
-        val rCount: Int
-        synchronized(this) { ring = circleBuffer; rCount = circleCount }
-        if (ring != null && rCount > 2) {
+        for (spot in arrayOf(me, logged)) {
+            val ring: FloatBuffer?
+            val rCount: Int
+            synchronized(this) {
+                ring = if (spot.visible) spot.ring else null
+                rCount = spot.ringCount
+            }
+            if (ring == null || rCount <= 2) continue
             GLES20.glUniformMatrix4fv(uMvp, 1, false, liftMvp, 0)
             ring.position(0)
             GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, ring)
-            GLES20.glUniform4f(uColor, 0.2f, 0.6f, 1f, 0.9f)
+            GLES20.glUniform4f(uColor, spot.ink[0], spot.ink[1], spot.ink[2], spot.ink[3])
             GLES20.glLineWidth(3f)
             GLES20.glDrawArrays(GLES20.GL_LINE_LOOP, 0, rCount)
             GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
@@ -1429,27 +1475,34 @@ class TerrainRenderer : GLSurfaceView.Renderer {
      * and with its own edges inked in, so the two read as one family.
      */
     private fun drawMyArrow() {
+        drawArrow(me)
+        drawArrow(logged)
+    }
+
+    private fun drawArrow(spot: Spot) {
         val mine: FloatBuffer?
-        synchronized(this) { mine = if (myVisible) arrowBuffer else null }
+        synchronized(this) { mine = if (spot.visible) arrowBuffer else null }
         if (mine == null || modelProgram == 0) return
 
         // eased towards the compass rather than snapped to it, so it turns
         // like the needle on the map instead of twitching
-        var turn = myHeadingTarget - myHeading
+        var turn = spot.headingTarget - spot.heading
         while (turn > 180f) turn -= 360f
         while (turn < -180f) turn += 360f
-        myHeading = (myHeading + turn * 0.12f + 360f) % 360f
+        spot.heading = (spot.heading + turn * 0.12f + 360f) % 360f
 
-        // a fraction of the distance out, so it is the same size on screen
-        // however far the camera is
-        val size = Math.max(2f, distance * 0.014f)
+        // A fraction of the distance out, so it is the same size on screen
+        // however far the camera is — and a larger fraction than it reads as,
+        // because an arrow that is exactly to scale is a speck the moment the
+        // whole flight is in view, which is when it is most worth seeing.
+        val size = Math.max(2f, distance * 0.02f)
         // Clearance in proportion, because the arrow lies flat: zoomed out it
         // is tens of metres across, and a fixed quarter of a metre left its
         // uphill half buried in any slope.
         val lift = groundLift() + size * 0.3f
         Matrix.setIdentityM(arrowMatrix, 0)
-        Matrix.translateM(arrowMatrix, 0, myX, myY + lift / verticalScale, myZ)
-        Matrix.rotateM(arrowMatrix, 0, -myHeading, 0f, 1f, 0f)
+        Matrix.translateM(arrowMatrix, 0, spot.x, spot.y + lift / verticalScale, spot.z)
+        Matrix.rotateM(arrowMatrix, 0, -spot.heading, 0f, 1f, 0f)
         Matrix.scaleM(arrowMatrix, 0, size, size / verticalScale, size)
         Matrix.multiplyMM(arrowMvp, 0, mvp, 0, arrowMatrix, 0)
 
@@ -1477,7 +1530,8 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // brighter than the marker on the map: satellite imagery is dark
         // greens and browns, and a deeper blue disappeared into it
         GLES20.glUniform3f(
-            GLES20.glGetUniformLocation(modelProgram, "uBase"), 0.42f, 0.76f, 1f)
+            GLES20.glGetUniformLocation(modelProgram, "uBase"),
+            spot.base[0], spot.base[1], spot.base[2])
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 18)
 
         GLES20.glDisableVertexAttribArray(aPosition)

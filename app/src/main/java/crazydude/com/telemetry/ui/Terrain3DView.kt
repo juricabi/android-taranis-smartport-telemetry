@@ -26,6 +26,7 @@ import crazydude.com.telemetry.utils.Imagery
 class Terrain3DView(context: Context) : FrameLayout(context) {
 
     companion object {
+
         private const val FOLLOW_INTERVAL_MS = 500L
         private const val CIRCLE_SEGMENTS = 64
     }
@@ -64,6 +65,13 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
 
     /** The last ground height known under this phone, for a step past the edge. */
     private var myGround = Float.NaN
+
+    /** The same four things again, for the arrow that says where it was. */
+    private var loggedLat = Double.NaN
+    private var loggedLon = Double.NaN
+    private var loggedAccuracy = 0f
+    private var loggedHeading = 0f
+    private var loggedGround = Float.NaN
     private var myHeading = 0f
 
     /**
@@ -243,6 +251,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             // would never have drawn them at all
             rebuildOverlays()
             showMyLocation()
+            placeLoggedArrow()
         }
         status.text = if (meshes.isEmpty()) "No terrain here" else ""
     }
@@ -741,16 +750,6 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     }
 
     /** Which way the phone is pointing, so the arrow means something. */
-    /**
-     * Where the arrow's bearing comes from: this phone's compass, or a replay
-     * handing back the bearing that was recorded at the time.
-     */
-    private var headingFromRecord = false
-
-    fun useRecordedHeading(on: Boolean) {
-        headingFromRecord = on
-    }
-
     /** Nothing known about where this phone is: draw neither arrow nor ring. */
     fun hideMyLocation() {
         myLat = Double.NaN
@@ -761,6 +760,29 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // nothing is what a NaN triangle comes to
         renderer.hideMyLocation()
         renderer.setAccuracyCircle(FloatArray(0))
+    }
+
+    /**
+     * Where the phone stood while the flight being replayed was recorded.
+     *
+     * Drawn in orange beside the blue one, which is where it is now — the two
+     * can be a county apart, and saying which is which by colour is the whole
+     * point of drawing both.
+     */
+    fun setLoggedPosition(lat: Double, lon: Double, accuracy: Float, heading: Float) {
+        loggedLat = lat
+        loggedLon = lon
+        loggedAccuracy = if (accuracy.isNaN()) 0f else accuracy
+        if (!heading.isNaN()) loggedHeading = heading
+        placeLoggedArrow()
+    }
+
+    fun hideLoggedLocation() {
+        loggedLat = Double.NaN
+        loggedLon = Double.NaN
+        loggedAccuracy = 0f
+        renderer.hideLoggedLocation()
+        renderer.setLoggedCircle(FloatArray(0))
     }
 
     fun setMyHeading(degrees: Float) {
@@ -777,38 +799,68 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
      * origin, the arrow followed and the ring was left hanging where it was.
      */
     private fun placeMyArrow() {
-        if (!terrainReady || myLat.isNaN() || myLon.isNaN()) return
-        // Where the ground is not known yet — a step past the edge of what is
-        // loaded, while more is on its way — the last height it stood at will
-        // do. It used to give up here, which left the arrow behind at the last
-        // place it knew and turned it into a lie.
-        val ground = scene.groundAt(myLat, myLon) ?: myGround
-        if (ground.isNaN()) return
-        myGround = ground
-        renderer.setMyLocation(
-            scene.east(myLon), ground - scene.originAltitude + 0.1f,
-            -scene.north(myLat), myHeading
+        myGround = standArrow(
+            myLat, myLon, myAccuracy, myHeading, myGround,
+            { x, y, z, heading -> renderer.setMyLocation(x, y, z, heading) },
+            { ring -> renderer.setAccuracyCircle(ring) }
+        )
+    }
+
+    private fun placeLoggedArrow() {
+        loggedGround = standArrow(
+            loggedLat, loggedLon, loggedAccuracy, loggedHeading, loggedGround,
+            { x, y, z, heading -> renderer.setLoggedLocation(x, y, z, heading) },
+            { ring -> renderer.setLoggedCircle(ring) }
+        )
+    }
+
+    /**
+     * Stand an arrow on the ground with its accuracy ring around it, and say
+     * what height it ended up at.
+     *
+     * The two have to be built in the same breath: the ring used to be worked
+     * out once, when the ground arrived, while the arrow was rebuilt on every
+     * compass sample — so when the altitude reference settled and moved the
+     * origin, the arrow followed and the ring was left hanging where it was.
+     *
+     * No ground is fetched for either of them. The ground is gathered around
+     * the flight; the phone watching a replay of a flight from another field is
+     * a place to draw, not a reason to load half a county. Where nothing is
+     * known of the ground beneath it, the last height it stood at will do.
+     */
+    private fun standArrow(
+        lat: Double, lon: Double, accuracy: Float, heading: Float, lastGround: Float,
+        arrow: (Float, Float, Float, Float) -> Unit,
+        circle: (FloatArray) -> Unit
+    ): Float {
+        if (!terrainReady || lat.isNaN() || lon.isNaN()) return lastGround
+        val ground = scene.groundAt(lat, lon) ?: lastGround
+        if (ground.isNaN()) return lastGround
+        arrow(
+            scene.east(lon), ground - scene.originAltitude + 0.1f,
+            -scene.north(lat), heading
         )
 
         // an unknown accuracy is not a small one: drop the ring rather than
         // leave the last one it had lying there
-        if (myAccuracy < 1f) {
-            renderer.setAccuracyCircle(FloatArray(0))
-            return
+        if (accuracy < 1f) {
+            circle(FloatArray(0))
+            return ground
         }
-        val metresPerDegreeLon = 111320.0 * Math.cos(Math.toRadians(myLat))
+        val metresPerDegreeLon = 111320.0 * Math.cos(Math.toRadians(lat))
         val ring = FloatArray(CIRCLE_SEGMENTS * 3)
         var i = 0
         for (step in 0 until CIRCLE_SEGMENTS) {
             val angle = 2.0 * Math.PI * step / CIRCLE_SEGMENTS
-            val pointLat = myLat + myAccuracy * Math.cos(angle) / 111320.0
-            val pointLon = myLon + myAccuracy * Math.sin(angle) / metresPerDegreeLon
+            val pointLat = lat + accuracy * Math.cos(angle) / 111320.0
+            val pointLon = lon + accuracy * Math.sin(angle) / metresPerDegreeLon
             val h = scene.groundAt(pointLat, pointLon) ?: ground
             ring[i++] = scene.east(pointLon)
             ring[i++] = h - scene.originAltitude + 0.15f
             ring[i++] = -scene.north(pointLat)
         }
-        renderer.setAccuracyCircle(ring)
+        circle(ring)
+        return ground
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {

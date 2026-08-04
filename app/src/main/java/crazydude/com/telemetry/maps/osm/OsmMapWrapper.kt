@@ -36,6 +36,10 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
 
     private val compassLocationProvider = CompassLocationProvider()
     private val myLocationNewOverlay = MyLocationNewOverlay(compassLocationProvider, mapView)
+
+    /** Where the phone stood while the flight being replayed was recorded. */
+    private val loggedLocationProvider = CompassLocationProvider()
+    private val loggedLocationOverlay = MyLocationNewOverlay(loggedLocationProvider, mapView)
     private val markers = mutableListOf<OsmMarker>()
 
     init {
@@ -82,9 +86,19 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
         // phone is and how well it is known.
         myLocationNewOverlay.setDirectionArrow(
             Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888),
-            bitmapFrom(R.drawable.ic_pos_arrow, 22)
+            bitmapFrom(R.drawable.ic_pos_arrow, 26)
         )
         mapView.overlayManager.add(myLocationNewOverlay)
+        // The same arrow in orange, for the place a recording says the phone
+        // stood. Under the live one, so where the two land on top of each other
+        // — a replay of a flight watched from where it is being watched now —
+        // the one that is true of this moment is the one on top.
+        loggedLocationOverlay.setDirectionArrow(
+            Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888),
+            bitmapFrom(R.drawable.ic_pos_arrow_logged, 26)
+        )
+        loggedLocationOverlay.disableMyLocation()
+        mapView.overlayManager.add(mapView.overlayManager.size - 1, loggedLocationOverlay)
         val mapController: IMapController = mapView.controller
         mapController.setZoom(4.toDouble())
         callback()
@@ -125,13 +139,14 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
 
     override fun showRecordedLocation(position: Position?, accuracy: Float, heading: Float) {
         if (position == null) {
-            compassLocationProvider.replay(null)
+            loggedLocationProvider.setLocation(null)
+            loggedLocationOverlay.disableMyLocation()
             return
         }
         // only where it is off: turning it on takes the provider round from the
         // start, which while a seek bar is dragged is many times a second
-        if (!myLocationNewOverlay.isMyLocationEnabled) myLocationNewOverlay.enableMyLocation()
-        compassLocationProvider.replay(placeAt(position, accuracy, heading))
+        if (!loggedLocationOverlay.isMyLocationEnabled) loggedLocationOverlay.enableMyLocation()
+        loggedLocationProvider.setLocation(placeAt(position, accuracy, heading))
     }
 
     override fun getMyLocation(): Position? {

@@ -251,7 +251,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             recordWhereIAm()
             // and to everything that draws with it. Not over a replay, which is
             // saying which way the phone was facing then.
-            if (!isInReplayMode()) {
+            if (showLiveArrow()) {
                 map?.setPhoneBearing(degrees)
                 terrain3D?.setMyHeading(degrees)
             }
@@ -271,6 +271,17 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * Only where it is being recorded at all — it lands in the CSV, which
      * travels with the log wherever the log goes.
      */
+    /**
+     * Whether where this phone is now is worth drawing.
+     *
+     * Always, except over a replay, where it is a choice: the flight may have
+     * been recorded a hundred kilometres from where it is being watched, and
+     * the arrow is then either the useful part of the picture or a distraction
+     * at the far edge of it.
+     */
+    private fun showLiveArrow(): Boolean =
+        !isInReplayMode() || preferenceManager.isLiveShownInReplay()
+
     /** What the screen knows about this phone, onto the map that draws it. */
     private fun tellMapWhereIAm() {
         // The system's last known place until this screen has heard one of its
@@ -316,11 +327,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             runOnUiThread {
                 updateHomeLine()
                 // not over a replay, which is drawing where the phone was then
-                if (!isInReplayMode()) {
+                if (showLiveArrow()) {
                     terrain3D?.setMyPosition(location.latitude, location.longitude, phoneAccuracy)
                     // and the map's arrow, which used to listen to the
                     // satellites itself and answer slightly differently
                     tellMapWhereIAm()
+                } else {
+                    terrain3D?.hideMyLocation()
                 }
             }
         }
@@ -722,8 +735,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             val option5 = "Export KML file...";
             val option6 = "Set playback duration..."
             val option7 = "Altitude profile...";
+            val option8 = if (preferenceManager.isLiveShownInReplay()) {
+                "Hide where I am now"
+            } else {
+                "Show where I am now"
+            }
 
-            val options = arrayOf(option7, option4, option5, option6)
+            val options = arrayOf(option7, option4, option5, option6, option8)
 
             this.showDialog( AlertDialog.Builder(this)
             .setTitle("Select an action")
@@ -741,6 +759,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     }
                     option7 -> {
                         showAltitudeProfile()
+                    }
+                    option8 -> {
+                        preferenceManager.setLiveShownInReplay(
+                            !preferenceManager.isLiveShownInReplay()
+                        )
+                        showMyLocation()
+                        if (!showLiveArrow()) terrain3D?.hideMyLocation()
+                        tellMapWhereIAm()
                     }
                 }
                 dialog.dismiss()
@@ -985,11 +1011,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val track = operatorTrack
         val now = replayTimeNow()
         if (track == null || now == null) {
-            // nothing recorded, so nothing drawn: not the live arrow either,
-            // which is this phone now and not where anybody stood then
+            // nothing recorded of where anybody stood, so nothing orange drawn
             map?.showRecordedLocation(null, 0f, 0f)
-            map?.isMyLocationEnabled = false
-            terrain3D?.hideMyLocation()
+            terrain3D?.hideLoggedLocation()
             updateHomeLine()
             return
         }
@@ -997,13 +1021,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val here = Position(where.lat, where.lon)
         recordedMe = here
 
-        // Through the map's own arrow rather than beside it: fed where the
-        // phone was, it draws the dot, the arrow and the accuracy ring exactly
-        // as it draws them live, because it is the same overlay.
+        // Its own arrow in both views — orange, beside the blue one that is
+        // where the phone is now. On the map it is a second overlay of the same
+        // kind, so it is drawn exactly as the live one is.
         map?.showRecordedLocation(here, where.accuracy, where.heading)
-        terrain3D?.useRecordedHeading(true)
-        terrain3D?.setMyPosition(where.lat, where.lon, if (where.accuracy.isNaN()) 0f else where.accuracy)
-        if (!where.heading.isNaN()) terrain3D?.setMyHeading(where.heading)
+        terrain3D?.setLoggedPosition(where.lat, where.lon, where.accuracy, where.heading)
         updateHomeLine()
     }
 
@@ -1011,9 +1033,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private fun forgetOperator() {
         operatorTrack = null
         recordedMe = null
-        // back to the live arrow, wherever this phone actually is
+        // the orange arrow belongs to a replay and goes with it
         map?.showRecordedLocation(null, 0f, 0f)
-        terrain3D?.useRecordedHeading(false)
+        terrain3D?.hideLoggedLocation()
         showMyLocation()
         tellMapWhereIAm()
         showTime()
@@ -1027,9 +1049,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     private fun showMyLocation() {
         if (checkCallingOrSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            // Not over a replay: the map's own arrow is this phone now, and a
-            // replay draws where the phone was then, out of the recording.
-            map?.isMyLocationEnabled = !isInReplayMode()
+            // Where this phone is now. Over a replay that is worth seeing
+            // beside where it stood at the time — it says how far away the
+            // flight was, and where you are standing to watch it — so it is a
+            // toggle in the replay's own menu rather than simply off.
+            map?.isMyLocationEnabled = showLiveArrow()
         } else {
             ActivityCompat.requestPermissions(
                 this,

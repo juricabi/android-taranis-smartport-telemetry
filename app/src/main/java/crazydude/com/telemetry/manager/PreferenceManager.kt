@@ -67,6 +67,14 @@ class PreferenceManager(context: Context) {
             .apply()
     }
 
+    fun isLiveShownInReplay(): Boolean {
+        return sharedPreferences.getBoolean("show_live_in_replay", true)
+    }
+
+    fun setLiveShownInReplay(on: Boolean) {
+        sharedPreferences.edit().putBoolean("show_live_in_replay", on).apply()
+    }
+
     fun isMyPositionLoggingEnabled(): Boolean {
         return sharedPreferences.getBoolean("log_my_position", true)
     }

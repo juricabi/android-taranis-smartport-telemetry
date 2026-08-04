@@ -1,0 +1,14 @@
+<!-- The same heading arrow as the live one, in orange: where the phone was
+     while the flight was recorded, beside where it is now. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+        android:width="22dp"
+        android:height="22dp"
+        android:viewportWidth="24.0"
+        android:viewportHeight="24.0">
+    <path
+        android:fillColor="#FFFF9E22"
+        android:strokeColor="#CC302010"
+        android:strokeWidth="1.6"
+        android:strokeLineJoin="round"
+        android:pathData="M12,3 L18.5,20 L12,16.2 L5.5,20 Z"/>
+</vector>
