@@ -53,14 +53,36 @@ object Elevation {
 
     private const val MERCATOR_LAT = 85.05112878
 
-    private val memory: LinkedHashMap<String, ShortArray> =
-        object : LinkedHashMap<String, ShortArray>(32, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ShortArray>?) =
+    /**
+     * Keyed by a number rather than a string.
+     *
+     * Building one tile of ground asks this thirty-seven thousand times, once
+     * per vertex, and every one of those used to leave a throwaway string
+     * behind — a hundred thousand of them per tile, for the garbage collector
+     * to sweep up while the ground was being drawn.
+     */
+    private val memory: LinkedHashMap<Long, ShortArray> =
+        object : LinkedHashMap<Long, ShortArray>(32, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, ShortArray>?) =
                 size > MEMORY_TILES
         }
 
+    /**
+     * Four threads for the life of the process, rather than four more every
+     * time a corner of ground is asked for. The ground is now fetched a tile at
+     * a time, so that used to mean a new pool per tile — and they were not
+     * daemon threads, so they held the process up on the way out.
+     */
+    private val pool by lazy {
+        Executors.newFixedThreadPool(4, java.util.concurrent.ThreadFactory { runnable ->
+            val thread = Thread(runnable, "elevation")
+            thread.isDaemon = true
+            thread
+        })
+    }
+
     /** Tiles that could not be had, so a redraw does not report "not ready" forever. */
-    private val failed = HashSet<String>()
+    private val failed = HashSet<Long>()
 
     @Volatile
     private var cacheDir: File? = null
@@ -158,11 +180,11 @@ object Elevation {
                 return
             }
             val done = AtomicInteger(0)
-            val pool = Executors.newFixedThreadPool(min(4, total))
+            val jobs = ArrayList<java.util.concurrent.Future<*>>()
             try {
                 for (x in box.x0..box.x1) {
                     for (y in box.y0..box.y1) {
-                        pool.execute {
+                        jobs.add(pool.submit {
                             val key = key(zoom, x, y)
                             if (load(zoom, x, y)) {
                                 usable.incrementAndGet()
@@ -170,13 +192,18 @@ object Elevation {
                                 synchronized(memory) { failed.add(key) }
                             }
                             onProgress(done.incrementAndGet(), total)
-                        }
+                        })
                     }
                 }
-                pool.shutdown()
-                pool.awaitTermination(5, TimeUnit.MINUTES)
+                for (job in jobs) {
+                    try {
+                        job.get(5, TimeUnit.MINUTES)
+                    } catch (e: Exception) {
+                        job.cancel(true)
+                    }
+                }
             } finally {
-                pool.shutdownNow()
+                jobs.clear()
             }
         } catch (e: Exception) {
             Log.w(TAG, "prefetch failed: ${e.message}")
@@ -221,7 +248,8 @@ object Elevation {
         return TileBox(min(ax, bx), max(ax, bx), min(ay, by), max(ay, by))
     }
 
-    private fun key(zoom: Int, x: Int, y: Int) = "$zoom/$x/$y"
+    private fun key(zoom: Int, x: Int, y: Int): Long =
+        (zoom.toLong() shl 58) or (x.toLong() shl 29) or (y.toLong() and 0x1FFFFFFF)
 
     private fun cached(zoom: Int, x: Int, y: Int): ShortArray? =
         synchronized(memory) { memory[key(zoom, x, y)] }
@@ -252,6 +280,10 @@ object Elevation {
     /** Memory, then disk, then the network. Returns true if the tile is now in memory. */
     private fun load(zoom: Int, x: Int, y: Int): Boolean {
         if (cached(zoom, x, y) != null) return true
+        // Asked for before and not there. Without this the same missing tile is
+        // fetched again on every load, and a fetch that is going to fail takes
+        // fifteen seconds to find out.
+        if (synchronized(memory) { failed.contains(key(zoom, x, y)) }) return false
         var bytes = readDisk(zoom, x, y)
         val fromDisk = bytes != null
         if (bytes == null) bytes = download(zoom, x, y)

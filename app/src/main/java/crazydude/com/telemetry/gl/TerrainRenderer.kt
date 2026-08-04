@@ -166,6 +166,9 @@ class TerrainRenderer : GLSurfaceView.Renderer {
      */
     private val submitted = ArrayList<TerrainScene.TileMesh>()
 
+    /** The tiles still wanted, once the scene has said. Null means all of them. */
+    private var keep: HashSet<Long>? = null
+
     private var trackBuffer: FloatBuffer? = null
     private var trackCount = 0
     private var shadowBuffer: FloatBuffer? = null
@@ -567,6 +570,36 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         pending.addAll(meshes)
         submitted.clear()
         submitted.addAll(meshes)
+        keep = null
+    }
+
+    /**
+     * One tile, as soon as it is built, without disturbing the others.
+     *
+     * The ground is built a tile at a time and shown as it arrives, so this is
+     * how nearly all of it comes in. A tile offered twice — once for its shape
+     * and again when its picture has been fetched — replaces the first.
+     */
+    @Synchronized
+    fun offer(mesh: TerrainScene.TileMesh) {
+        pending.add(mesh)
+        for (i in submitted.indices) {
+            if (submitted[i].key == mesh.key) {
+                submitted[i] = mesh
+                return
+            }
+        }
+        submitted.add(mesh)
+    }
+
+    /** Which tiles are still wanted; anything else is thrown away next frame. */
+    @Synchronized
+    fun keepOnly(keys: Set<Long>) {
+        keep = HashSet(keys)
+        var i = 0
+        while (i < submitted.size) {
+            if (!keys.contains(submitted[i].key)) submitted.removeAt(i) else i++
+        }
     }
 
     @Synchronized
@@ -735,42 +768,41 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             if (pending.isEmpty()) return
             meshes = ArrayList(pending)
             pending.clear()
-            val wanted = HashSet<Long>()
-            for (mesh in meshes) wanted.add(mesh.key)
-            val gone = ArrayList<Tile>()
-            for (t in tiles) if (!wanted.contains(t.key)) gone.add(t)
-            for (t in gone) {
-                if (t.textureId != 0) GLES20.glDeleteTextures(1, intArrayOf(t.textureId), 0)
-                GLES20.glDeleteBuffers(2, intArrayOf(t.vertexBuffer, t.indexBuffer), 0)
-                tiles.remove(t)
+            // Whatever the scene no longer wants. It says so itself now, rather
+            // than it being inferred from a submission being the whole set —
+            // which it no longer is, since tiles arrive one at a time.
+            val wanted = keep
+            if (wanted != null) {
+                val gone = ArrayList<Tile>()
+                for (t in tiles) if (!wanted.contains(t.key)) gone.add(t)
+                for (t in gone) {
+                    if (t.textureId != 0) GLES20.glDeleteTextures(1, intArrayOf(t.textureId), 0)
+                    GLES20.glDeleteBuffers(2, intArrayOf(t.vertexBuffer, t.indexBuffer), 0)
+                    tiles.remove(t)
+                }
             }
         }
         for (mesh in meshes) {
-            var already = false
+            // The shape of this tile is already up. If a picture has arrived for
+            // it since, that is all that needs sending — the ground itself has
+            // not moved, and re-sending a megabyte of it would be for nothing.
+            var standing: Tile? = null
             synchronized(this) {
-                for (t in tiles) if (t.key == mesh.key) already = true
+                for (t in tiles) if (t.key == mesh.key) standing = t
             }
-            if (already) continue
-            var texture = 0
+            val here = standing
+            if (here != null) {
+                val bitmap = mesh.texture
+                if (here.textureId == 0 && bitmap != null && !bitmap.isRecycled) {
+                    here.textureId = uploadTexture(bitmap)
+                }
+                continue
+            }
             val bitmap = mesh.texture
-            if (bitmap != null && !bitmap.isRecycled) {
-                val ids = IntArray(1)
-                GLES20.glGenTextures(1, ids, 0)
-                texture = ids[0]
-                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
-                // Zoomed out, a 2048px texture lands on a few hundred pixels of
-                // screen, and without a chain of smaller copies every one of
-                // them reads a different corner of it: slow, and it shimmers.
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER,
-                    GLES20.GL_LINEAR_MIPMAP_LINEAR)
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER,
-                    GLES20.GL_LINEAR)
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S,
-                    GLES20.GL_CLAMP_TO_EDGE)
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T,
-                    GLES20.GL_CLAMP_TO_EDGE)
-                GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
-                GLES20.glGenerateMipmap(GLES20.GL_TEXTURE_2D)
+            val texture = if (bitmap != null && !bitmap.isRecycled) {
+                uploadTexture(bitmap)
+            } else {
+                0
             }
             val ids = IntArray(2)
             GLES20.glGenBuffers(2, ids, 0)
@@ -788,6 +820,27 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                 tiles.add(Tile(mesh.key, ids[0], ids[1], mesh.indices.size, texture))
             }
         }
+    }
+
+    private fun uploadTexture(bitmap: android.graphics.Bitmap): Int {
+        val ids = IntArray(1)
+        GLES20.glGenTextures(1, ids, 0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, ids[0])
+        // Zoomed out, a 2048px texture lands on a few hundred pixels of screen,
+        // and without a chain of smaller copies every one of them reads a
+        // different corner of it: slow, and it shimmers.
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER,
+            GLES20.GL_LINEAR_MIPMAP_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER,
+            GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S,
+            GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T,
+            GLES20.GL_CLAMP_TO_EDGE)
+        GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
+        GLES20.glGenerateMipmap(GLES20.GL_TEXTURE_2D)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
+        return ids[0]
     }
 
     private fun drawTerrain() {

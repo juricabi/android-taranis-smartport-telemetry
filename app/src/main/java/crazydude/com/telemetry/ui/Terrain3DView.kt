@@ -170,33 +170,16 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         renderer.maxDistance = Math.max(2500f, scene.extent * 5f)
         // no notice that it is loading: the empty screen says so already
 
+        // the ground gathers around the model, or around here when nothing is
+        // flying yet
+        val focusLat = if (hasFlight) points[points.size - 1].lat else scene.originLat
+        val focusLon = if (hasFlight) points[points.size - 1].lon else scene.originLon
+
         val worker = Thread(Runnable {
             try {
-            scene.loadTerrain(flight,
-                // deliberately silent: a count that changed on every tile read
-                // as a flicker in the corner of the screen
-                { _, _ -> },
-                { post { if (terrainReady) renderer.setTrack(scene.track, scene.shadow) } })
-            post {
-                renderer.submit(scene.tiles)
-                // The flight, the lines and the model wait for the ground.
-                // Drawn before it they hang in the black on their own, and then
-                // jump when it arrives and settles what the heights mean.
-                terrainReady = true
-                seenVersion = -1
-                renderer.setTrack(scene.track, scene.shadow)
-                pickUpNewPoints()
-                // and the plans and traffic in their own right: they are worth
-                // seeing over bare ground, and the flight is what was waited
-                // for above — with nothing flying, nothing drew them at all
-                rebuildOverlays()
-                showMyLocation()
-                status.text = when {
-                    scene.tiles.isEmpty() -> "No terrain here"
-                    else -> ""
-                }
-                loadingTerrain = false
-            }
+            scene.loadTerrain(flight, focusLat, focusLon,
+                { post { groundArrived() } },
+                { post { groundArrived(); loadingTerrain = false } })
             } catch (e: Throwable) {
                 // Whatever went wrong out here — no signal, a tile that would
                 // not decode, memory — the ground is as ready as it is ever
@@ -212,6 +195,36 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         worker.name = "terrain-load"
         worker.start()
         ticker.post(poll)
+    }
+
+    /**
+     * A tile has landed, or the last of them has.
+     *
+     * The ground is built one tile at a time and shown as each is finished, so
+     * this runs many times over a load: it hands the renderer whatever is built
+     * and tells it what to keep. Everything that was waiting on ground to stand
+     * on goes on the first one, not the last — that is the difference between a
+     * black screen for several seconds and terrain under the model at once.
+     */
+    private fun groundArrived() {
+        val first = !terrainReady
+        terrainReady = true
+        val meshes = scene.tiles
+        val keys = HashSet<Long>()
+        for (mesh in meshes) keys.add(mesh.key)
+        renderer.keepOnly(keys)
+        for (mesh in meshes) renderer.offer(mesh)
+        if (first) {
+            seenVersion = -1
+            renderer.setTrack(scene.track, scene.shadow)
+            pickUpNewPoints()
+            // and the plans and traffic in their own right: they are worth
+            // seeing over bare ground, and with nothing flying the flight above
+            // would never have drawn them at all
+            rebuildOverlays()
+            showMyLocation()
+        }
+        status.text = if (meshes.isEmpty()) "No terrain here" else ""
     }
 
     private fun heightOfTrack(): Float {
@@ -295,22 +308,17 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
      */
     private fun extendTerrainIfNeeded(points: List<TerrainScene.TrackPoint>,
                                       lat: Double, lon: Double) {
-        val mineIsOff = !myLat.isNaN() && !myLon.isNaN() && scene.nearEdge(myLat, myLon)
-        val wanted = scene.nearEdge(lat, lon) || mineIsOff
-        if (!loadingTerrain && wanted) {
-            // and say where, or the same square comes back: what to load is
-            // worked out from the flight, which is not where this phone is
-            if (mineIsOff) scene.include(myLat, myLon)
+        if (!loadingTerrain && scene.nearEdge(lat, lon)) {
             loadingTerrain = true
             status.text = ""
             val worker = Thread(Runnable {
-                scene.loadTerrain(points, { _, _ -> }, { })
-                post {
-                    renderer.submit(scene.tiles)
-                    renderer.maxDistance = Math.max(2500f, scene.extent * 5f)
-                    status.text = ""
-                    loadingTerrain = false
-                }
+                scene.loadTerrain(points, lat, lon,
+                    { post { groundArrived() } },
+                    { post {
+                        groundArrived()
+                        renderer.maxDistance = Math.max(2500f, scene.extent * 5f)
+                        loadingTerrain = false
+                    } })
             })
             worker.name = "terrain-extend"
             worker.start()
@@ -331,10 +339,12 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         myLon = lon
         myAccuracy = accuracy
         showMyLocation()
-        // with nothing flying, this is the only thing that can walk off the
-        // edge of what is loaded
-        if (started && terrainReady) {
-            extendTerrainIfNeeded(LiveFlightPath.snapshot(), lat, lon)
+        // With nothing flying, this is the only thing that can walk off the
+        // edge of the loaded ground. While something is flying, the ground
+        // gathers around that instead — it cannot follow both at once, and the
+        // model is the one being watched.
+        if (started && terrainReady && LiveFlightPath.size() < 2) {
+            extendTerrainIfNeeded(emptyList(), lat, lon)
         }
     }
 

@@ -52,10 +52,21 @@ class TerrainScene {
         private const val PREFERRED_ZOOM = 15
 
         /**
-         * A 2048px texture is 16MB, so fewer tiles at more detail. Nine covers
-         * a flight with room around it.
+         * A 2048px texture is 16MB, so this is a memory budget before it is
+         * anything else. The window needs nine; the rest is slack, so ground
+         * the model has just left is still there if it turns back.
          */
-        private const val MAX_TILES = 9
+        private const val MAX_TILES = 12
+
+        /**
+         * How far the ground reaches around the model, in metres.
+         *
+         * Nine hundred is a window of one and a three quarter kilometres, which
+         * at the finest zoom is nine tiles. From behind the model the camera
+         * sees well under a kilometre of it, so there is room to fly and room
+         * to look about before more is wanted.
+         */
+        private const val WINDOW_RADIUS_M = 900.0
 
         private const val METRES_PER_DEGREE_LAT = 111320.0
 
@@ -224,25 +235,6 @@ class TerrainScene {
     }
 
     /**
-     * Somewhere else that wants ground under it.
-     *
-     * The area to load is worked out from the flight and nothing else, so a
-     * phone that has moved away from it would have asked for more ground and
-     * been given the same square back. This widens the question.
-     */
-    fun include(lat: Double, lon: Double) {
-        if (lat.isNaN() || lon.isNaN()) return
-        if (minLat == 0.0 && maxLat == 0.0) {
-            minLat = lat; maxLat = lat; minLon = lon; maxLon = lon
-            return
-        }
-        if (lat < minLat) minLat = lat
-        if (lat > maxLat) maxLat = lat
-        if (lon < minLon) minLon = lon
-        if (lon > maxLon) maxLon = lon
-    }
-
-    /**
      * Each point drawn a quarter of the way towards each of its neighbours.
      *
      * A position is good to a few metres and the next one is wrong by a
@@ -305,45 +297,48 @@ class TerrainScene {
      * time; afterwards it comes from the cache. [onProgress] reports tiles.
      */
     fun loadTerrain(points: List<TrackPoint>,
-                    onProgress: (Int, Int) -> Unit,
-                    onTerrainReady: () -> Unit) {
-        // Half a kilometre around the flight to begin with, so the first
-        // picture arrives in seconds; more is fetched as the model approaches
-        // the edge of what has been built.
-        // Half a kilometre of margin at least, a kilometre and a half at most.
+                    focusLat: Double, focusLon: Double,
+                    onTile: () -> Unit,
+                    onDone: () -> Unit) {
+        // Ground around the model, not ground around the whole flight.
         //
-        // It used to be half the flight's own size on each side, which for a
-        // long one is most of the ground that gets loaded: fifteen kilometres
-        // out and back asked for thirty kilometres of square, and since nine
-        // tiles have to span whatever is asked for, the detail dropped a whole
-        // level to cover margin nothing was ever going to fly over.
-        val padLat = Math.min(0.0135, Math.max(0.0045, (maxLat - minLat) * 0.5))
-        val padLon = Math.min(0.0195, Math.max(0.0065, (maxLon - minLon) * 0.5))
-        val southEdge = minLat - padLat
-        val northEdge = maxLat + padLat
-        val westEdge = minLon - padLon
-        val eastEdge = maxLon + padLon
+        // Covering everything flown meant the tiles had to span it, and since
+        // there is only ever a handful of them the detail dropped a level for
+        // every few kilometres: fifteen kilometres out and back left the ground
+        // under the model at thirteen metres a pixel — a blur — to keep a
+        // picture of somewhere it flew twenty minutes ago. A window that
+        // follows it stays sharp however far it goes.
+        val padLat = WINDOW_RADIUS_M / METRES_PER_DEGREE_LAT
+        val padLon = WINDOW_RADIUS_M / metresPerDegreeLon(focusLat)
+        val southEdge = focusLat - padLat
+        val northEdge = focusLat + padLat
+        val westEdge = focusLon - padLon
+        val eastEdge = focusLon + padLon
 
-        loadedMinLat = if (builtZoom < 0) southEdge else Math.min(loadedMinLat, southEdge)
-        loadedMaxLat = if (builtZoom < 0) northEdge else Math.max(loadedMaxLat, northEdge)
-        loadedMinLon = if (builtZoom < 0) westEdge else Math.min(loadedMinLon, westEdge)
-        loadedMaxLon = if (builtZoom < 0) eastEdge else Math.max(loadedMaxLon, eastEdge)
+        // What is loaded is the window, not everything ever loaded. A union
+        // would have the model believing there is ground under it long after
+        // that ground had been dropped.
+        loadedMinLat = southEdge
+        loadedMaxLat = northEdge
+        loadedMinLon = westEdge
+        loadedMaxLon = eastEdge
 
-        // As much detail as the area allows: drop a zoom level at a time until
-        // the tile count is something a phone can hold.
+        // As much detail as the budget allows. The window is always the same
+        // size, so this settles at the finest zoom and stays there — but it is
+        // still worked out rather than assumed.
         var z = PREFERRED_ZOOM
         while (z > 9 && tileCount(southEdge, westEdge, northEdge, eastEdge, z) > MAX_TILES) {
             z--
         }
+
+        // The heights first, for the whole window: they are a fraction of the
+        // size of the pictures, and the altitude reference cannot be worked out
+        // without them — which has to happen before a single tile is built,
+        // since every vertex is baked relative to it.
         Elevation.prefetch(southEdge, westEdge, northEdge, eastEdge, z,
-            { done, total -> onProgress(done, total * 2) },
-            { _, _ -> })
+            { _, _ -> }, { _, _ -> })
         zoom = z
         resolveAltitudeReference(points)
-        onTerrainReady()
-
-        // ground first, imagery second: the shape matters more than the picture,
-        // and this way something is on screen while the textures arrive
         buildShadow(points)
 
         val x0 = Elevation.tileX(westEdge, z)
@@ -357,24 +352,86 @@ class TerrainScene {
             builtZoom = z
         }
 
-        val total = (Math.abs(x1 - x0) + 1) * (Math.abs(y1 - y0) + 1)
-        var done = 0
+        // Nearest the model first, in both passes: whatever it is flying over
+        // is the tile worth having before any other.
+        val centreX = Elevation.tileX(focusLon, z)
+        val centreY = Elevation.tileY(focusLat, z)
+        val window = ArrayList<LongArray>()
         for (tx in Math.min(x0, x1)..Math.max(x0, x1)) {
             for (ty in Math.min(y0, y1)..Math.max(y0, y1)) {
-                val key = tileKey(tx, ty)
-                if (!built.containsKey(key)) {
-                    val mesh = buildTile(z, tx, ty)
-                    if (mesh != null) built[key] = mesh
-                }
-                done++
-                onProgress(total + done, total * 2)
+                val dx = (tx - centreX).toLong()
+                val dy = (ty - centreY).toLong()
+                window.add(longArrayOf(tx.toLong(), ty.toLong(), dx * dx + dy * dy))
             }
         }
-        // oldest first out, so a long flight does not collect the whole county
+        window.sortBy { it[2] }
+
+        val keys = HashSet<Long>()
+        for (t in window) keys.add(tileKey(t[0].toInt(), t[1].toInt()))
+
+        // Shape first, picture second.
+        //
+        // Building a tile once the heights are in memory is local work and
+        // quick; its picture is sixty-four images fetched and stitched into
+        // sixteen megabytes, which is seconds. Showing the shape as soon as it
+        // exists puts ground under the model almost at once, and the photograph
+        // arrives over it tile by tile instead of everything appearing at the
+        // end together.
+        for (t in window) {
+            val tx = t[0].toInt()
+            val ty = t[1].toInt()
+            val key = tileKey(tx, ty)
+            if (built.containsKey(key)) continue
+            val mesh = buildTile(z, tx, ty, false)
+            if (mesh != null) {
+                built[key] = mesh
+                publish(keys)
+                onTile()
+            }
+        }
+
+        for (t in window) {
+            val tx = t[0].toInt()
+            val ty = t[1].toInt()
+            val key = tileKey(tx, ty)
+            val standing = built[key] ?: continue
+            if (standing.texture != null) continue
+            val picture = try {
+                Imagery.mosaic(z, tx, ty, IMAGERY_DETAIL)
+            } catch (e: Throwable) {
+                null
+            } ?: continue
+            // The shape is already worked out and has not moved: only the
+            // picture is new. Building the tile again to hang it on would mean
+            // another thirty-seven thousand height samples for nothing.
+            built[key] = TileMesh(standing.key, standing.vertices, standing.indices, picture)
+            publish(keys)
+            onTile()
+        }
+
+        publish(keys)
+        onDone()
+    }
+
+    /**
+     * Hand out what is built, and drop what the window has left behind.
+     *
+     * Anything outside it goes first; only if that is not enough does the
+     * oldest go. The old rule was oldest first regardless, which on a window
+     * that moves could throw away the tile the model was standing on.
+     */
+    private fun publish(window: Set<Long>) {
         while (built.size > MAX_TILES) {
-            val oldest = built.keys.iterator()
-            if (!oldest.hasNext()) break
-            built.remove(oldest.next())
+            var drop = -1L
+            for (key in built.keys) {
+                if (!window.contains(key)) { drop = key; break }
+            }
+            if (drop == -1L) {
+                val oldest = built.keys.iterator()
+                if (!oldest.hasNext()) break
+                drop = oldest.next()
+            }
+            built.remove(drop)
         }
         tiles = ArrayList(built.values)
     }
@@ -436,7 +493,7 @@ class TerrainScene {
         return Math.toDegrees(Math.atan(Math.sinh(n)))
     }
 
-    private fun buildTile(z: Int, tx: Int, ty: Int): TileMesh? {
+    private fun buildTile(z: Int, tx: Int, ty: Int, withImagery: Boolean): TileMesh? {
         val westLon = tileLon(tx, z)
         val eastLon = tileLon(tx + 1, z)
         val northLat = tileLat(ty, z)
@@ -501,10 +558,14 @@ class TerrainScene {
             }
         }
 
-        val texture = try {
-            Imagery.mosaic(z, tx, ty, IMAGERY_DETAIL)
-        } catch (e: Throwable) {
+        val texture = if (!withImagery) {
             null
+        } else {
+            try {
+                Imagery.mosaic(z, tx, ty, IMAGERY_DETAIL)
+            } catch (e: Throwable) {
+                null
+            }
         }
         return TileMesh(tileKey(tx, ty), vertices, indices, texture)
     }

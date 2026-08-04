@@ -56,6 +56,9 @@ object Imagery {
     private val MISSING_COLOR = Color.rgb(128, 128, 128)
 
     /** Shared, so a dozen neighbouring terrain tiles cannot spawn four threads each. */
+    /** Squares that are not there, so they are asked for once and not again. */
+    private val failed = HashSet<Long>()
+
     private val pool by lazy {
         Executors.newFixedThreadPool(POOL_THREADS, ThreadFactory { runnable ->
             val thread = Thread(runnable, "imagery")
@@ -157,10 +160,19 @@ object Imagery {
         try {
             val n = 1 shl zoom
             if (x < 0 || x >= n || y < 0 || y >= n) return null
+            // Asked for before and not there. Every square of a mosaic used to
+            // be re-requested each time the mosaic was built, so ground with a
+            // gap in its imagery paid the full fifteen second wait for that gap
+            // again on every visit.
+            val key = (zoom.toLong() shl 58) or (x.toLong() shl 29) or (y.toLong() and 0x1FFFFFFF)
+            if (synchronized(failed) { failed.contains(key) }) return null
             var bytes = readDisk(zoom, x, y)
             val fromDisk = bytes != null
             if (bytes == null) bytes = download(zoom, x, y)
-            if (bytes == null) return null
+            if (bytes == null) {
+                synchronized(failed) { failed.add(key) }
+                return null
+            }
             val bitmap = decode(bytes)
             if (bitmap == null) {
                 // a half-written cache entry would otherwise be a permanent grey square
