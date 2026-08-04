@@ -316,21 +316,21 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         if (!phoneHeading.isNaN()) map?.setPhoneBearing(phoneHeading)
     }
 
+    /**
+     * The bearing, which is all this screen has to give the recording.
+     *
+     * Where the phone is comes from the service now: it hears the satellites
+     * whether or not anybody is looking, and a flight watched with the phone in
+     * a pocket is still a flight somebody stood somewhere for. A compass is
+     * only read while there is something to draw, so when this screen stops
+     * reading it, it says so rather than leaving the last angle standing.
+     */
     private fun recordWhereIAm() {
         if (!preferenceManager.isMyPositionLoggingEnabled()) {
-            // turned off mid-flight: the rows that follow say nothing, rather
-            // than repeating the last place it was told about for ever
-            dataService?.setPhonePosition(
-                Double.NaN, Double.NaN, Float.NaN, Float.NaN
-            )
+            dataService?.setPhoneBearing(Float.NaN)
             return
         }
-        val fix = bestPhoneFix ?: return
-        dataService?.setPhonePosition(
-            fix.latitude, fix.longitude,
-            if (fix.hasAccuracy()) fix.accuracy else Float.NaN,
-            phoneHeading
-        )
+        dataService?.setPhoneBearing(phoneHeading)
     }
 
     private val phoneLocationListener = object : LocationListener {
@@ -1910,11 +1910,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val lm = getSystemService(LOCATION_SERVICE) as LocationManager
         lm.removeUpdates(phoneLocationListener)
         (getSystemService(SENSOR_SERVICE) as SensorManager?)?.unregisterListener(phoneCompass)
-        // and the recording stops being told where the phone is, because from
-        // here nobody knows. The link keeps recording in the background, and
-        // every row of it would otherwise carry the last place this screen saw
-        // — a phone in a pocket, walking about, written down as standing still.
-        dataService?.setPhonePosition(Double.NaN, Double.NaN, Float.NaN, Float.NaN)
+        // The compass is not being read from here, so the recording stops
+        // being given a bearing — the place keeps arriving, from the service.
+        dataService?.setPhoneBearing(Float.NaN)
     }
 
     override fun onStop() {

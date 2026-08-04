@@ -7,6 +7,9 @@ import android.bluetooth.BluetoothDevice
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.hardware.usb.UsbDeviceConnection
 import android.os.*
 import android.widget.Toast
@@ -168,15 +171,86 @@ class DataService : Service(), DataDecoder.Listener {
     }
 
     /**
-     * Where the phone is and which way it is facing, for the CSV to write down.
+     * Where the phone is, heard by the thing that outlives the screen.
+     *
+     * The recording goes on while the app is in somebody's pocket — that is
+     * what the notification is for — and the operator's own position is half of
+     * what a replay puts back. Heard on the screen alone, it stopped the moment
+     * the screen went away, which is most of a flight.
+     *
+     * The screen still hears its own, for drawing, and still supplies the
+     * bearing, because a compass is only read while there is something to draw.
+     */
+    private var phoneFix: Location? = null
+
+    private val phoneLocationListener = object : LocationListener {
+        override fun onLocationChanged(location: Location) {
+            if (!worthBelieving(location)) return
+            phoneFix = location
+            if (!preferenceManager.isMyPositionLoggingEnabled()) return
+            logListener?.setMyPosition(
+                location.latitude, location.longitude,
+                if (location.hasAccuracy()) location.accuracy else Float.NaN
+            )
+        }
+
+        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+        override fun onProviderEnabled(provider: String) {}
+        override fun onProviderDisabled(provider: String) {}
+    }
+
+    /**
+     * A mast answers at once and puts you hundreds of metres from where the
+     * satellites say. Anything while nothing is known, anything once what is
+     * known has gone stale, and otherwise only a fix at least as good.
+     */
+    private fun worthBelieving(fix: Location): Boolean {
+        val held = phoneFix ?: return true
+        if (System.currentTimeMillis() - held.time > 20000L) return true
+        val newer = fix.time - held.time
+        if (newer > 20000L) return true
+        if (newer < -20000L) return false
+        if (!fix.hasAccuracy()) return !held.hasAccuracy()
+        if (!held.hasAccuracy()) return true
+        return fix.accuracy <= held.accuracy || fix.provider == held.provider
+    }
+
+    private fun listenForPhone() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        val lm = getSystemService(LOCATION_SERVICE) as LocationManager
+        for (provider in arrayOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
+            try {
+                lm.requestLocationUpdates(provider, 1000L, 0f, phoneLocationListener)
+            } catch (e: Exception) {
+                // a phone without that provider; the other one still runs
+            }
+        }
+    }
+
+    private fun stopListeningForPhone() {
+        phoneFix = null
+        try {
+            (getSystemService(LOCATION_SERVICE) as LocationManager)
+                .removeUpdates(phoneLocationListener)
+        } catch (e: Exception) {
+            // never started, or already gone
+        }
+    }
+
+    /**
+     * Which way the phone is facing, from the screen's own compass.
      *
      * The recording is of what came off the link and has nothing in it about
      * the person holding the phone — so without this a replay can only draw the
      * operator where the operator is standing now, which for a flight recorded
      * anywhere else puts the line home across the county.
      */
-    fun setPhonePosition(lat: Double, lon: Double, accuracy: Float, heading: Float) {
-        logListener?.setMyPosition(lat, lon, accuracy, heading)
+    fun setPhoneBearing(heading: Float) {
+        logListener?.setMyHeading(heading)
     }
 
     fun connect(serialPort: UsbSerialPort, connection: UsbDeviceConnection) {
@@ -295,6 +369,9 @@ class DataService : Service(), DataDecoder.Listener {
     }
 
     override fun onConnected() {
+        // From here the phone's own position is worth writing down, and this is
+        // what goes on hearing it while the screen is away.
+        listenForPhone()
         dataListener?.onConnected()
         logListener?.onConnected()
 
@@ -406,6 +483,7 @@ class DataService : Service(), DataDecoder.Listener {
     }
 
     override fun onDisconnected() {
+        stopListeningForPhone()
         dataListener?.onDisconnected()
         logListener?.onDisconnected()
         dataPoller = null
@@ -519,6 +597,7 @@ class DataService : Service(), DataDecoder.Listener {
     }
 
     fun disconnect() {
+        stopListeningForPhone()
         dataPoller?.disconnect()
         dataPoller = null
         satellites = 0

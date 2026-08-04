@@ -78,10 +78,21 @@ class OtxCsvLogger(
     @Volatile private var myHeading = Float.NaN
 
     /** Where this phone is and which way it is facing, as it changes. */
-    fun setMyPosition(lat: Double, lon: Double, accuracy: Float, heading: Float) {
+    /**
+     * Where the phone is, from the service, which hears it whether or not
+     * anybody is looking at the screen.
+     */
+    fun setMyPosition(lat: Double, lon: Double, accuracy: Float) {
         myLat = lat
         myLon = lon
         myAccuracy = accuracy
+    }
+
+    /**
+     * Which way it is facing, from the screen, which is the only thing that
+     * reads a compass — and which says so with NaN when it stops.
+     */
+    fun setMyHeading(heading: Float) {
         myHeading = heading
     }
 
