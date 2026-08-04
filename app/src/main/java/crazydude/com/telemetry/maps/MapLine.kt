@@ -36,18 +36,21 @@ abstract class MapLine {
         // bounded number of points. The tests were the wrong way round before:
         // anything over 1500 matched the first rung, so it never reached the
         // others and every long track sat at ten metres.
+        // Two metres for the first five thousand points — ten kilometres of
+        // flying — and widening slowly after that.
+        //
+        // It used to start widening at fifteen hundred, which is three
+        // kilometres, so an ordinary flight was already being coarsened. Each
+        // point costs about four tenths of a microsecond to draw, measured, so
+        // five thousand of them is a couple of milliseconds a frame and even a
+        // hundred kilometre flight lands around thirteen thousand.
         val points = size + spoints.size
-        var threshold = 2
-        // whatever the cap, the ladder applies: a smaller one needs the
-        // widening more, not less
-        if (true) {
-            threshold = when {
-                points > 7000 -> 30
-                points > 5000 -> 20
-                points > 3000 -> 10
-                points > 1500 -> 5
-                else -> 2
-            }
+        val threshold = when {
+            points > 15000 -> 30
+            points > 10000 -> 20
+            points > 8000 -> 10
+            points > 5000 -> 5
+            else -> 2
         }
 
         spoints = spoints.filter { i ->

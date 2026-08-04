@@ -3632,7 +3632,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             if (!addToEnd) {
                 // rewound: the path is about to be replayed, so drop what it held
                 crazydude.com.telemetry.gl.LiveFlightPath.clear()
+                terrain3D?.onFlightReset()
                 polyLine?.clear()
+                lastRememberedHeight = Float.NaN
                 this.lastTraveledDistance = 0.0;
                 lastGPS = Position(0.0,0.0)
             }

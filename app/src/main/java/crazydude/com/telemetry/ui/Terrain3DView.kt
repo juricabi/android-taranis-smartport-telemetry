@@ -238,6 +238,19 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     }
 
     /**
+     * The flight has been thrown away — a replay has jumped somewhere else.
+     *
+     * The path is rebuilt on the tick, so without this the old flight went on
+     * being drawn for up to half a second after the jump while the model was
+     * already somewhere else entirely, which is a glitch nobody can explain to
+     * themselves.
+     */
+    fun onFlightReset() {
+        seenVersion = -1
+        renderer.setTrack(FloatArray(0), FloatArray(0))
+    }
+
+    /**
      * Told when a fix lands, so the model moves with the one on the map rather
      * than up to a tick behind it.
      *
