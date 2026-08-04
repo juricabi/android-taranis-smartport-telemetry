@@ -61,6 +61,9 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     private var myLat = Double.NaN
     private var myLon = Double.NaN
     private var myAccuracy = 0f
+
+    /** The last ground height known under this phone, for a step past the edge. */
+    private var myGround = Float.NaN
     private var myHeading = 0f
 
     /**
@@ -276,7 +279,25 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
 
         rebuildOverlays()
 
-        if (!loadingTerrain && scene.nearEdge(last.lat, last.lon)) {
+        extendTerrainIfNeeded(points, last.lat, last.lon)
+    }
+
+    /**
+     * More ground, when something that has to stand on it nears the edge.
+     *
+     * The model, and this phone as well: driving to the far side of a field
+     * with the view open used to take the arrow past the loaded ground, where
+     * it stopped dead — no more terrain was asked for, because only the flight
+     * was being watched.
+     *
+     * Not the camera, deliberately. Panning across the county would pull tiles
+     * for wherever it was pointed and evict the ones the flight is on.
+     */
+    private fun extendTerrainIfNeeded(points: List<TerrainScene.TrackPoint>,
+                                      lat: Double, lon: Double) {
+        val wanted = scene.nearEdge(lat, lon) ||
+            (!myLat.isNaN() && !myLon.isNaN() && scene.nearEdge(myLat, myLon))
+        if (!loadingTerrain && wanted) {
             loadingTerrain = true
             status.text = ""
             val worker = Thread(Runnable {
@@ -307,6 +328,11 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         myLon = lon
         myAccuracy = accuracy
         showMyLocation()
+        // with nothing flying, this is the only thing that can walk off the
+        // edge of what is loaded
+        if (started && terrainReady) {
+            extendTerrainIfNeeded(LiveFlightPath.snapshot(), lat, lon)
+        }
     }
 
     private fun showMyLocation() {
@@ -574,7 +600,13 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
      */
     private fun placeMyArrow() {
         if (!terrainReady || myLat.isNaN() || myLon.isNaN()) return
-        val ground = scene.groundAt(myLat, myLon) ?: return
+        // Where the ground is not known yet — a step past the edge of what is
+        // loaded, while more is on its way — the last height it stood at will
+        // do. It used to give up here, which left the arrow behind at the last
+        // place it knew and turned it into a lie.
+        val ground = scene.groundAt(myLat, myLon) ?: myGround
+        if (ground.isNaN()) return
+        myGround = ground
         renderer.setMyLocation(
             scene.east(myLon), ground - scene.originAltitude + 0.1f,
             -scene.north(myLat), myHeading
