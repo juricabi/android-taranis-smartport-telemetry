@@ -2730,11 +2730,21 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     private fun rememberForProfile(latitude: Double, longitude: Double) {
-        val height = if (!lastGpsAltitudeMsl.isNaN()) lastGpsAltitudeMsl else lastAnyAltitude
+        rememberForProfile(latitude, longitude, heightNow())
+    }
+
+    private fun heightNow(): Float =
+        if (!lastGpsAltitudeMsl.isNaN()) lastGpsAltitudeMsl else lastAnyAltitude
+
+    private fun rememberForProfile(latitude: Double, longitude: Double, height: Float) {
         if (height.isNaN()) return
         if (latitude == 0.0 && longitude == 0.0) return
         crazydude.com.telemetry.gl.LiveFlightPath.add(latitude, longitude, height)
+        lastRememberedHeight = height
     }
+
+    /** The height the last remembered point was given, to climb from. */
+    private var lastRememberedHeight = Float.NaN
 
     /** The marker for whatever is being flown, quad or fixed wing. */
     private fun modelIcon(): Int {
@@ -3632,16 +3642,24 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 if ( list.size>=2) {
                     polyLine?.submitPoints(list.dropLast(1))
                     commitRouteLinePoints()
-                    // The 3D path too, or it is left with one point per batch —
-                    // and a replay hands over whole batches at a time, so it
+                    // The 3D path too, or it is left with one point per batch
+                    // — and a replay hands over whole batches at a time, so it
                     // came out as a few straight legs across the flight.
                     //
-                    // Their heights are the height known now rather than the
-                    // height each was flown at, which the log does not give
-                    // back here. Over a batch that is a step or two; against
-                    // having no path at all it is worth having.
-                    for (i in 0..list.size - 2) {
-                        rememberForProfile(list[i].lat, list[i].lon)
+                    // A batch carries one height: the log's altitude is decoded
+                    // between batches, not within them. Giving every point of a
+                    // batch that one height turns a climb into a staircase, so
+                    // the height is walked across the batch from the last one
+                    // remembered to this one. That is what a climb between two
+                    // readings actually looked like.
+                    val to = heightNow()
+                    val from = if (lastRememberedHeight.isNaN()) to else lastRememberedHeight
+                    if (!to.isNaN()) {
+                        for (i in 0..list.size - 2) {
+                            val part = (i + 1).toFloat() / list.size
+                            rememberForProfile(list[i].lat, list[i].lon,
+                                from + (to - from) * part)
+                        }
                     }
                 }
 
