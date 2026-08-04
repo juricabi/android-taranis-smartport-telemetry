@@ -175,6 +175,15 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     private var shadowBuffer: FloatBuffer? = null
     private var shadowCount = 0
     private var dropBuffer: FloatBuffer? = null
+
+    /**
+     * The last stretch of curtain, from where it was last built to the model.
+     *
+     * The curtain is rebuilt with the track, twice a second, because it is the
+     * whole flight; the model moves on every fix. Without this the surface
+     * stopped short and trailed it.
+     */
+    private var leaderBuffer: FloatBuffer? = null
     private var dropCount = 0
 
     private var terrainProgram = 0
@@ -610,6 +619,12 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         }
     }
 
+    /** Six vertices closing the curtain up to where the model is now. */
+    @Synchronized
+    fun setTrackLeader(quad: FloatArray?) {
+        leaderBuffer = if (quad == null || quad.size < 18) null else floats(quad)
+    }
+
     @Synchronized
     fun setTrack(track: FloatArray, shadow: FloatArray) {
         trackBuffer = floats(track)
@@ -966,15 +981,26 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                 trackColor[2] * 0.45f, 0.85f)
             GLES20.glDrawArrays(GLES20.GL_LINE_STRIP, 0, sCount)
         }
-        if (drops != null && dCount > 2) {
-            drops.position(0)
-            GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, drops)
+        val lead: FloatBuffer?
+        synchronized(this) { lead = leaderBuffer }
+        if (drops != null && dCount > 2 || lead != null) {
             GLES20.glUniform4f(uColor, trackColor[0], trackColor[1], trackColor[2], 0.18f)
             // translucent, so what is behind it must still be drawn
             // no depth writing: the curtain is see through, so what is behind it
             // has to keep drawing, and it must not hide the flight above it
             GLES20.glDepthMask(false)
-            GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, dCount)
+            if (drops != null && dCount > 2) {
+                drops.position(0)
+                GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, drops)
+                GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, dCount)
+            }
+            // and the piece of it between the last one built and the model,
+            // which is where the whole curtain would otherwise stop
+            if (lead != null) {
+                lead.position(0)
+                GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, lead)
+                GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 6)
+            }
             GLES20.glDepthMask(true)
         }
         val marker: FloatBuffer?

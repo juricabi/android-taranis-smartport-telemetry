@@ -494,14 +494,31 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         // the model moves on every one of them, so its line was trailing half a
         // second behind it. Two vertices close the gap.
         val trail = scene.track
+        val shade = scene.shadow
         if (model != null && trail.size >= 3) {
+            val n = trail.size
+            val ax = trail[n - 3]; val ay = trail[n - 2]; val az = trail[n - 1]
+            val bx = scene.east(model.lon)
+            val by = scene.aboveSeaLevel(model.altitudeMsl) - scene.originAltitude
+            val bz = -scene.north(model.lat)
             val c = renderer.trackColor
-            sets.add(TerrainRenderer.LineSet(floatArrayOf(
-                trail[trail.size - 3], trail[trail.size - 2], trail[trail.size - 1],
-                scene.east(model.lon),
-                scene.aboveSeaLevel(model.altitudeMsl) - scene.originAltitude,
-                -scene.north(model.lat)),
-                c[0], c[1], c[2], 1f, true, 4f, false))
+            sets.add(TerrainRenderer.LineSet(
+                floatArrayOf(ax, ay, az, bx, by, bz), c[0], c[1], c[2], 1f, true, 4f, false))
+
+            if (shade.size == n) {
+                val sx = shade[n - 3]; val sy = shade[n - 2]; val sz = shade[n - 1]
+                val under = (scene.groundAt(model.lat, model.lon) ?: scene.originAltitude) -
+                    scene.originAltitude
+                // its shadow, and the sheet hanging between the two
+                sets.add(TerrainRenderer.LineSet(
+                    floatArrayOf(sx, sy, sz, bx, under, bz),
+                    c[0] * 0.45f, c[1] * 0.45f, c[2] * 0.45f, 0.85f, true, 2f, false))
+                renderer.setTrackLeader(floatArrayOf(
+                    ax, ay, az, sx, sy, sz, bx, by, bz,
+                    bx, by, bz, sx, sy, sz, bx, under, bz))
+            }
+        } else {
+            renderer.setTrackLeader(null)
         }
 
         // where it is heading, a kilometre of it
