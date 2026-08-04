@@ -76,10 +76,10 @@ class RCWidget @JvmOverloads constructor(
         return 1.0f;
     }
 
-    override fun onDraw(canvas: Canvas?) {
+    override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
-        canvas?.let {
+        canvas.let {
 
             var rcCount = if ( rcChannels.size > 8 ) rcChannels.size else 8;
             if ( lastRCCount != rcCount ) {

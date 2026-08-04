@@ -15,6 +15,9 @@ import android.os.Environment
 import android.util.Log
 import android.view.View
 import android.widget.ArrayAdapter
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -23,7 +26,6 @@ import androidx.core.content.ContextCompat
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
 import com.hoho.android.usbserial.util.SerialInputOutputManager
-import kotlinx.android.synthetic.main.activity_main.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
@@ -43,6 +45,14 @@ class MainActivity : AppCompatActivity() {
     private var broadcastReceiver: BroadcastReceiver? = null
     private var logFile: ByteArray? = null
 
+    private lateinit var blConnectButton: Button
+    private lateinit var bleConnectButton: Button
+    private lateinit var bleEmulator: Button
+    private lateinit var usbConnect: Button
+    private lateinit var disconnectButton: Button
+    private lateinit var buttonsLayout: LinearLayout
+    private lateinit var logTextView: TextView
+
     companion object {
         private const val REQUEST_ENABLE_BT_BL: Int = 0
         private const val REQUEST_ENABLE_BT_BLE: Int = 1
@@ -52,6 +62,14 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        blConnectButton = findViewById(R.id.blConnectButton)
+        bleConnectButton = findViewById(R.id.bleConnectButton)
+        bleEmulator = findViewById(R.id.bleEmulator)
+        usbConnect = findViewById(R.id.usbConnect)
+        disconnectButton = findViewById(R.id.disconnectButton)
+        buttonsLayout = findViewById(R.id.buttonsLayout)
+        logTextView = findViewById(R.id.logTextView)
 
         blConnectButton.setOnClickListener {
             connectBl()
@@ -82,7 +100,7 @@ class MainActivity : AppCompatActivity() {
                         }
 
                         override fun onNewData(data: ByteArray?) {
-                            Log.d("USBSerial", data?.toString(Charset.forName("utf8")))
+                            Log.d("USBSerial", data?.toString(Charset.forName("utf8")) ?: "")
                         }
                     })
                 Executors.newSingleThreadExecutor().submit(outputManager)
@@ -265,7 +283,8 @@ class MainActivity : AppCompatActivity() {
             broadcastReceiver = object : BroadcastReceiver() {
                 override fun onReceive(p0: Context?, intent: Intent?) {
                     intent?.let {
-                        val bluetoothDevice = it.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE) as BluetoothDevice
+                        val bluetoothDevice =
+                            it.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)!!
                         if (!deviceList.contains(bluetoothDevice)) {
                             deviceList.add(bluetoothDevice)
                             deviceNamesAdapter.add(bluetoothDevice.name ?: bluetoothDevice.address)
