@@ -218,8 +218,8 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private fun watch() {
         ticker.removeCallbacks(poll)
         ticker.post(poll)
-        ticker.removeCallbacks(bearingWatch)
-        ticker.post(bearingWatch)
+        removeCallbacks(bearingWatch)
+        postOnAnimation(bearingWatch)
     }
 
     /**
@@ -548,8 +548,12 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
      * fast as the flight is being replayed, and twice a second then reads as a
      * number that jumps while the map beside it turns smoothly.
      *
-     * Sixteen times a second, and only when it has really moved: the reading is
-     * whole degrees, so anything finer would be spent redrawing the same text.
+     * Once per frame, on the screen's own clock, which is what the map's
+     * heading readout runs on — a timer of its own turned the same swing into
+     * coarser steps than the map made of it, and the two views disagreed about
+     * how smoothly the same number moved. Reported only when it has really
+     * moved: the reading is whole degrees, so anything finer would be spent
+     * redrawing the same text.
      */
     private var reportedBearing = Float.NaN
 
@@ -563,7 +567,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
                     onBearingChanged?.invoke(now)
                 }
             }
-            ticker.postDelayed(this, 60L)
+            postOnAnimation(this)
         }
     }
 
@@ -1097,11 +1101,11 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     fun onPause() {
         surface.onPause()
         ticker.removeCallbacks(poll)
-        ticker.removeCallbacks(bearingWatch)
+        removeCallbacks(bearingWatch)
     }
 
     fun release() {
         ticker.removeCallbacks(poll)
-        ticker.removeCallbacks(bearingWatch)
+        removeCallbacks(bearingWatch)
     }
 }
