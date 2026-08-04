@@ -2704,13 +2704,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         if (chaseMode) view.setChasing(true)
         updateCompassHeading(view.bearing())
         setFollowMode(true)
-        // the same rule the map follows: a flight still going, or one being
-        // replayed, and otherwise bare ground
-        val flown = if (dataService?.isConnected() == true || isInReplayMode()) {
-            crazydude.com.telemetry.gl.LiveFlightPath.snapshot()
-        } else {
-            emptyList()
-        }
+        // Whatever flight there is. This used to be withheld unless a link
+        // was up or a replay running, to stop a finished flight reappearing on
+        // a map built afterwards — but a flight is now thrown away where one
+        // ends and another begins, so there is nothing stale left to withhold.
+        // Meanwhile the map keeps showing a flight after the link drops, and
+        // this view was coming up empty beside it.
+        val flown = crazydude.com.telemetry.gl.LiveFlightPath.snapshot()
         view.start(
             flown,
             where?.lat ?: Double.NaN, where?.lon ?: Double.NaN,
@@ -3543,12 +3543,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private fun closeReplay() {
         replayFileString = null
-        forgetModel()
+        // The whole of it: a recording that has been closed leaves nothing
+        // behind, neither the model nor the flight it was playing back, and in
+        // the 3D view that includes the surface hanging under the flight.
+        forgetFlight()
         marker?.remove()
         marker = null
         headingPolyline?.remove()
         headingPolyline = null
-        terrain3D?.onModelGone()
     }
 
     private fun switchToConnectedState() {
