@@ -221,6 +221,12 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
     override fun setOnCameraMoveStartedListener(function: () -> Unit) {
         onCameraMoveListener = function
         mapView.setOnTouchListener { v, event ->
+            // A hand on the map wins. The camera glides towards where the model
+            // was last seen, and without this it went on gliding there under
+            // the finger — every drag springing back, however plainly the
+            // following had been turned off.
+            glideTo = null
+            glideTurn = Float.NaN
             onCameraMoveListener?.invoke()
             markers.forEach { it.updateForMapOrientation() }
             val orientation = mapView.mapOrientation
