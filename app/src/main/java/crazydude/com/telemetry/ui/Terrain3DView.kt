@@ -98,9 +98,6 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
                 }
             }
             pickUpNewPoints()
-            // the camera turns itself while chasing, so the heading in the
-            // corner is read off it rather than told to it
-            if (chasing) onBearingChanged?.invoke(renderer.azimuth)
             ticker.postDelayed(this, FOLLOW_INTERVAL_MS)
         }
     }
@@ -525,6 +522,35 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
      * thing as it is rotated, and the heading in the corner is drawn from it.
      */
     var onBearingChanged: ((Float) -> Unit)? = null
+
+    /**
+     * The heading in the corner, kept up with the camera.
+     *
+     * While chasing, the camera turns itself — nobody tells it to — so the only
+     * way to report where it is pointing is to look. That was done on the same
+     * half-second tick as everything else, which live is a camera drifting a
+     * degree or two behind the model and unnoticeable. A replay turns it as
+     * fast as the flight is being replayed, and twice a second then reads as a
+     * number that jumps while the map beside it turns smoothly.
+     *
+     * Sixteen times a second, and only when it has really moved: the reading is
+     * whole degrees, so anything finer would be spent redrawing the same text.
+     */
+    private var reportedBearing = Float.NaN
+
+    private val bearingWatch = object : Runnable {
+        override fun run() {
+            if (chasing) {
+                val now = renderer.azimuth
+                val moved = Math.abs(((now - reportedBearing + 540f) % 360f) - 180f)
+                if (reportedBearing.isNaN() || moved > 0.5f) {
+                    reportedBearing = now
+                    onBearingChanged?.invoke(now)
+                }
+            }
+            ticker.postDelayed(this, 60L)
+        }
+    }
 
     /** Where the camera is pointing now, for whoever has just started listening. */
     fun bearing(): Float = renderer.azimuth
@@ -1054,14 +1080,18 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // two chains of it ran the whole first session at twice the rate
         ticker.removeCallbacks(poll)
         ticker.post(poll)
+        ticker.removeCallbacks(bearingWatch)
+        ticker.post(bearingWatch)
     }
 
     fun onPause() {
         surface.onPause()
         ticker.removeCallbacks(poll)
+        ticker.removeCallbacks(bearingWatch)
     }
 
     fun release() {
         ticker.removeCallbacks(poll)
+        ticker.removeCallbacks(bearingWatch)
     }
 }
