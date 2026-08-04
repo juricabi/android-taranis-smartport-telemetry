@@ -214,6 +214,12 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     private var headA = 1f
     private var dropCount = 0
 
+    /** How many points of flight each built quad of curtain spans. */
+    private var curtainStep = 1
+
+    /** And how many quads have been added a point at a time since. */
+    private var appendedQuads = 0
+
     private var terrainProgram = 0
     private var modelProgram = 0
     private var lineProgram = 0
@@ -359,11 +365,29 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     private var overlays: List<DrawnSet> = emptyList()
 
     @Synchronized
+    /**
+     * The flight plans, the traffic and the accuracy ring, as lines to draw.
+     *
+     * Refilled where the shape has not changed. This is called on every fix,
+     * and a draped flight plan is thousands of floats: replacing every buffer
+     * each time was megabytes a second of direct memory, which is freed only
+     * when the collector gets round to it.
+     */
     fun setOverlays(sets: List<LineSet>) {
+        val standing = overlays
         val drawn = ArrayList<DrawnSet>()
+        var i = 0
         for (set in sets) {
             if (set.vertices.size < 6) continue
-            drawn.add(DrawnSet(floats(set.vertices), set.vertices.size / 3, set))
+            val count = set.vertices.size / 3
+            val old = if (i < standing.size) standing[i] else null
+            if (old != null && old.count == count && old.buffer.capacity() == set.vertices.size) {
+                fill(old.buffer, set.vertices)
+                drawn.add(DrawnSet(old.buffer, count, set))
+            } else {
+                drawn.add(DrawnSet(floats(set.vertices), count, set))
+            }
+            i++
         }
         overlays = drawn
     }
@@ -801,6 +825,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             curtain.put(at + 12, sx); curtain.put(at + 13, sy); curtain.put(at + 14, sz)
             curtain.put(at + 15, x); curtain.put(at + 16, groundY); curtain.put(at + 17, z)
             dropCount += 6
+            appendedQuads++
         }
 
         // counts last, so the drawing thread never sees a point that has not
@@ -861,6 +886,8 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             // one quad per point is more than a screen can show; a couple of
             // thousand is plenty for a whole flight
             val step = Math.max(1, trackCount / 2000)
+            curtainStep = step
+            appendedQuads = 0
             // Straight into the array it is going to live in. Growing a list of
             // boxed floats made fifty thousand objects of a curtain that is
             // rebuilt every time the flight gains a point.
@@ -1250,8 +1277,18 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val skipped = if (joined) tCount - reached else 0
         val airCount = if (joined) reached else tCount
         val groundCount = if (joined) reached else sCount
+        // How much of the curtain to hold back, counted in quads.
+        //
+        // The flight is thinned before its curtain is built — one quad every
+        // few points on a long flight — while the quads added since that
+        // rebuild are one per point. So the points the model has not reached
+        // yet are quads at the tail and a fraction of a quad each further
+        // back, and taking one quad per point removed several times too much:
+        // a gap behind the model that grew with the length of the flight.
         val curtainCount = if (joined && dCount >= 6) {
-            dCount - Math.min(skipped, dCount / 6) * 6
+            val tail = Math.min(skipped, appendedQuads)
+            val body = (skipped - tail) / Math.max(1, curtainStep)
+            dCount - Math.min(tail + body, dCount / 6) * 6
         } else {
             dCount
         }

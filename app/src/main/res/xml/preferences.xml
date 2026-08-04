@@ -93,7 +93,6 @@
                 app:cpv_showAlphaSlider="false"
                 app:cpv_allowPresets="false"
                 app:cpv_allowCustom="true"
-                app:cpv_dialogType="custom"
                 android:summary="Colour of the arrow showing where this phone is"
                 android:title="My position colour"/>
 
@@ -104,7 +103,6 @@
                 app:cpv_showAlphaSlider="false"
                 app:cpv_allowPresets="false"
                 app:cpv_allowCustom="true"
-                app:cpv_dialogType="custom"
                 android:summary="Colour of the arrow showing where you stood while a replayed flight was recorded"
                 android:title="Recorded position colour"/>
 

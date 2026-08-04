@@ -3198,6 +3198,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         view.setArrowColours(
             preferenceManager.getLiveArrowColor(), preferenceManager.getLoggedArrowColor()
         )
+        // a replay's ground belongs to the flight being replayed, wherever this
+        // phone happens to be sitting
+        view.groundFollowsPhone = !isInReplayMode()
         view.setTrackColor(preferenceManager.getRouteColor())
         view.setModelColor(preferenceManager.getPlaneColor())
         view.setOverlaySettings(

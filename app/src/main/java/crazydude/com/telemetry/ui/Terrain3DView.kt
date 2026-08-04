@@ -541,6 +541,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // so with a replay paused or a link dropped it stayed pinned where the
         // phone had been while the arrow walked away from the end of it
         rebuildOverlays()
+        if (!groundFollowsPhone) return
         // With nothing flying, this is the only thing that can walk off the
         // edge of the loaded ground. While something is flying, the ground
         // gathers around that instead — it cannot follow both at once, and the
@@ -918,6 +919,18 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
      */
     /** Whether the live arrow is wanted at all: the replay menu can say not. */
     private var myShown = true
+
+    /**
+     * Whether the ground should follow this phone when nothing is flying.
+     *
+     * It should while a link is up or expected — driving to the far side of a
+     * field takes the arrow past the loaded ground otherwise. It should not
+     * over a replay: the flight there was recorded somewhere else, and letting
+     * the phone pull the window meant a replay left standing at its first
+     * position quietly loaded the ground around the sofa and played the flight
+     * over empty space.
+     */
+    var groundFollowsPhone = true
 
     private fun placeMyArrow() {
         if (!myShown) {
