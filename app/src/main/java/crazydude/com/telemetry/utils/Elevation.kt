@@ -25,14 +25,18 @@ import kotlin.math.tan
  *
  * Tiles come from AWS's open terrain set, which needs no key and packs the
  * height into an ordinary slippy-map PNG ("terrarium" encoding):
- * metres = red * 256 + green + blue / 256 - 32768. The data is ~30m SRTM, so
- * zoom 12 is as much detail as there is.
+ * metres = red * 256 + green + blue / 256 - 32768. The data behind it is about
+ * thirty metres to a sample, so zoom 12 already carries more pixels than there
+ * are measurements — but tiles are fetched as far in as zoom 15, because a tile
+ * covers less country the further in it goes, and that is what keeps the window
+ * of ground around a model small enough to fetch.
  *
  * Lookups answer from memory only. Filling that memory is [prefetch]'s job, on
  * a background thread.
  */
 object Elevation {
 
+    /** What the altitude profile reads at, and the coarsest ground is built from. */
     const val TILE_ZOOM = 12
 
     private const val TAG = "Elevation"

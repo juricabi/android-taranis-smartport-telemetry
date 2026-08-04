@@ -1231,7 +1231,8 @@ class TerrainRenderer : GLSurfaceView.Renderer {
 
         // Anything lying on the ground fights with it once the camera is far
         // enough out that a metre is below what the depth buffer can tell
-        // apart. Lift them with distance instead of by a fixed metre.
+        // apart. The ground is pushed back in depth as it is drawn, which is
+        // what keeps these clear of it; this is the whisker on top.
         val lift = groundLift()
         Matrix.setIdentityM(liftMatrix, 0)
         Matrix.translateM(liftMatrix, 0, 0f, lift, 0f)

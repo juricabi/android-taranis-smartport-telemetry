@@ -43,9 +43,12 @@ class TerrainScene {
         private const val GRID = 193
 
         /**
-         * Ground tiles at zoom 14 are about 1.7km across, so a texture two
-         * levels in is roughly 1.7m per pixel. Three levels would be sharper
-         * and four times the memory, which a phone will not thank us for.
+         * How many levels finer than the ground tile its photograph is.
+         *
+         * A tile at zoom 15 is about 850m across, so three levels in is a
+         * 2048-pixel picture of it: roughly 0.42m per pixel, which is sharp
+         * enough to pick out a track through a field. It is also sixteen
+         * megabytes, which is why so few tiles are held at once.
          */
         private const val IMAGERY_DETAIL = 3
 
@@ -580,7 +583,7 @@ class TerrainScene {
     private var altitudeResolved = false
 
     /**
-     * Work out what the reported altitude is measured from.
+     * Work out what the reported heights mean, if that is not settled already.
      *
      * It cannot be assumed. Betaflight sends height above sea level while the
      * model is disarmed and height above the arming point once it is armed, so
@@ -588,13 +591,11 @@ class TerrainScene {
      * the second against sea level terrain would bury the model a hundred
      * metres underground.
      *
-     * The ground answers it: at the first fix we know what the terrain there
-     * is, so if the reported altitude is nothing like it, the reports are
-     * measured from the launch and the ground under it is what they are
-     * missing.
-     */
-    /**
-     * Work out what the reported heights mean, if that is not settled already.
+     * [referenceOf] answers it, from the whole flight weighed against the
+     * ground beneath it. An earlier version compared the first reading against
+     * the terrain under it, which is not sound — a launch from a valley floor
+     * and a launch from a ridge look the same to it — and that is why the
+     * altitude profile and this view once disagreed about one flight.
      *
      * Returns true when the answer moved the world, so ground built in the old
      * frame has to be built again.
