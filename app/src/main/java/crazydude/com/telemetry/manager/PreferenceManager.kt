@@ -67,6 +67,10 @@ class PreferenceManager(context: Context) {
             .apply()
     }
 
+    fun isMyPositionLoggingEnabled(): Boolean {
+        return sharedPreferences.getBoolean("log_my_position", true)
+    }
+
     fun isClockEnabled(): Boolean {
         return sharedPreferences.getBoolean("show_clock", true)
     }

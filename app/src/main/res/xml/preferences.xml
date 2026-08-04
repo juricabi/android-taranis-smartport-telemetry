@@ -18,6 +18,14 @@
             android:defaultValue="true"
             android:key="csv_logging_enabled"/>
 
+    <SwitchPreference
+            app:iconSpaceReserved="false"
+            android:title="Record my position in the log"
+            android:summary="Writes where this phone is, how good the fix is and which way it faces into the CSV, so a replay can put you back where you stood. It travels with the log if you share one."
+            android:defaultValue="true"
+            android:dependency="csv_logging_enabled"
+            android:key="log_my_position"/>
+
     <ListPreference
             app:iconSpaceReserved="false"
             android:title="Lock screen orientation"
@@ -259,7 +267,7 @@
         <SwitchPreference
             app:iconSpaceReserved="false"
                 android:title="Show nearby aircraft"
-                android:summary="Display real aircraft positions from FlightRadar24 on the map"
+                android:summary="Display real aircraft positions from FlightRadar24 on the map. Live only — never during a replay"
                 android:defaultValue="false"
                 android:key="fr24_enabled"/>
 

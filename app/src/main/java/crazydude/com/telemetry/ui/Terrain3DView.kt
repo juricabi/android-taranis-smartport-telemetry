@@ -741,6 +741,25 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     }
 
     /** Which way the phone is pointing, so the arrow means something. */
+    /**
+     * Where the arrow's bearing comes from: this phone's compass, or a replay
+     * handing back the bearing that was recorded at the time.
+     */
+    private var headingFromRecord = false
+
+    fun useRecordedHeading(on: Boolean) {
+        headingFromRecord = on
+    }
+
+    /** Nothing known about where this phone is: draw neither arrow nor ring. */
+    fun hideMyLocation() {
+        myLat = Double.NaN
+        myLon = Double.NaN
+        myAccuracy = 0f
+        renderer.setMyLocation(Float.NaN, Float.NaN, Float.NaN, 0f)
+        renderer.setAccuracyCircle(FloatArray(0))
+    }
+
     fun setMyHeading(degrees: Float) {
         myHeading = degrees
         placeMyArrow()
@@ -997,6 +1016,8 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         android.hardware.SensorManager.getOrientation(r, orientation)
         var degrees = Math.toDegrees(orientation[0].toDouble()).toFloat()
         if (degrees < 0) degrees += 360f
+        // not while a replay is saying which way the phone was facing then
+        if (headingFromRecord) return
         setMyHeading(degrees)
     }
 

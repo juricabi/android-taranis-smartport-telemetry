@@ -49,8 +49,36 @@ class OtxCsvLogger(name: String? = null) : DataDecoder.Listener {
 //            "RxBt(V)",
         "Curr(A)",
         "VFAS(V)",
-        "Dist(m)"
+        "Dist(m)",
+        // Where the person holding the phone was, which is half of what a
+        // flight looked like: the line home is drawn to it, the arrow and its
+        // ring are drawn on it, and none of that can be reconstructed from a
+        // recording of what the model said.
+        "MyLat",
+        "MyLon",
+        "MyAcc(m)",
+        "MyHdg(deg)"
     )
+
+    @Volatile private var myLat = Double.NaN
+    @Volatile private var myLon = Double.NaN
+    @Volatile private var myAccuracy = Float.NaN
+    @Volatile private var myHeading = Float.NaN
+
+    /** Where this phone is and which way it is facing, as it changes. */
+    fun setMyPosition(lat: Double, lon: Double, accuracy: Float, heading: Float) {
+        myLat = lat
+        myLon = lon
+        myAccuracy = accuracy
+        myHeading = heading
+    }
+
+    /** Blank rather than a nought, which would read as the Gulf of Guinea. */
+    private fun place(value: Double): String =
+        if (value.isNaN()) "" else String.format(Locale.US, "%.7f", value)
+
+    private fun measure(value: Float): String =
+        if (value.isNaN()) "" else String.format(Locale.US, "%.1f", value)
 
     init {
         val stem = name ?: SimpleDateFormat("yyyy-MM-dd HH-mm-ss").format(Date())
@@ -159,7 +187,11 @@ class OtxCsvLogger(name: String? = null) : DataDecoder.Listener {
 //            "RxBt(V)",
             current.toString(),
             batVoltage.toString(),
-            distance.toString()
+            distance.toString(),
+            place(myLat),
+            place(myLon),
+            measure(myAccuracy),
+            measure(myHeading)
         )
         outputLine(data)
     }

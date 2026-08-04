@@ -14,6 +14,10 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbManager
@@ -69,6 +73,7 @@ import org.osmdroid.tileprovider.tilesource.XYTileSource
 import org.osmdroid.util.MapTileIndex
 import uk.co.deanwild.materialshowcaseview.IShowcaseListener
 import uk.co.deanwild.materialshowcaseview.MaterialShowcaseView
+import crazydude.com.telemetry.logger.OperatorTrack
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -207,15 +212,82 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         return fix.accuracy <= held.accuracy || fix.provider == held.provider
     }
 
+    /**
+     * Which way this phone is facing.
+     *
+     * Read here rather than borrowed from whichever view is open: the 3D view
+     * has a reader for its arrow and the map has another for its own, and
+     * neither exists while the other is on screen — but the recording wants it
+     * in every mode, and a replay is worth nothing without it.
+     */
+    @Volatile private var phoneHeading = Float.NaN
+    private val phoneGravity = FloatArray(3)
+    private val phoneGeomagnetic = FloatArray(3)
+    private var hasPhoneGravity = false
+    private var hasPhoneGeomagnetic = false
+
+    private val phoneCompass = object : SensorEventListener {
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
+        override fun onSensorChanged(event: SensorEvent) {
+            when (event.sensor.type) {
+                Sensor.TYPE_ACCELEROMETER -> {
+                    settle(phoneGravity, event.values, hasPhoneGravity)
+                    hasPhoneGravity = true
+                }
+                Sensor.TYPE_MAGNETIC_FIELD -> {
+                    settle(phoneGeomagnetic, event.values, hasPhoneGeomagnetic)
+                    hasPhoneGeomagnetic = true
+                }
+            }
+            if (!hasPhoneGravity || !hasPhoneGeomagnetic) return
+            val r = FloatArray(9)
+            if (!SensorManager.getRotationMatrix(r, null, phoneGravity, phoneGeomagnetic)) return
+            val orientation = FloatArray(3)
+            SensorManager.getOrientation(r, orientation)
+            var degrees = Math.toDegrees(orientation[0].toDouble()).toFloat()
+            if (degrees < 0) degrees += 360f
+            phoneHeading = degrees
+            recordWhereIAm()
+        }
+    }
+
+    /** A fifth of the way to each reading: a compass on its own jitters. */
+    private fun settle(held: FloatArray, fresh: FloatArray, had: Boolean) {
+        for (i in held.indices) {
+            held[i] = if (had) held[i] + (fresh[i] - held[i]) * 0.2f else fresh[i]
+        }
+    }
+
+    /**
+     * Hand the recording where this phone is, so a replay can put it back.
+     *
+     * Only where it is being recorded at all — it lands in the CSV, which
+     * travels with the log wherever the log goes.
+     */
+    private fun recordWhereIAm() {
+        if (!preferenceManager.isMyPositionLoggingEnabled()) return
+        val fix = bestPhoneFix ?: return
+        dataService?.setPhonePosition(
+            fix.latitude, fix.longitude,
+            if (fix.hasAccuracy()) fix.accuracy else Float.NaN,
+            phoneHeading
+        )
+    }
+
     private val phoneLocationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
             if (!worthBelieving(location)) return
             bestPhoneFix = location
+            recordWhereIAm()
             // kept for the 3D view, which draws the same accuracy circle the map does
             phoneAccuracy = if (location.hasAccuracy()) location.accuracy else 0f
             runOnUiThread {
                 updateHomeLine()
-                terrain3D?.setMyPosition(location.latitude, location.longitude, phoneAccuracy)
+                // not over a replay, which is drawing where the phone was then
+                if (!isInReplayMode()) {
+                    terrain3D?.setMyPosition(location.latitude, location.longitude, phoneAccuracy)
+                }
             }
         }
         override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
@@ -310,20 +382,23 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var replayFileString: String? = null
 
     /**
-     * When the flight being replayed happened.
+     * The flight's own record of the operator: where they stood, which way they
+     * faced, how good the fix was, and the time on every row of it.
      *
-     * A log is a recording of the bytes off the link and carries no clock of
-     * its own — nothing here decodes a time or a date out of any protocol — so
-     * the beginning comes from the note the recorder writes beside it, and
-     * nowhere else. Not from the name, which a rename takes away; and not from
+     * A log is a recording of the bytes off the link and has nothing in it
+     * about the person holding the phone, nor any clock — nothing here decodes
+     * a time out of any protocol. Both come from the CSV recorded beside it,
+     * and nowhere else: not the log's name, which a rename takes away, and not
      * the file's own dates, which say when it was last written and would put
-     * the start of the flight at the end of it.
+     * the start of a flight at the end of it.
      *
-     * A log with no note kept has no honest answer, and is given none.
+     * A log with no CSV beside it says nothing about either, and is made to
+     * say nothing: no clock, no arrow, no ring, no line home.
      */
-    private var replayStartedAt: Date? = null
-    private var replayEndedAt: Date? = null
-    private var replayTimeRead = false
+    private var operatorTrack: OperatorTrack? = null
+    private var recordedMe: Position? = null
+    private var meMarker: MapMarker? = null
+    private var meRing: MapLine? = null
 
     private val timeOfDayFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
     private val flightDayFormat = SimpleDateFormat("d MMM yyyy HH:mm:ss", Locale.getDefault())
@@ -334,6 +409,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * A replay drives the clock from the log itself, every time the position
      * changes; this is the live one, and the seconds are all it has to show.
      */
+    /** The ring drawn round a recorded fix, and how round it is. */
+    private val RING_COLOUR = android.graphics.Color.argb(140, 90, 160, 255)
+    private val RING_POINTS = 36
+
     private val clockTicker = object : Runnable {
         override fun run() {
             showTime()
@@ -808,63 +887,118 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     /**
      * The time of day at the point the replay has reached.
      *
-     * The recording says when it began and the file says when it was last
-     * written, which is when it ended — so the flight has a real length, and
-     * the position in the log says how far through it we are. A telemetry link
-     * talks at a steady rate, so packets counted are as good a measure of time
-     * passed as anything in the file: it is exact at both ends of the flight
-     * and within a few seconds anywhere between.
-     *
-     * A log with no note beside it says nothing: no clock is drawn at all.
+     * The CSV says when the first row was written and when the last one was, so
+     * the flight has a real length; the position in the log says how far
+     * through it we are. A telemetry link talks at a steady rate, so packets
+     * counted measure time passed well enough: exact at both ends of the flight
+     * and within a few seconds between them.
      */
     private fun replayTimeNow(): Date? {
-        readReplayTimes()
-        val start = replayStartedAt ?: return null
-        val end = replayEndedAt ?: return start
-        if (end.time <= start.time) return start
+        val track = operatorTrack ?: return null
+        val span = track.endedAt - track.startedAt
+        if (span <= 0L) return Date(track.startedAt)
         val total = seekbar.max
-        if (total <= 0) return start
+        if (total <= 0) return Date(track.startedAt)
         val at = (logPlayer?.currentPosition ?: 0).toFloat() / total
         val part = Math.max(0f, Math.min(1f, at))
-        return Date(start.time + ((end.time - start.time) * part).toLong())
+        return Date(track.startedAt + (span * part).toLong())
     }
 
-    private fun readReplayTimes() {
-        if (replayTimeRead) return
-        replayTimeRead = true
-        val name = replayFileString ?: return
-        replayStartedAt = noteOfStart(name) ?: return
-        // and the end, to run to: the last thing written to the recording is
-        // the last thing that came off the link
-        val file = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), name)
-        val written = if (file.exists()) file.lastModified() else 0L
-        replayEndedAt = if (written > 0) Date(written) else null
+    /**
+     * Read the flight's record of the operator, off the screen's thread.
+     *
+     * A CSV of a long flight is five rows a second of it, and the log it
+     * belongs to is being decoded at the same moment behind a progress dialog.
+     */
+    private fun readOperatorTrack(log: File) {
+        forgetOperator()
+        val csv = File(log.parentFile, replaceExtension(log.name, ".csv"))
+        val worker = Thread(Runnable {
+            val track = try {
+                OperatorTrack.read(csv)
+            } catch (e: Throwable) {
+                null
+            }
+            runOnUiThread {
+                if (isFinishing) return@runOnUiThread
+                operatorTrack = track
+                showTime()
+                showOperator()
+            }
+        })
+        worker.name = "operator-track"
+        worker.start()
     }
 
-    /** The start time written beside the log while it was being recorded. */
-    private fun noteOfStart(logName: String): Date? {
-        val beside = File(
-            Environment.getExternalStoragePublicDirectory("TelemetryLogs"),
-            replaceExtension(logName, ".start")
-        )
-        if (!beside.exists()) return null
-        return try {
-            val epoch = beside.readLines()
-                .firstOrNull { it.startsWith("epoch=") }
-                ?.substringAfter("epoch=")
-                ?.trim()
-                ?.toLongOrNull()
-            if (epoch != null && epoch > 0) Date(epoch) else null
-        } catch (e: Exception) {
-            null
+    /**
+     * Put the operator back where they were standing at this point of the
+     * flight: the arrow, the ring around it, the way they were facing, and the
+     * line home, which is drawn to them.
+     *
+     * With no record of it, none of the four is drawn. Where somebody stood is
+     * not a thing worth guessing at — replayed against wherever this phone
+     * happens to be now, the line home crosses the county.
+     */
+    private fun showOperator() {
+        if (!isInReplayMode()) return
+        val track = operatorTrack
+        val now = replayTimeNow()
+        if (track == null || now == null) {
+            map?.isMyLocationEnabled = false
+            meMarker?.remove(); meMarker = null
+            meRing?.remove(); meRing = null
+            terrain3D?.hideMyLocation()
+            updateHomeLine()
+            return
         }
+        val where = track.at(now.time)
+        recordedMe = Position(where.lat, where.lon)
+
+        // the map's own arrow is the live one, and this is not it
+        map?.isMyLocationEnabled = false
+        val here = recordedMe ?: return
+        val marker = meMarker ?: map?.addMarker(R.drawable.ic_pos_arrow, here)?.also {
+            meMarker = it
+        }
+        marker?.position = here
+        if (!where.heading.isNaN()) marker?.rotation = where.heading
+        drawAccuracyRing(here, where.accuracy)
+        terrain3D?.useRecordedHeading(true)
+        terrain3D?.setMyPosition(where.lat, where.lon, if (where.accuracy.isNaN()) 0f else where.accuracy)
+        if (!where.heading.isNaN()) terrain3D?.setMyHeading(where.heading)
+        updateHomeLine()
+    }
+
+    /** The same circle the map draws around a live fix, around a recorded one. */
+    private fun drawAccuracyRing(centre: Position, accuracy: Float) {
+        if (accuracy.isNaN() || accuracy < 1f) {
+            meRing?.remove()
+            meRing = null
+            return
+        }
+        val ring = meRing ?: map?.addPolyline(2f, RING_COLOUR)?.also { meRing = it }
+        val metresPerDegreeLon = 111320.0 * Math.cos(Math.toRadians(centre.lat))
+        val points = ArrayList<Position>(RING_POINTS + 1)
+        for (step in 0..RING_POINTS) {
+            val angle = 2.0 * Math.PI * step / RING_POINTS
+            points.add(
+                Position(
+                    centre.lat + accuracy * Math.cos(angle) / 111320.0,
+                    centre.lon + accuracy * Math.sin(angle) / metresPerDegreeLon
+                )
+            )
+        }
+        ring?.clear()
+        ring?.addPoints(points)
     }
 
     /** For a replay that has been closed, opened or renamed. */
-    private fun forgetReplayTime() {
-        replayStartedAt = null
-        replayEndedAt = null
-        replayTimeRead = false
+    private fun forgetOperator() {
+        operatorTrack = null
+        recordedMe = null
+        meMarker?.remove(); meMarker = null
+        meRing?.remove(); meRing = null
+        terrain3D?.useRecordedHeading(false)
         showTime()
     }
 
@@ -876,7 +1010,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     private fun showMyLocation() {
         if (checkCallingOrSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            map?.isMyLocationEnabled = true
+            // Not over a replay: the map's own arrow is this phone now, and a
+            // replay draws where the phone was then, out of the recording.
+            map?.isMyLocationEnabled = !isInReplayMode()
         } else {
             ActivityCompat.requestPermissions(
                 this,
@@ -906,6 +1042,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         drawFlightPlans()
     }
 
+    /**
+     * Where the phone is, for the line home and anything else drawn from it: as
+     * recorded while replaying, and as it is now otherwise.
+     */
+    private fun wherePhoneIs(): Position? =
+        if (isInReplayMode()) recordedMe else myLastKnownPlace()
+
     private fun updateHomeLine() {
         val line = homeLine ?: return
         line.color = preferenceManager.getHomeLineColor()
@@ -919,8 +1062,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val drone = if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) shownPosition() else return
         // where this phone is, from the system if the map's own overlay has
         // not found it yet: a newly built map takes a while to get its first
-        // fix, and the line home waited all of it
-        val phone = myLastKnownPlace() ?: return
+        // fix, and the line home waited all of it. Replaying, it is where the
+        // phone was then — there is no line to draw without that.
+        val phone = wherePhoneIs() ?: run {
+            line.clear()
+            map?.invalidate()
+            return
+        }
         if (line.size == 2) {
             line.setPoint(0, drone)
             line.setPoint(1, phone)
@@ -1171,7 +1319,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             switchToReplayMode()
 
             replayFileString = it.name
-            forgetReplayTime()
+            readOperatorTrack(file)
 
             if (ContextCompat.checkSelfPermission(
                     this,
@@ -1201,6 +1349,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                             fromUser: Boolean
                         ) {
                             logPlayer?.seek(position)
+                            showOperator()
                             // The clock keeps step with the log rather than
                             // with the wall: the replay moves twenty times a
                             // second, and sampling it once a second showed a
@@ -1626,6 +1775,17 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 }
             }
         }
+        val sensors = getSystemService(SENSOR_SERVICE) as SensorManager?
+        sensors?.let {
+            it.registerListener(
+                phoneCompass, it.getDefaultSensor(Sensor.TYPE_ACCELEROMETER),
+                SensorManager.SENSOR_DELAY_UI
+            )
+            it.registerListener(
+                phoneCompass, it.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD),
+                SensorManager.SENSOR_DELAY_UI
+            )
+        }
         startFr24()
     }
 
@@ -1640,6 +1800,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         updateFullscreenState()//check if user has brought system ui with swipe
         val lm = getSystemService(LOCATION_SERVICE) as LocationManager
         lm.removeUpdates(phoneLocationListener)
+        (getSystemService(SENSOR_SERVICE) as SensorManager?)?.unregisterListener(phoneCompass)
     }
 
     override fun onStop() {
@@ -3670,11 +3831,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     private fun switchToReplayMode() {
+        stopFr24()
         setFollowMode(true);
         seekBar.setOnSeekBarChangeListener(null)
         seekBar.progress = 0
         menuButton.show()
-        connectButton.visibility = View.GONE
+        // Still taking up its room: gone, the bar shrank to whatever was
+        // left in it, and the whole screen jumped every time a replay opened.
+        connectButton.visibility = View.INVISIBLE
         replayButton.setImageDrawable(ContextCompat.getDrawable(this, R.drawable.ic_close))
         replayButton.setOnClickListener {
             lastConnectionType = CONNTYPE_NONE; //reset last connection type to skip reconnection
@@ -3690,6 +3854,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private fun switchToIdleState() {
         this.logPlayer?.stop();
         this.logPlayer = null;
+        // out of the replay, so the sky is worth watching again
+        startFr24()
+        showMyLocation()
         resetUI()
         menuButton.hide()
         seekBar.visibility = View.GONE
@@ -3722,7 +3889,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private fun closeReplay() {
         replayFileString = null
-        forgetReplayTime()
+        forgetOperator()
         // The whole of it: a recording that has been closed leaves nothing
         // behind, neither the model nor the flight it was playing back, and in
         // the 3D view that includes the surface hanging under the flight.
@@ -4377,21 +4544,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             val csvNewFile = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), csvNewFileName)
             csvCurrentFile.renameTo(csvNewFile)
 
-            // and the note of when the flight started, which is no use to a log
-            // it has been left behind by
-            File(
-                Environment.getExternalStoragePublicDirectory("TelemetryLogs"),
-                replaceExtension(currentFileName, ".start")
-            ).renameTo(
-                File(
-                    Environment.getExternalStoragePublicDirectory("TelemetryLogs"),
-                    replaceExtension(newFileName, ".start")
-                )
-            )
-
             if (currentFileName == replayFileString) {
                 replayFileString = newFileName;
-                forgetReplayTime()
             }
         } else {
             Toast.makeText(this, "Failed to rename log.", Toast.LENGTH_SHORT).show()
@@ -4451,10 +4605,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         for (file in files) {
             if (file.delete()) {
                 deleted++
-                // the CSV recorded alongside it, and the note of when it
-                // started, as deleting one log does
+                // the CSV recorded alongside it, as deleting one log does
                 File(file.parentFile, replaceExtension(file.name, ".csv")).delete()
-                File(file.parentFile, replaceExtension(file.name, ".start")).delete()
             }
         }
         val failed = files.size - deleted
@@ -4499,11 +4651,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             val csvFileName = replaceExtension( fileName, ".csv")
             val currentFileCSV = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), csvFileName)
             currentFileCSV.delete();
-
-            File(
-                Environment.getExternalStoragePublicDirectory("TelemetryLogs"),
-                replaceExtension(fileName, ".start")
-            ).delete()
 
             if (fileName == replayFileString) {
                 // the log being replayed has just been deleted, so the replay
@@ -4645,6 +4792,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     // --- FlightRadar24 nearby aircraft ---
 
     private fun startFr24() {
+        // Aircraft are where they are now, around where this phone is now. Over
+        // a replay of last week's flight they are neither the right aircraft
+        // nor in the right place, so a replay does without them.
+        if (isInReplayMode()) return
         if (preferenceManager.isFr24Enabled()) {
             fr24Manager = Fr24Manager(preferenceManager, this)
             fr24Manager?.start { myLastKnownPlace() }

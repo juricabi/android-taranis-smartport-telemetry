@@ -142,41 +142,27 @@ class DataService : Service(), DataDecoder.Listener {
                 android.Manifest.permission.WRITE_EXTERNAL_STORAGE
             ) == PackageManager.PERMISSION_GRANTED
         ) {
-            val started = Date()
-            val name = SimpleDateFormat("yyyy-MM-dd HH-mm-ss").format(started)
+            val name = SimpleDateFormat("yyyy-MM-dd HH-mm-ss").format(Date())
             logName = name
             val dir = Environment.getExternalStoragePublicDirectory("TelemetryLogs")
             dir.mkdirs()
             val file = File(dir, "$name.tlm")
             fileOutputStream = FileOutputStream(file)
-            noteStartTime(dir, name, started)
         }
 
         return fileOutputStream
     }
 
     /**
-     * When this flight began, beside the recording of it.
+     * Where the phone is and which way it is facing, for the CSV to write down.
      *
-     * A log is a recording of the bytes off the link and carries no clock in
-     * it, and the file's own dates say when it was last written — which is when
-     * the flight ended, a quarter of an hour out on a long one. The name says
-     * when it started, until somebody renames the log.
-     *
-     * So it is written down: one small file alongside the recording and the
-     * CSV, named after the same flight, and renamed and deleted with them. The
-     * epoch is what is read back; the second line is for whoever opens it.
+     * The recording is of what came off the link and has nothing in it about
+     * the person holding the phone — so without this a replay can only draw the
+     * operator where the operator is standing now, which for a flight recorded
+     * anywhere else puts the line home across the county.
      */
-    private fun noteStartTime(dir: File, name: String, started: Date) {
-        try {
-            File(dir, "$name.start").writeText(
-                "epoch=" + started.time + "\n" +
-                    "started=" + SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(started) + "\n"
-            )
-        } catch (e: Exception) {
-            // A log without one is still a log: replaying it falls back to the
-            // file's own date, as every log recorded before this did.
-        }
+    fun setPhonePosition(lat: Double, lon: Double, accuracy: Float, heading: Float) {
+        logListener?.setMyPosition(lat, lon, accuracy, heading)
     }
 
     fun connect(serialPort: UsbSerialPort, connection: UsbDeviceConnection) {
