@@ -25,6 +25,12 @@
             android:defaultValue="false"
             android:key="ignore_disarmed_height"/>
 
+    <Preference
+            app:iconSpaceReserved="false"
+            android:key="background_location"
+            android:title="Location while the app is away"
+            android:summary="Checking..."/>
+
     <SwitchPreference
             app:iconSpaceReserved="false"
             android:title="Record my position in the log"

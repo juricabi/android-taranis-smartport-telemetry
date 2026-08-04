@@ -2,9 +2,14 @@ package crazydude.com.telemetry.ui
 
 import android.app.Activity
 import android.content.*
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.os.Bundle
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
+import androidx.core.content.ContextCompat
 import androidx.preference.PreferenceFragmentCompat
 import crazydude.com.telemetry.R
 import crazydude.com.telemetry.manager.FlightPlanManager
@@ -38,6 +43,17 @@ class PrefsFragment : PreferenceFragmentCompat() {
         // this screen from a debug build at all.
         findPreference("sensor_display_settings").setOnPreferenceClickListener {
             startActivity(Intent(context, SensorsActivity::class.java))
+            true
+        }
+
+        findPreference("background_location").setOnPreferenceClickListener {
+            // Android will not offer "all the time" in a dialog for an app of
+            // this vintage — it is only offered in the app's own settings — so
+            // the honest thing is to take the user there rather than to ask for
+            // something that cannot be granted from here.
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+            intent.data = Uri.parse("package:" + context!!.packageName)
+            startActivity(intent)
             true
         }
 
@@ -96,6 +112,7 @@ class PrefsFragment : PreferenceFragmentCompat() {
         }
 
         updateSummary()
+        showBackgroundLocationState()
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -190,6 +207,48 @@ class PrefsFragment : PreferenceFragmentCompat() {
     override fun onDestroy() {
         super.onDestroy()
         preferenceManager.sharedPreferences.unregisterOnSharedPreferenceChangeListener(listener)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Read again on the way back from the system settings, which is where
+        // this sends people.
+        showBackgroundLocationState()
+    }
+
+    /**
+     * Whether the phone's position can still be heard once this app is out of
+     * sight, which is what a flight watched with the phone in a pocket needs.
+     */
+    private fun showBackgroundLocationState() {
+        val pref = findPreference("background_location") ?: return
+        val ctx = context ?: return
+        val fine = ContextCompat.checkSelfPermission(
+            ctx, android.Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        // Both spelled out rather than named: this is built against an SDK
+        // older than the one that introduced them, and an app of this vintage
+        // is granted the background one implicitly when the user chooses
+        // "all the time" in the system settings.
+        val always = if (Build.VERSION.SDK_INT < 29) {
+            fine
+        } else {
+            ContextCompat.checkSelfPermission(
+                ctx, "android.permission.ACCESS_BACKGROUND_LOCATION"
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+        pref.summary = when {
+            !fine ->
+                "Location is not allowed at all. Tap to allow it, or the flight is " +
+                    "recorded without where you were standing."
+            always ->
+                "Allowed all the time. Where you stood is recorded for the whole " +
+                    "flight, including while the screen is off or the app is away."
+            else ->
+                "Allowed only while the app is open, so a flight watched with the " +
+                    "phone in a pocket records no operator position for that stretch. " +
+                    "Tap, then Permissions, then Location, then Allow all the time."
+        }
     }
 
     private fun updateSummary() {
