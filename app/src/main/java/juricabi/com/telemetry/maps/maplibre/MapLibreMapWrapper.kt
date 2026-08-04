@@ -56,9 +56,26 @@ class MapLibreMapWrapper(
     /** The tile layer everything of ours is drawn above. */
     private val above = MapLibreStyles.topTileLayer(type)
 
+    /**
+     * Where this phone is, and where it stood while a replay was recorded.
+     *
+     * Built before the style so the queue takes them first: everything is
+     * layered above whatever went in before it, and these two belong under the
+     * flight and its markers rather than over them.
+     */
+    private val me = MapLibreSpot(context, "me", above, ::whenReady)
+    private val logged = MapLibreSpot(context, "logged", above, ::whenReady)
+
     init {
         mapView.getMapAsync { ready ->
             map = ready
+            // MapLibre brings its own compass and its own badge. This screen
+            // already draws a compass of its own, in the place it has always
+            // been, and a second one disagreeing with it in the corner is worse
+            // than none.
+            ready.uiSettings.isCompassEnabled = false
+            ready.uiSettings.isLogoEnabled = false
+            ready.uiSettings.isAttributionEnabled = false
             ready.setStyle(MapLibreStyles.forType(type)) { loaded ->
                 style = loaded
                 val queued = ArrayList(pending)
@@ -92,9 +109,44 @@ class MapLibreMapWrapper(
         // osmdroid did it too: a style is chosen when it is built.
         set(value) {}
 
-    override var isMyLocationEnabled: Boolean = false
+    override var isMyLocationEnabled: Boolean = true
+        set(value) {
+            field = value
+            me.setVisible(value)
+        }
 
-    override fun getMyLocation(): Position? = null
+    /**
+     * Where the phone is, as this map was last told.
+     *
+     * osmdroid answered this from the location provider inside its own overlay.
+     * There is no provider here and there should not be: DataService owns the
+     * only location listener there is, because it outlives the screen, and the
+     * screen hands what it hears to whichever map it has. Returning nothing
+     * from here left the locate button saying the phone had no location while
+     * the arrow for it was on the screen, and took the bearing off find my
+     * quad's "from you" as well.
+     */
+    override fun getMyLocation(): Position? = me.position()
+
+    override fun setPhoneLocation(position: Position, accuracy: Float) {
+        me.place(position, accuracy, phoneBearing)
+    }
+
+    private var phoneBearing = Float.NaN
+
+    override fun setPhoneBearing(degrees: Float) {
+        phoneBearing = degrees
+        me.place(me.position(), me.accuracy(), degrees)
+    }
+
+    override fun setArrowColours(live: Int, logged: Int) {
+        me.setColour(live)
+        this.logged.setColour(logged)
+    }
+
+    override fun showRecordedLocation(position: Position?, accuracy: Float, heading: Float) {
+        logged.place(position, accuracy, heading)
+    }
 
     /**
      * Where the camera is put, every frame, with nothing eased here.
