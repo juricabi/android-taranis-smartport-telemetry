@@ -76,6 +76,12 @@ class MapLibreMapWrapper(
             ready.uiSettings.isCompassEnabled = false
             ready.uiSettings.isLogoEnabled = false
             ready.uiSettings.isAttributionEnabled = false
+            // Two fingers dragged up tilts a MapLibre map, and this one has no
+            // height in it to tilt: the ground stays flat and the imagery
+            // stretches away, which looks like a fault and is one. Leaning over
+            // a landscape is what the ground view is for, and it has real
+            // elevation under it. Turning is kept — heading-up needs it.
+            ready.uiSettings.isTiltGesturesEnabled = false
             // Two levels past the last real pictures, which osmdroid allowed
             // too: past that the ground is upscaled mush and the flight is
             // being read off nothing. Left at MapLibre's own ceiling a pinch
