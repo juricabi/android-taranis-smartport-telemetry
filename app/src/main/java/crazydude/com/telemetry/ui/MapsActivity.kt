@@ -430,6 +430,19 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var replayFileString: String? = null
 
     /**
+     * A replay held back until there is ground to watch it over.
+     *
+     * A log starts playing the moment it has finished decoding, and the ground
+     * it happened over takes a few seconds the first time it is fetched —
+     * sixty-four pictures for each tile of it. So the flight raced across bare
+     * mesh while the terrain came in behind it, and by the time there was
+     * anything to see, most of it had already happened. Only ever the first
+     * visit to a field: after that the pictures are on the phone and the wait
+     * is nothing.
+     */
+    private var replayWaitingForGround = false
+
+    /**
      * The flight's own record of the operator: where they stood, which way they
      * faced, how good the fix was, and the time on every row of it.
      *
@@ -775,6 +788,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
 
         playButton.setOnClickListener {
+            // asked for by hand: nothing is owed to it afterwards
+            replayWaitingForGround = false
             if ( this.logPlayer != null) {
                 if ( this.logPlayer?.isPlaying() == true) {
                     this.logPlayer?.stop()
@@ -1474,7 +1489,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
                 override fun getPlaybackAutostart() : Boolean
                 {
-                    return preferenceManager.getPlaybackAutostart()
+                    if (!preferenceManager.getPlaybackAutostart()) return false
+                    val view = terrain3D
+                    if (view != null && !view.groundReady()) {
+                        replayWaitingForGround = true
+                        return false
+                    }
+                    return true
                 }
 
                 override fun onProtocolDetected(protocolName: String) {
@@ -3102,6 +3123,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // opening this view with nothing arriving showed the model facing north
         // wherever it had really been going, exactly as the map's marker did.
         if (gotHeading) view.setModelAttitude(lastHeading, lastPitch, lastRoll)
+        view.onGroundReady = { releaseHeldReplay() }
+        // Switching to the ground mid-replay waits the same way, rather than
+        // playing on behind a screen with nothing on it.
+        if (logPlayer?.isPlaying() == true) {
+            logPlayer?.stop()
+            replayWaitingForGround = true
+        }
         view.onFollowingLost = { setFollowMode(false) }
         view.onBearingChanged = { updateCompassHeading(it) }
         // The buttons say what they were saying before the switch.
@@ -3196,6 +3224,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     private fun hide3DView() {
+        // leaving the view it was waiting for: the map needs no ground
+        releaseHeldReplay()
         terrain3D?.let {
             it.onPause()
             it.release()
@@ -4000,6 +4030,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * the model in a replay is a recording being played, and when it stops
      * there is nothing there.
      */
+    /** Let a held replay run, now that there is something to run it over. */
+    private fun releaseHeldReplay() {
+        if (!replayWaitingForGround) return
+        replayWaitingForGround = false
+        logPlayer?.startPlayback()
+    }
+
     private fun closeReplay() {
         // first, so that everything asking whether this is a replay is answered
         // truthfully by the time it is asked — the live arrow is switched on by

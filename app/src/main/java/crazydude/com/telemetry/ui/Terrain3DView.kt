@@ -47,6 +47,12 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     /** The ground is up: until it is, there is nothing to draw anything on. */
     private var terrainReady = false
 
+    /** Whether there is ground with a photograph on it to watch a flight over. */
+    fun groundReady(): Boolean = terrainReady
+
+    /** Called once, when there is. A replay waits on this before it runs. */
+    var onGroundReady: (() -> Unit)? = null
+
     /**
      * Whether a flight belongs on screen. Set when one is handed in at the
      * start, and when a fix arrives afterwards — so a finished flight left in
@@ -212,9 +218,11 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
                 // going to be. Left false, nothing would ever draw again and
                 // the screen would stay black with nothing said.
                 post {
+                    val first = !terrainReady
                     terrainReady = true
                     loadingTerrain = false
                     rebuildOverlays()
+                    if (first) onGroundReady?.invoke()
                 }
             }
         })
@@ -286,6 +294,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             rebuildOverlays()
             placeMyArrow()
             placeLoggedArrow()
+            onGroundReady?.invoke()
         }
         status.text = if (meshes.isEmpty()) "No terrain here" else ""
     }
