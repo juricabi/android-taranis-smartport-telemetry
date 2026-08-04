@@ -123,12 +123,13 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
                 val now = System.currentTimeMillis()
                 var moved = ((compassBearing - pushedBearing + 540f) % 360f) - 180f
                 if (moved < 0f) moved = -moved
-                // Every push redraws the map — tiles, markers and the whole
-                // route line. Held in the hand the needle never stops moving,
-                // so a degree was enough to keep that going all day, competing
-                // with the frames the camera needs. Three degrees is still
-                // under a pixel at the tip of a 22dp arrow.
-                if (now - lastBearingPush > 200 && moved > 3f) {
+                // Every push redraws the map, so this is not free — but three
+                // degrees and a fifth of a second was coarse enough to see: the
+                // needle turned in steps beside a 3D view that eases its arrow
+                // every frame. Half a degree, sixteen times a second, is smooth
+                // to the eye and still a fraction of what the map draws while
+                // following a model.
+                if (now - lastBearingPush > 60 && moved > 0.5f) {
                     // redrawing the map on every sample would run all day with
                     // the phone lying still, so only do it when it has turned
                     lastBearingPush = now
