@@ -151,7 +151,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
                 // Not started, so nothing is loading and nothing will draw. The
                 // tick still runs: the first fix to arrive starts the ground.
                 started = false
-                ticker.post(poll)
+                watch()
                 return
             }
             scene.setOrigin(fallbackLat, fallbackLon, 0f)
@@ -204,7 +204,22 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         })
         worker.name = "terrain-load"
         worker.start()
+        watch()
+    }
+
+    /**
+     * The view's two loops: the tick that follows the flight, and the watch
+     * that reads the camera's bearing off it.
+     *
+     * Once each, however often this is called — start posts them and so does
+     * coming back to the screen, and two chains of either run at twice the
+     * rate for the life of the view.
+     */
+    private fun watch() {
+        ticker.removeCallbacks(poll)
         ticker.post(poll)
+        ticker.removeCallbacks(bearingWatch)
+        ticker.post(bearingWatch)
     }
 
     /**
@@ -1076,12 +1091,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
 
     fun onResume() {
         surface.onResume()
-        // once, however many times this is called: start() posts it too, and
-        // two chains of it ran the whole first session at twice the rate
-        ticker.removeCallbacks(poll)
-        ticker.post(poll)
-        ticker.removeCallbacks(bearingWatch)
-        ticker.post(bearingWatch)
+        watch()
     }
 
     fun onPause() {
