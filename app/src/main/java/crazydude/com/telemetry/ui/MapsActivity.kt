@@ -735,6 +735,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             updateHeading()
             updateHomeLine()
         }
+        // and the traffic, which is otherwise gone until the next poll comes
+        // round — half a minute of empty sky after every switch of view
+        if (lastAirplanes.isNotEmpty()) onAirplanesUpdated(lastAirplanes)
     }
 
     private fun updateCompassHeading(orientation: Float) {
@@ -786,7 +789,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // from where the model is drawn, not where the fix was, so the line
         // stays joined to it as it moves
         val drone = if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) shownPosition() else return
-        val phone = map?.getMyLocation() ?: return
+        // where this phone is, from the system if the map's own overlay has
+        // not found it yet: a newly built map takes a while to get its first
+        // fix, and the line home waited all of it
+        val phone = myLastKnownPlace() ?: return
         if (line.size == 2) {
             line.setPoint(0, drone)
             line.setPoint(1, phone)
@@ -2709,6 +2715,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         )
         applyTerrainSettings(view)
         view.setTraffic(lastAirplanes)
+        // Facing the way it was last seen facing. A view is built with a model
+        // pointing north and level, and only an arriving attitude turns it — so
+        // opening this view with nothing arriving showed the model facing north
+        // wherever it had really been going, exactly as the map's marker did.
+        if (gotHeading) view.setModelAttitude(lastHeading, lastPitch, lastRoll)
         view.onFollowingLost = { setFollowMode(false) }
         view.onBearingChanged = { updateCompassHeading(it) }
         if (chaseMode) view.setChasing(true)
