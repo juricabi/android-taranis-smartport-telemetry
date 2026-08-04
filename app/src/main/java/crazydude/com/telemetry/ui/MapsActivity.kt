@@ -187,7 +187,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var flightPlanLines: MutableList<MapLine> = mutableListOf()
     private var homeLine: MapLine? = null
     /** The fix being believed, so a worse one cannot take its place. */
-    private var bestPhoneFix: Location? = null
+    @Volatile private var bestPhoneFix: Location? = null
 
     /**
      * Both providers are listened to, because indoors the satellites never
@@ -273,16 +273,31 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     /** What the screen knows about this phone, onto the map that draws it. */
     private fun tellMapWhereIAm() {
-        val fix = bestPhoneFix ?: return
+        // The system's last known place until this screen has heard one of its
+        // own: the map used to ask for that itself, and without it a map built
+        // before the first fix has no arrow on it at all.
+        val fix = bestPhoneFix
+        val where = if (fix != null) {
+            Position(fix.latitude, fix.longitude)
+        } else {
+            myLastKnownPlace() ?: return
+        }
         map?.setPhoneLocation(
-            Position(fix.latitude, fix.longitude),
-            if (fix.hasAccuracy()) fix.accuracy else Float.NaN
+            where,
+            if (fix != null && fix.hasAccuracy()) fix.accuracy else Float.NaN
         )
         if (!phoneHeading.isNaN()) map?.setPhoneBearing(phoneHeading)
     }
 
     private fun recordWhereIAm() {
-        if (!preferenceManager.isMyPositionLoggingEnabled()) return
+        if (!preferenceManager.isMyPositionLoggingEnabled()) {
+            // turned off mid-flight: the rows that follow say nothing, rather
+            // than repeating the last place it was told about for ever
+            dataService?.setPhonePosition(
+                Double.NaN, Double.NaN, Float.NaN, Float.NaN
+            )
+            return
+        }
         val fix = bestPhoneFix ?: return
         dataService?.setPhonePosition(
             fix.latitude, fix.longitude,
@@ -1803,6 +1818,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val lm = getSystemService(LOCATION_SERVICE) as LocationManager
         lm.removeUpdates(phoneLocationListener)
         (getSystemService(SENSOR_SERVICE) as SensorManager?)?.unregisterListener(phoneCompass)
+        // and the recording stops being told where the phone is, because from
+        // here nobody knows. The link keeps recording in the background, and
+        // every row of it would otherwise carry the last place this screen saw
+        // — a phone in a pocket, walking about, written down as standing still.
+        dataService?.setPhonePosition(Double.NaN, Double.NaN, Float.NaN, Float.NaN)
     }
 
     override fun onStop() {

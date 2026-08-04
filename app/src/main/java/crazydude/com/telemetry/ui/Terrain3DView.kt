@@ -756,7 +756,10 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         myLat = Double.NaN
         myLon = Double.NaN
         myAccuracy = 0f
-        renderer.setMyLocation(Float.NaN, Float.NaN, Float.NaN, 0f)
+        // said outright: handing it a position of nothing left it visible at
+        // coordinates that are not numbers, which draws nothing only because
+        // nothing is what a NaN triangle comes to
+        renderer.hideMyLocation()
         renderer.setAccuracyCircle(FloatArray(0))
     }
 

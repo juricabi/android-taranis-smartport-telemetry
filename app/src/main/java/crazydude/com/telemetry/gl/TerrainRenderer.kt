@@ -577,6 +577,11 @@ class TerrainRenderer : GLSurfaceView.Renderer {
      * from close in.
      */
     @Synchronized
+    /** Nothing known about this phone: the arrow goes, rather than moving. */
+    fun hideMyLocation() {
+        myVisible = false
+    }
+
     fun setMyLocation(x: Float, y: Float, z: Float, headingDegrees: Float) {
         myX = x; myY = y; myZ = z
         myHeadingTarget = headingDegrees
