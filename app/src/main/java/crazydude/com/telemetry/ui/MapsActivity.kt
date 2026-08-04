@@ -705,13 +705,24 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // outlives this screen and keeps the points of whatever it last heard,
         // so an unconnected map opened afterwards drew the last flight as
         // though it were happening — which the 3D ground never did.
-        val p = dataService?.points
-        if (p != null && (dataService?.isConnected() == true || isInReplayMode())) {
-            polyLine?.submitPoints(p)
-            // and put them on it. Handing them over only stages them; without
-            // this the flight was invisible on a map just built until something
-            // else happened to commit — which in a replay meant nothing until
-            // the slider was moved.
+        // The flight, from whichever record of it is the fuller.
+        //
+        // There are two: the service keeps one for building a map from, and the
+        // 3D view is fed another. They should hold the same flight and mostly
+        // do, but they are filled by different paths — a replay in particular
+        // reaches them differently — and a map built from the emptier one came
+        // up bare while the other view showed the flight.
+        //
+        // Committing matters as much as handing over: handing points to a line
+        // only stages them, and until something else committed, a map built
+        // during a paused replay had the flight staged and invisible.
+        val kept = dataService?.points ?: emptyList<Position>()
+        val flown = crazydude.com.telemetry.gl.LiveFlightPath.snapshot()
+        if (flown.size > kept.size) {
+            polyLine?.submitPoints(flown.map { Position(it.lat, it.lon) })
+            commitRouteLinePoints()
+        } else if (kept.isNotEmpty()) {
+            polyLine?.submitPoints(kept)
             commitRouteLinePoints()
         }
         homeLine = map?.addPolyline(2f, preferenceManager.getHomeLineColor())
