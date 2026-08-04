@@ -37,7 +37,7 @@
                 android:thumb="@drawable/ic_thumb"
                 android:visibility="visible" />
 
-        <crazydude.com.telemetry.ui.TextViewOutline
+        <juricabi.com.telemetry.ui.TextViewOutline
                 android:id="@+id/statustext"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -57,7 +57,7 @@
                 app:outlineColor="@android:color/black"
                 app:outlineSize="3dp" />
 
-        <crazydude.com.telemetry.ui.TextViewOutline
+        <juricabi.com.telemetry.ui.TextViewOutline
                 android:id="@+id/mode"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -78,14 +78,14 @@
                 app:outlineColor="@android:color/black"
                 app:outlineSize="3dp" />
 
-        <crazydude.com.telemetry.ui.HorizonView
+        <juricabi.com.telemetry.ui.HorizonView
                 android:id="@+id/horizon_view"
                 android:layout_width="128dp"
                 android:layout_height="128dp"
                 android:layout_alignParentTop="true"
                 android:layout_margin="8dp" />
 
-        <crazydude.com.telemetry.ui.TextViewOutline
+        <juricabi.com.telemetry.ui.TextViewOutline
                 android:id="@+id/clock_text"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -101,7 +101,7 @@
                 app:outlineColor="@android:color/black"
                 app:outlineSize="3dp" />
 
-        <crazydude.com.telemetry.ui.TextViewOutline
+        <juricabi.com.telemetry.ui.TextViewOutline
                 android:id="@+id/compass_heading"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"

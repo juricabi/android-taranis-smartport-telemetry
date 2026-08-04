@@ -16,13 +16,14 @@ android {
             storePassword keystoreProperties['storePassword']
         }
     }
-    // What the R class and BuildConfig are generated into, and what the manifest
-    // used to declare as its package. The applicationId below is what the phone
-    // installs it as, and the two have never been the same here.
-    namespace 'crazydude.com.telemetry'
+    // What the R class and BuildConfig are generated into. Level with the
+    // applicationId below, which it has never been: the code sat in
+    // crazydude's package and the phone installed it as jauler's, and this has
+    // been neither of those for a long time.
+    namespace 'juricabi.com.telemetry'
     compileSdk 35
     defaultConfig {
-        applicationId "jauler.com.telemetry"
+        applicationId "juricabi.com.telemetry"
         minSdk 21
         // Deliberately behind compileSdk. Compiling against 35 is what the
         // newer AndroidX libraries require; targeting it is a separate job —
@@ -31,8 +32,8 @@ android {
         // none of that is owed while this is handed out as an APK rather than
         // through a store.
         targetSdk 28
-        versionCode 48
-        versionName "2.0.23"
+        versionCode 49
+        versionName "2.1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures {

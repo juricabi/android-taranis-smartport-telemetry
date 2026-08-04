@@ -16,7 +16,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-            <crazydude.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.telemetry.ui.TextViewStableSize
                     android:id="@+id/speed"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -33,7 +33,7 @@
                     android:textSize="16sp"
                     app:minText="00 km/h"/>
 
-            <crazydude.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.telemetry.ui.TextViewStableSize
                     android:id="@+id/distance"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -50,7 +50,7 @@
                     android:textSize="16sp"
                     app:minText="000 m"/>
 
-            <crazydude.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.telemetry.ui.TextViewStableSize
                     android:id="@+id/traveled_distance"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -67,7 +67,7 @@
                     android:textSize="16sp"
                     app:minText="000 m"/>
 
-            <crazydude.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.telemetry.ui.TextViewStableSize
                     android:id="@+id/altitude"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -84,7 +84,7 @@
                     android:textSize="16sp"
                     app:minText="000,00 m"/>
 
-            <crazydude.com.telemetry.ui.RCWidget
+            <juricabi.com.telemetry.ui.RCWidget
                     android:id="@+id/rc_widget"
                     android:layout_width="wrap_content"
                     android:layout_marginTop="8dp"
@@ -92,7 +92,7 @@
                     android:gravity="center_horizontal"
                     android:layout_height="36dp"/>
 
-            <crazydude.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.telemetry.ui.TextViewStableSize
                     android:id="@+id/airspeed"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -109,7 +109,7 @@
                     android:textSize="16sp"
                     app:minText="00 km/h"/>
 
-            <crazydude.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.telemetry.ui.TextViewStableSize
                     android:id="@+id/vspeed"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -126,7 +126,7 @@
                     android:textSize="16sp"
                     app:minText="00,0 m/s"/>
 
-            <crazydude.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.telemetry.ui.TextViewStableSize
                     android:id="@+id/altitude_msl"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -143,7 +143,7 @@
                     android:textSize="16sp"
                     app:minText="000,00 m"/>
 
-            <crazydude.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.telemetry.ui.TextViewStableSize
                     android:id="@+id/throttle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"

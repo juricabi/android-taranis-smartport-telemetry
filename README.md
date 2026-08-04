@@ -16,11 +16,10 @@ Latest build: **[Releases](https://github.com/juricabi/android-taranis-smartport
 
 ---
 
-## What this fork adds
+## What it does
 
-Everything below is new here, on top of [RomanLut's fork](https://github.com/RomanLut/android-taranis-smartport-telemetry)
-and [Jauler's](https://github.com/Jauler/android-taranis-smartport-telemetry).
-Both of those are summarised further down, and their features are all still here.
+Everything in this section is work done in this fork, on top of what came before
+it — see [Lineage](#lineage) at the end for who built what.
 
 ### Ghost (GHST) telemetry
 
@@ -215,6 +214,25 @@ any refresh rate, in either view.
 - The location permission is asked for when there is a reason to, not every time
   you return to the app.
 
+## Also in here
+
+Not this fork's work — [RomanLut's](https://github.com/RomanLut/android-taranis-smartport-telemetry),
+and still here:
+
+- sensors: airspeed, vertical speed, altitude MSL, throttle, cell voltage,
+  telemetry rate, distance to home, distance travelled
+- CRSF link quality sensors
+- RC channel display — 8 for MAVLink v1, 18 for MAVLink v2, 16 for CRSF<sup>1</sup>
+- connection status spoken aloud
+- USB VCP cable connection to radios
+- GPX and KML export
+- rename and delete logs from a long press
+- automatic Bluetooth / BLE reconnection
+
+<sup>1</sup> *Channels show with CRSF when they are sent with telemetry. Works
+with the PR allowing a direct connection to an ExpressLRS TX module:*
+<https://github.com/ExpressLRS/ExpressLRS/pull/2731>
+
 ---
 
 ## Map types
@@ -253,16 +271,19 @@ and are drawn on the map and draped over the ground in 3D alike.
 
 ## Building
 
-JDK **8** and the Android SDK. AGP 4.0 will not run on a newer JDK.
+JDK **17 or later** and the Android SDK with platform 35.
 
 ```sh
-JAVA_HOME=<a JDK 8> ANDROID_HOME=<the SDK> ./gradlew.bat :app:assembleDebug
+JAVA_HOME=<a JDK 17+> ANDROID_HOME=<the SDK> ./gradlew.bat :app:assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Package ids: release `jauler.com.telemetry`, debug `jauler.com.telemetry.debug`.
-Both install side by side, so a debug build can be tried without disturbing the
-one you fly with.
+Gradle 8.11, AGP 8.7, Kotlin 2.0, compileSdk 35 — with **targetSdk deliberately
+left at 28**, since this is handed out as an APK rather than through a store.
+
+Package ids: release `juricabi.com.telemetry`, debug
+`juricabi.com.telemetry.debug`. Both install side by side, so a debug build can
+be tried without disturbing the one you fly with.
 
 ### Flying it without a radio
 
@@ -278,120 +299,80 @@ Then in the app: **Connect → Network → TBS Crossfire / Tracer (UDP)**, same 
 the track, the horizon, the readouts and the 3D view with the model at its true
 attitude.
 
+
+---
+
+## Hardware and connection
+
+If the radio has Bluetooth built in, or telemetry can be mirrored to its USB-C
+port, nothing else is needed — see
+[Routing telemetry to the application](#routing-telemetry-to-the-application)
+above.
+
+Otherwise, for FrSky S.PORT: an **inverter** and a **Bluetooth serial module**
+(HC-05, HC-06, HC-09, HM-10). The inverter goes on the S.PORT pin, the module on
+the inverter.
+
+**The module must be set to 57600 baud**, or nothing decodes. Ghost over a
+telemetry mirror is the exception — that runs at 115200.
+
+![Connection example](connection.jpg)
+
+### HC-06 with a MOSFET inverter
+
+![Inverter diagram](inverter.png)
+
+![HC-06 with inverter](hc06_inverter.JPG)
+
+### Configuring an HC-06
+
+They ship at 9600 baud. Use any USB-to-serial converter and a serial client —
+`screen` on Mac and Linux, [PuTTY](http://www.putty.org/) on Windows.
+
+An HC-06 expects each command typed quickly, within about a second end to end, so
+write them in a text editor first and paste them one at a time:
+
+1. `AT+NAMEyournamehere` — no spaces
+2. `AT+PIN1234` — no spaces
+3. `AT+ENABLEIND0` — skip if the module does not know it
+4. `AT+BAUD7` — 57600
+
+**Classic Bluetooth modules must be paired with the phone first** to appear in
+the list. **BLE modules should have their PIN disabled** where the module allows
+it.
+
 ---
 
 ## Lineage
 
+This app is not written from scratch, and most of what it does was built by other
+people before this fork existed.
+
 | | |
 |---|---|
-| [CrazyDude1994](https://github.com/CrazyDude1994/android-taranis-smartport-telemetry) | the original app |
-| [RomanLut](https://github.com/RomanLut/android-taranis-smartport-telemetry) | the fork most of the sensors, protocols and map work came from |
-| [Jauler](https://github.com/Jauler/android-taranis-smartport-telemetry) | the Flightradar24 traffic overlay and layout work; this build carries its `jauler.com.telemetry` package id |
-| **this fork** | everything under [What this fork adds](#what-this-fork-adds) |
+| [CrazyDude1994](https://github.com/CrazyDude1994/android-taranis-smartport-telemetry) | the original app, and the hardware and wiring notes above |
+| [RomanLut](https://github.com/RomanLut/android-taranis-smartport-telemetry) | the fork most of the sensors, protocols, exports and map work came from |
+| [Jauler](https://github.com/Jauler/android-taranis-smartport-telemetry) | the Flightradar24 traffic overlay and layout work |
+| **this fork** | everything under [What it does](#what-it-does) |
 
 Not affiliated with or endorsed by any of them. Use at your own risk.
 
-### What RomanLut's fork adds over the original
+### Support the original author
 
-- sensors: Airspeed, Vertical speed, Altitude MSL, Throttle, Cell Voltage,
-  Telemetry Rate, Distance to home, Travelled distance
-- CRSF link quality sensors
-- RC Channels display (8ch for MAVLink v1, 18ch for MAVLink v2, 16 for CRSF<sup>1</sup>)
-- better support for CRSF and LTM telemetry
-- connection status voice messages
-- USB VCP cable connection to radios
-- topological map (OpenTopoMap)
-- satellite and satellite + streets hybrid maps (ESRI, free, no API key, cacheable offline)
-- flight plan overlay
-- GPX and KML export
-- context menu for deleting and renaming logs
-- UI enhancements, automatic Bluetooth/BLE reconnection, stability fixes
-- removed the Google Maps dependency (osmdroid + ESRI tiles instead)
-- removed UAV radar / telemetry sharing server, and UVC external video receiver support
+- Google Play (the original app): <https://play.google.com/store/apps/details?id=crazydude.com.telemetry>
+- YouTube: <https://www.youtube.com/channel/UCjAhODF0Achhc1fynxEXQLg>
+- Patreon: <https://www.patreon.com/android_rc_telemetry>
+- RCGroups thread: <https://www.rcgroups.com/forums/showthread.php?3284789-iNav-SmartPort-telemetry-viewer-and-logger>
+- Telegram group: <https://t.me/joinchat/Gf03BFXI2e48WMvzjLeIjw>
 
-<sup>1</sup> *Channels show with CRSF if they are sent with telemetry. Works with
-the PR allowing a direct connection to an ExpressLRS TX module:*
-<https://github.com/ExpressLRS/ExpressLRS/pull/2731>
+### Special thanks
 
----
+Carried over from the original README, and still owed:
 
-# Original README
-
-Everything below is CrazyDude's, kept for the hardware and wiring notes, which
-still apply.
-
-# Android Taranis SmartPort Telemetry Viewer
-
-[![Donate](https://img.shields.io/badge/Donate-Patreon-green.svg)](https://www.patreon.com/android_rc_telemetry)
-
-This android application let you view and record your taranis telemetry data in realtime.
-
-![alt text](https://raw.githubusercontent.com/CrazyDude1994/android-taranis-smartport-telemetry/master/screen.jpg "Screenshot")
-
-# Hardware and connection
-In order this to work you need additional hardware: inverter and bluetooth module (HC-05 or HC-06 or something else, also you don't need module and inverter if your transmitter has internal one)
-One important thing: Module should be configured to work on 57600 baud rate, otherwise it won't work. 
-Connect inverter to your Smart Port and then connect bluetooth module to the inverter. You now can connect your phone to your bluetooth module and view data
-
-![alt text](https://raw.githubusercontent.com/CrazyDude1994/android-taranis-smartport-telemetry/master/connection.jpg "Connection example")
-
-**upd: ** now you can use usb serial connection. More info here https://github.com/CrazyDude1994/android-taranis-smartport-telemetry/issues/47
-
-## Tested modules
-
-Currently we support classic BL,BLE and integrated bluetooth modules into your transmitter. We currently tested them on the HC-05, HC-06, HC-09, HM-10. Make sure that when using BLE module you should disable PIN code (if possible). For classic BL module to appear in the list, you should pair it to your Android device first.
-
-## HC-06 With MOSFET inverter
-
-![Inverter diagram](inverter.png)
-
-![HC-06 With inverter](hc06_inverter.JPG)
-
-## HC-06 Configuration
-
-By default, HC-06 is configured for 9600bps. To configure, use any USB-to-serial converter and serial client. Mac and Linux can use Terminal `screen` command. Windows users can use [Putty](http://www.putty.org/)
-
-HC-06 module will expect that each command will be entered very fast (AFAIR max 1s between letters). So the best option here is to open text editor, type commands there and then copy them one by one into serial software.
-
-1. `AT+NAMEyournamehere` - no spaces!
-1. `AT+PIN1234` - PIN, no spaces again
-1. `AT+ENABLEIND0` (you can ommit this command if your module does not support it)
-1. `AT+BAUD7` - set port speed to 57600
-
-# Google Play
-https://play.google.com/store/apps/details?id=crazydude.com.telemetry
-
-# Beta program
-I'm happy to announce that now you can apply for an open beta program, to test and use the most newest features as soon as possible.
-
-You can apply for a beta here https://play.google.com/apps/testing/crazydude.com.telemetry
-
-Please leave your feedback at [#47](https://github.com/CrazyDude1994/android-taranis-smartport-telemetry/issues/47)
-
-# RCGroups Thread
-https://www.rcgroups.com/forums/showthread.php?3284789-iNav-SmartPort-telemetry-viewer-and-logger
-
-# Your module doesn't work?
-Make sure you followed all the steps. If this doesn't help, you can ask for help by creating new issue with your module model. Also for quick support you can join our telegram group and ask for help there
-
-# Telegram group
-https://t.me/joinchat/Gf03BFXI2e48WMvzjLeIjw
-
-# Say thanks
-If you want to help or say thanks follow my yt channel:
-https://www.youtube.com/channel/UCjAhODF0Achhc1fynxEXQLg?view_as=subscriber
-
-or you can donate to my patreon: https://www.patreon.com/android_rc_telemetry
-
-# Special thanks
-hyperion11 - Ardupilot support
-
-Alexey Stankevich - initial testing, feedback
-
-Marios Chrysomallis - testing BLE support
-
-Paweł Spychalski - project contribute, made a great video about the app (https://www.youtube.com/watch?v=0-AyP5Y7pCI)
-
-AeroSIM RC - for sending their simulator for testing app from home (they have plugin to connect my app with their sim)
-
-usb-serial-for-android - library creators (https://github.com/mik3y/usb-serial-for-android)
+- **hyperion11** — Ardupilot support
+- **Alexey Stankevich** — initial testing, feedback
+- **Marios Chrysomallis** — testing BLE support
+- **Paweł Spychalski** — contributions, and a video about the app
+  (<https://www.youtube.com/watch?v=0-AyP5Y7pCI>)
+- **AeroSIM RC** — for sending their simulator so the app could be tested from home
+- **[usb-serial-for-android](https://github.com/mik3y/usb-serial-for-android)** — library creators
