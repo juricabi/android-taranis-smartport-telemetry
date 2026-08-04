@@ -486,6 +486,24 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
             }
         }
 
+        // The last stretch, from where the track was last built to where the
+        // model is now.
+        //
+        // The track itself is rebuilt twice a second — it is the whole path, and
+        // doing that for every fix is what left no room for anything else — but
+        // the model moves on every one of them, so its line was trailing half a
+        // second behind it. Two vertices close the gap.
+        val trail = scene.track
+        if (model != null && trail.size >= 3) {
+            val c = renderer.trackColor
+            sets.add(TerrainRenderer.LineSet(floatArrayOf(
+                trail[trail.size - 3], trail[trail.size - 2], trail[trail.size - 1],
+                scene.east(model.lon),
+                scene.aboveSeaLevel(model.altitudeMsl) - scene.originAltitude,
+                -scene.north(model.lat)),
+                c[0], c[1], c[2], 1f, true, 4f, false))
+        }
+
         // where it is heading, a kilometre of it
         if (headingLineOn && model != null && hasAttitude) {
             val radians = Math.toRadians(modelHeading.toDouble())

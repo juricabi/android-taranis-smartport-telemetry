@@ -295,6 +295,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var lastKnownGPS: Position? = null
     private var lastKnownGPSAt: Long = 0L
     private var lastHeading = 0f
+
+    /** How much of the way to the last fix the marker moves each frame. */
+    private val MARKER_EASE = 0.13f
     private var followMode = true
     private var chaseMode = false
     private var hasGPSFix = false
@@ -3296,9 +3299,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private fun updateHeading() {
         applyHeadingUp()
         if (lastGPS.lat != 0.0 && lastGPS.lon != 0.0) {
+            val from = shownPosition()
             headingPolyline?.let { headingLine ->
-                headingLine.setPoint(0, lastGPS)
-                val (offsetLat, offsetLon) = GeoUtils.computeOffset(lastGPS.lat, lastGPS.lon, 1000.0, lastHeading.toDouble())
+                headingLine.setPoint(0, from)
+                val (offsetLat, offsetLon) = GeoUtils.computeOffset(from.lat, from.lon, 1000.0, lastHeading.toDouble())
                 headingLine.setPoint(1, Position(offsetLat, offsetLon))
             }
         }
@@ -3637,17 +3641,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     lastKnownGPS = lastGPS
                     lastKnownGPSAt = System.currentTimeMillis()
                 }
-                marker?.let { it.position = lastGPS }
                 rememberForProfile(latitude, longitude)
                 terrain3D?.onNewPoint()
-                updateHomeLine()
-                updateHeading()
-                if (followMode) {
-                    if (map?.initialized() ?: false) {
-                        map?.moveCamera(
-                            Position(lastGPS.lat + mapLeanLat, lastGPS.lon + mapLeanLon))
-                    }
-                }
+                // the marker walks to it over the next few frames, and takes the
+                // lines and the camera with it
+                keepSmoothing()
                 if (hasGPSFix) {
                     polyLine?.submitPoints(listOf(lastGPS))
                     this.lastTraveledDistance += d
@@ -3888,6 +3886,81 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * gesture, so it cannot drift: after any touch the offset is exactly the
      * gap between the model and what is on screen.
      */
+    /**
+     * Where the model is drawn, as against where it was last heard from.
+     *
+     * A fix lands five or ten times a second and the screen draws a hundred and
+     * twenty, so a marker put straight onto each one teleports — it does not
+     * move. The 3D view has eased the model between fixes for a while; this is
+     * the same thing for the map, and the line home and the line ahead are
+     * drawn from the eased position so they stay attached to it.
+     *
+     * The recorded track still gets every fix as it arrives, unsmoothed. This
+     * is about what the eye sees, not about what is kept.
+     */
+    private var shownLat = Double.NaN
+    private var shownLon = Double.NaN
+    private var shownMarkerHeading = Float.NaN
+    private var smoothingMarker = false
+
+    /** A step towards the last fix, at each frame the screen draws. */
+    private val markerStep = object : Runnable {
+        override fun run() {
+            smoothingMarker = false
+            val map = map ?: return
+            if (lastGPS.lat == 0.0 && lastGPS.lon == 0.0) return
+            var moving = false
+
+            if (shownLat.isNaN()) {
+                shownLat = lastGPS.lat
+                shownLon = lastGPS.lon
+            } else {
+                val dLat = lastGPS.lat - shownLat
+                val dLon = lastGPS.lon - shownLon
+                if (Math.abs(dLat) > 1e-8 || Math.abs(dLon) > 1e-8) {
+                    shownLat += dLat * MARKER_EASE
+                    shownLon += dLon * MARKER_EASE
+                    moving = true
+                }
+            }
+
+            if (shownMarkerHeading.isNaN()) {
+                shownMarkerHeading = lastHeading
+            } else {
+                val turn = ((lastHeading - shownMarkerHeading) % 360f + 540f) % 360f - 180f
+                if (Math.abs(turn) > 0.05f) {
+                    shownMarkerHeading =
+                        ((shownMarkerHeading + turn * MARKER_EASE) % 360f + 360f) % 360f
+                    moving = true
+                }
+            }
+
+            val where = Position(shownLat, shownLon)
+            marker?.let {
+                it.position = where
+                it.rotation = shownMarkerHeading
+            }
+            updateHeading()
+            updateHomeLine()
+            if (followMode && map.initialized()) {
+                map.moveCamera(Position(shownLat + mapLeanLat, shownLon + mapLeanLon))
+            } else {
+                map.invalidate()
+            }
+            if (moving) keepSmoothing()
+        }
+    }
+
+    private fun keepSmoothing() {
+        if (smoothingMarker) return
+        smoothingMarker = true
+        mapHolder.postOnAnimation(markerStep)
+    }
+
+    /** Where the model is being drawn, for anything that has to sit with it. */
+    private fun shownPosition(): Position =
+        if (shownLat.isNaN()) lastGPS else Position(shownLat, shownLon)
+
     private fun leanOutOfFollowing() {
         val centre = map?.getCentre() ?: return
         if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) {
@@ -3930,7 +4003,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // so this is a per-frame cost. Ten thousand of them was a flight
             // that grew heavier the longer it went on; two and a half thousand
             // is more than a screen can resolve.
-            maxCount = 2500
+            maxCount = 700
         }
         polyLine?.commitPoints(maxCount)
     }
