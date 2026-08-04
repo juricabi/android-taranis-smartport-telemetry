@@ -205,24 +205,6 @@ class AltitudeProfileView @JvmOverloads constructor(
         invalidate()
     }
 
-    /** Redraw when more terrain tiles have arrived. */
-    fun terrainUpdated() {
-        terrainDirty = true
-        invalidate()
-    }
-
-    /** Lowest clearance above ground in metres, or null if terrain is unknown. */
-    fun minimumClearance(): Float? {
-        if (terrainDirty) {
-            try {
-                sampleTerrain()
-            } catch (e: Exception) {
-                terrainDirty = false
-            }
-        }
-        return if (minClearanceValue.isNaN()) null else minClearanceValue
-    }
-
     // Terrain is resampled only when the track or the loaded tiles change, never per frame
     private fun sampleTerrain() {
         terrainDirty = false

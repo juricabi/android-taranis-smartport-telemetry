@@ -691,7 +691,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
 
         chaseButton.setOnClickListener {
-            shownMapHeading = Float.NaN
             centreOnModel()
             setChaseMode(!chaseMode)
         }
@@ -2991,7 +2990,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 updated.add(AltitudeProfileView.Point(p.lat, p.lon, p.altitudeMsl + settled))
             }
             view.setTrack(updated)
-            view.terrainUpdated()
         }
 
         this.showDialog(
@@ -4583,7 +4581,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         mapLeanTurn = 0f
     }
 
-    private var shownMapHeading = Float.NaN
 
     /**
      * The map turned so the model's heading is up. The 3D view does its own.

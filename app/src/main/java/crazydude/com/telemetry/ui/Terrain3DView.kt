@@ -168,9 +168,6 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             }
             scene.setOrigin(fallbackLat, fallbackLon, 0f)
         }
-        // fixed from here: the ground is built in this frame, so re-centring
-        // later would slide the terrain out from under the flight
-        scene.setOrigin(scene.originLat, scene.originLon, scene.originAltitude)
         val flight = if (hasFlight) points else emptyList()
 
         renderer.groundUnderCamera = { x, z ->
@@ -284,7 +281,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             // seeing over bare ground, and with nothing flying the flight above
             // would never have drawn them at all
             rebuildOverlays()
-            showMyLocation()
+            placeMyArrow()
             placeLoggedArrow()
         }
         status.text = if (meshes.isEmpty()) "No terrain here" else ""
@@ -535,7 +532,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         myLat = lat
         myLon = lon
         myAccuracy = accuracy
-        showMyLocation()
+        placeMyArrow()
         // and the line drawn to it: it was rebuilt only when the model moved,
         // so with a replay paused or a link dropped it stayed pinned where the
         // phone had been while the arrow walked away from the end of it
@@ -547,10 +544,6 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         if (started && terrainReady && LiveFlightPath.size() < 2) {
             extendTerrainIfNeeded(LiveFlightPath.snapshot(), lat, lon)
         }
-    }
-
-    private fun showMyLocation() {
-        placeMyArrow()
     }
 
     /** The buttons down the side of the map drive this too. */
@@ -565,8 +558,6 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             LiveFlightPath.latest()?.let { lookAt(it.lat, it.lon, it.altitudeMsl) }
         }
     }
-
-    fun isFollowing(): Boolean = following
 
     fun faceNorth() {
         // north up and behind the model are two different answers to the same

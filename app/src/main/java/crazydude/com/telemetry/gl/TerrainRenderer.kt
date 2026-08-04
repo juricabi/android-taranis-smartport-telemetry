@@ -196,7 +196,6 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     private val headQuadBuffer = floats(FloatArray(18))
 
     private val leaderPair = FloatArray(6)
-    private val leaderQuadBuffer = floats(FloatArray(18))
     private val leaderPairBuffer = floats(FloatArray(6))
 
     @Volatile private var homeOn = false
@@ -339,7 +338,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
      * read from above, which also made every flight look half again as high as
      * it was — and a height you cannot trust is worse than a flat looking hill.
      */
-    @Volatile var verticalScale = 1.0f
+
 
     @Volatile var trackColor = floatArrayOf(1f, 0.85f, 0.1f, 1f)
 
@@ -369,8 +368,6 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         overlays = drawn
     }
 
-    private var markerBuffer: FloatBuffer? = null
-    private var markerCount = 0
 
     private var modelBuffer: FloatBuffer? = null
     private var modelCount = 0
@@ -675,13 +672,6 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         spot.ringCount = ring.size / 3
     }
 
-    /** A post at a place worth seeing from the air, such as where you are standing. */
-    @Synchronized
-    fun setMarker(x: Float, groundY: Float, z: Float, height: Float) {
-        markerBuffer = floats(floatArrayOf(x, groundY, z, x, groundY + height, z))
-        markerCount = 2
-    }
-
     /** Ground height at a point in the local frame, so the camera can stay above it. */
     @Volatile var groundUnderCamera: ((Float, Float) -> Float?)? = null
 
@@ -690,15 +680,6 @@ class TerrainRenderer : GLSurfaceView.Renderer {
 
     // ------------------------------------------------------------- feeding
 
-    /** Called off the GL thread; uploaded on the next frame. */
-    @Synchronized
-    fun submit(meshes: List<TerrainScene.TileMesh>) {
-        pending.clear()
-        pending.addAll(meshes)
-        submitted.clear()
-        submitted.addAll(meshes)
-        keep = null
-    }
 
     /**
      * One tile, as soon as it is built, without disturbing the others.
@@ -960,7 +941,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
 
         val az = Math.toRadians(azimuth.toDouble())
         val el = Math.toRadians(elevation.toDouble().coerceIn(3.0, 87.0))
-        // The ground is drawn stretched by verticalScale, so the camera has to
+        // The camera works in the same space the ground is drawn in, so the
         // live in that same stretched space. Placing it in unstretched metres
         // put it below hills it was supposed to clear — which is why it could
         // still end up inside them.
@@ -970,7 +951,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         } else {
             shownTarget[1]
         }
-        val targetY = targetYRaw * verticalScale
+        val targetY = targetYRaw
 
         val eyeX = shownTarget[0] + (distance * Math.cos(el) * Math.sin(az)).toFloat()
         var eyeY = targetY + (distance * Math.sin(el)).toFloat()
@@ -983,21 +964,14 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // moment it is not is a camera that jumps every frame.
         val floorY = groundUnderCamera?.invoke(eyeX, eyeZ)
         val wantLift = if (floorY == null) 0f else {
-            Math.max(0f, floorY * verticalScale + 40f - eyeY)
+            Math.max(0f, floorY + 40f - eyeY)
         }
         floorLift += (wantLift - floorLift) * 0.15f
         eyeY += floorLift
         Matrix.setLookAtM(view, 0, eyeX, eyeY, eyeZ,
             shownTarget[0], targetY, shownTarget[2], 0f, 1f, 0f)
 
-        // the exaggeration lives in the matrix, so nothing has to be rebuilt,
-        // and the camera above was placed in the same stretched space
-        val scaled = FloatArray(16)
-        Matrix.setIdentityM(scaled, 0)
-        Matrix.scaleM(scaled, 0, 1f, verticalScale, 1f)
-        val vm = FloatArray(16)
-        Matrix.multiplyMM(vm, 0, view, 0, scaled, 0)
-        Matrix.multiplyMM(mvp, 0, projection, 0, vm, 0)
+        Matrix.multiplyMM(mvp, 0, projection, 0, view, 0)
 
         // The flight before the model, so the model is never painted over.
         //
@@ -1203,7 +1177,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // apart. Lift them with distance instead of by a fixed metre.
         val lift = groundLift()
         Matrix.setIdentityM(liftMatrix, 0)
-        Matrix.translateM(liftMatrix, 0, 0f, lift / verticalScale, 0f)
+        Matrix.translateM(liftMatrix, 0, 0f, lift, 0f)
         Matrix.multiplyMM(liftMvp, 0, mvp, 0, liftMatrix, 0)
         GLES20.glUniformMatrix4fv(uMvp, 1, false, liftMvp, 0)
 
@@ -1336,9 +1310,6 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glDrawArrays(GLES20.GL_LINES, 0, 2)
         }
 
-        val marker: FloatBuffer?
-        val mCount: Int
-        synchronized(this) { marker = markerBuffer; mCount = markerCount }
         // the track and the model are up in the air, so they go back to the
         // plain matrix
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
@@ -1374,14 +1345,6 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glLineWidth(3f)
             GLES20.glDrawArrays(GLES20.GL_LINE_LOOP, 0, rCount)
             GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
-        }
-        if (marker != null && mCount > 1) {
-            marker.position(0)
-            GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, marker)
-            GLES20.glUniform4f(uColor, 0.2f, 0.8f, 1f, 1f)
-            GLES20.glLineWidth(6f)
-            GLES20.glDrawArrays(GLES20.GL_LINES, 0, mCount)
-            GLES20.glDrawArrays(GLES20.GL_POINTS, 1, 1)
         }
         if (track != null && airCount > 1) {
             // As far as the model has got, like its shadow and its curtain: it
@@ -1450,7 +1413,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // the same fraction of the distance the position arrow uses, so the two
         // read as one family rather than two scales
         val drawSize = Math.max(3f, distance * 0.02f)
-        Matrix.scaleM(modelMatrix, 0, drawSize, drawSize / verticalScale, drawSize)
+        Matrix.scaleM(modelMatrix, 0, drawSize, drawSize, drawSize)
         Matrix.multiplyMM(modelMvp, 0, mvp, 0, modelMatrix, 0)
 
         val stride = MODEL_FLOATS * 4
@@ -1510,9 +1473,9 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // uphill half buried in any slope.
         val lift = groundLift() + size * 0.3f
         Matrix.setIdentityM(arrowMatrix, 0)
-        Matrix.translateM(arrowMatrix, 0, spot.x, spot.y + lift / verticalScale, spot.z)
+        Matrix.translateM(arrowMatrix, 0, spot.x, spot.y + lift, spot.z)
         Matrix.rotateM(arrowMatrix, 0, -spot.heading, 0f, 1f, 0f)
-        Matrix.scaleM(arrowMatrix, 0, size, size / verticalScale, size)
+        Matrix.scaleM(arrowMatrix, 0, size, size, size)
         Matrix.multiplyMM(arrowMvp, 0, mvp, 0, arrowMatrix, 0)
 
         GLES20.glUseProgram(modelProgram)

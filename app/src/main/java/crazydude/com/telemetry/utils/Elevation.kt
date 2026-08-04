@@ -133,26 +133,6 @@ object Elevation {
         }
     }
 
-    /** True when every tile over these bounds has been resolved, one way or the other. */
-    fun isReady(
-        minLat: Double, minLon: Double, maxLat: Double, maxLon: Double, zoom: Int = TILE_ZOOM
-    ): Boolean {
-        try {
-            val box = tileBox(minLat, minLon, maxLat, maxLon, zoom) ?: return false
-            if (box.count > MAX_PREFETCH_TILES) return false
-            synchronized(memory) {
-                for (x in box.x0..box.x1) {
-                    for (y in box.y0..box.y1) {
-                        val key = key(zoom, x, y)
-                        if (!memory.containsKey(key) && !failed.contains(key)) return false
-                    }
-                }
-            }
-            return true
-        } catch (e: Exception) {
-            return false
-        }
-    }
 
     /**
      * Fetch every tile over these bounds, blocking the caller - which must not
