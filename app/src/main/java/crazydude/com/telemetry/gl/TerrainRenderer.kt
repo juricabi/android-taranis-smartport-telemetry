@@ -299,6 +299,19 @@ class TerrainRenderer : GLSurfaceView.Renderer {
      */
     @Volatile var azimuthWanted = Float.NaN
 
+    /**
+     * Riding behind the model: the camera keeps to the far side of the heading
+     * the model is *drawn* at, not the one last reported.
+     *
+     * Those are different things — the model is eased between attitudes, so
+     * aiming the camera at the raw heading had the two turning at their own
+     * rates and the camera never quite square behind it.
+     */
+    @Volatile var chasingModel = false
+
+    /** How far the camera has been leaned out of that, in degrees. */
+    @Volatile var chaseYaw = 0f
+
     /** As far out as the ground goes; set from the flight, not guessed. */
     @Volatile var maxDistance = 3000f
     @Volatile var target = floatArrayOf(0f, 0f, 0f)
@@ -790,6 +803,10 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         Matrix.perspectiveM(projection, 0, 50f, ratio, near, far)
 
         settle()
+
+        if (chasingModel) {
+            azimuthWanted = ((-shownHeading + chaseYaw) % 360f + 360f) % 360f
+        }
 
         val wanted = azimuthWanted
         if (!wanted.isNaN()) {

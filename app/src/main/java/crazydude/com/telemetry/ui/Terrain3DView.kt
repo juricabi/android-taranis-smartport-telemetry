@@ -381,6 +381,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         // north up and behind the model are two different answers to the same
         // question, so asking for one lets go of the other
         chasing = false
+        renderer.chasingModel = false
         renderer.azimuthWanted = Float.NaN
         renderer.azimuth = 0f
         renderer.elevation = 30f
@@ -789,6 +790,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     fun setChasing(on: Boolean) {
         chasing = on
         if (!on) {
+            renderer.chasingModel = false
             renderer.azimuthWanted = Float.NaN
             return
         }
@@ -813,10 +815,12 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
      * more often than a position does, so a turn is smooth rather than stepped.
      */
     private fun applyChaseBearing() {
-        if (!chasing) return
-        // asked for, not set: the renderer eases the camera round, so a heading
-        // that wanders between one attitude and the next does not shake it
-        renderer.azimuthWanted = ((-lastModelHeading + chaseYaw) % 360f + 360f) % 360f
+        // The renderer works out where behind the model is, from the heading it
+        // is drawing the model at, and eases the camera round to it. Told the
+        // heading from here instead, the camera followed the reported one while
+        // the model followed an eased one, and the two turned apart.
+        renderer.chaseYaw = chaseYaw
+        renderer.chasingModel = chasing
     }
 
     /** Only a button does this now: no gesture gives up following. */
@@ -824,6 +828,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         if (!following) return
         following = false
         chasing = false
+        renderer.chasingModel = false
         renderer.azimuthWanted = Float.NaN
         onFollowingLost?.invoke()
     }
