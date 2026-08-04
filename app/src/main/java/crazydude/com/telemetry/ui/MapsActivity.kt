@@ -349,8 +349,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             dataService?.let {
                 if (it.isConnected()) {
                     switchToConnectedState()
-                    polyLine?.submitPoints(it.points)
-                    commitRouteLinePoints()
+                    redrawFlightLine()
                 }
             }
         }
@@ -705,26 +704,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // outlives this screen and keeps the points of whatever it last heard,
         // so an unconnected map opened afterwards drew the last flight as
         // though it were happening — which the 3D ground never did.
-        // The flight, from whichever record of it is the fuller.
-        //
-        // There are two: the service keeps one for building a map from, and the
-        // 3D view is fed another. They should hold the same flight and mostly
-        // do, but they are filled by different paths — a replay in particular
-        // reaches them differently — and a map built from the emptier one came
-        // up bare while the other view showed the flight.
-        //
-        // Committing matters as much as handing over: handing points to a line
-        // only stages them, and until something else committed, a map built
-        // during a paused replay had the flight staged and invisible.
-        val kept = dataService?.points ?: emptyList<Position>()
-        val flown = crazydude.com.telemetry.gl.LiveFlightPath.snapshot()
-        if (flown.size > kept.size) {
-            polyLine?.submitPoints(flown.map { Position(it.lat, it.lon) })
-            commitRouteLinePoints()
-        } else if (kept.isNotEmpty()) {
-            polyLine?.submitPoints(kept)
-            commitRouteLinePoints()
-        }
+        redrawFlightLine()
         homeLine = map?.addPolyline(2f, preferenceManager.getHomeLineColor())
         drawFlightPlans()
         showMyLocation()
@@ -754,6 +734,20 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // and the traffic, which is otherwise gone until the next poll comes
         // round — half a minute of empty sky after every switch of view
         if (lastAirplanes.isNotEmpty()) onAirplanesUpdated(lastAirplanes)
+    }
+
+    /**
+     * The whole flight onto a line that has just been made.
+     *
+     * Committing matters as much as handing over: handing points to a line only
+     * stages them, and until something else committed, a map built during a
+     * paused replay had the flight staged and invisible.
+     */
+    private fun redrawFlightLine() {
+        val flown = crazydude.com.telemetry.gl.LiveFlightPath.snapshot()
+        if (flown.isEmpty()) return
+        polyLine?.submitPoints(flown.map { Position(it.lat, it.lon) })
+        commitRouteLinePoints()
     }
 
     private fun updateCompassHeading(orientation: Float) {
@@ -2298,9 +2292,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private fun forgetFlight() {
         crazydude.com.telemetry.gl.LiveFlightPath.clear()
-        // the copy kept for building a map from, or the old flight comes back
-        // the next time one is built
-        dataService?.points?.clear()
         polyLine?.clear()
         terrain3D?.onFlightReset()
         lastTraveledDistance = 0.0
@@ -2605,28 +2596,31 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     /** The flight against the ground under it, which is what shows clearance. */
     private fun showAltitudeProfile() {
-        if (flightPath.size < 2) {
+        // Only the fixes that carried a height: this draws a flight against the
+        // ground under it, which a heightless fix has nothing to say about.
+        val flown = flightPath.filter { !it.altitudeMsl.isNaN() }
+        if (flown.size < 2) {
             Toast.makeText(this, "No flight with position and altitude yet", Toast.LENGTH_SHORT).show()
             return
         }
         crazydude.com.telemetry.utils.Elevation.init(this)
         val view = AltitudeProfileView(this)
-        val points = ArrayList<AltitudeProfileView.Point>(flightPath.size)
+        val points = ArrayList<AltitudeProfileView.Point>(flown.size)
         // Betaflight reports height above the arming point once armed, so the
         // ground under the launch is what those heights are missing before they
         // can be drawn against terrain. Worked out the same way the 3D view
         // works it out: from the ground at the first fix.
         val lift = launchGroundLift()
-        for (p in flightPath) {
+        for (p in flown) {
             points.add(AltitudeProfileView.Point(p.lat, p.lon, p.altitudeMsl + lift))
         }
         view.setTrack(points)
         view.minimumHeight = (resources.displayMetrics.density * 220).toInt()
 
-        fetchTerrainFor(flightPath) {
+        fetchTerrainFor(flown) {
             val settled = launchGroundLift()
-            val updated = ArrayList<AltitudeProfileView.Point>(flightPath.size)
-            for (p in flightPath) {
+            val updated = ArrayList<AltitudeProfileView.Point>(flown.size)
+            for (p in flown) {
                 updated.add(AltitudeProfileView.Point(p.lat, p.lon, p.altitudeMsl + settled))
             }
             view.setTrack(updated)
@@ -2843,11 +2837,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private fun heightNow(): Float =
         if (!lastGpsAltitudeMsl.isNaN()) lastGpsAltitudeMsl else lastAnyAltitude
 
+    /**
+     * A fix, kept for everything that draws the flight.
+     *
+     * The ones that came with no height as well: a link with no barometer and a
+     * GPS that reports position only still flew somewhere, and dropping those
+     * left nothing to draw at all. They are kept as heightless, and drawn
+     * along the ground.
+     */
     private fun rememberForProfile(latitude: Double, longitude: Double, height: Float) {
-        if (height.isNaN()) return
         if (latitude == 0.0 && longitude == 0.0) return
         crazydude.com.telemetry.gl.LiveFlightPath.add(latitude, longitude, height)
-        lastRememberedHeight = height
+        if (!height.isNaN()) lastRememberedHeight = height
     }
 
     /** The height the last remembered point was given, to climb from. */
@@ -3787,12 +3788,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     // readings actually looked like.
                     val to = heightNow()
                     val from = if (lastRememberedHeight.isNaN()) to else lastRememberedHeight
-                    if (!to.isNaN()) {
-                        for (i in 0..list.size - 2) {
-                            val part = (i + 1).toFloat() / list.size
-                            rememberForProfile(list[i].lat, list[i].lon,
-                                from + (to - from) * part)
-                        }
+                    for (i in 0..list.size - 2) {
+                        val part = (i + 1).toFloat() / list.size
+                        // nothing to walk across where no height was ever read:
+                        // the fixes are kept as they came, without one
+                        val walked = if (to.isNaN()) Float.NaN else from + (to - from) * part
+                        rememberForProfile(list[i].lat, list[i].lon, walked)
                     }
                 }
 

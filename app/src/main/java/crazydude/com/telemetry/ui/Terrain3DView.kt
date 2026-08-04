@@ -343,7 +343,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
             lastAppendedPoint = point
             renderer.appendFlightPoint(
                 scene.east(point.lon),
-                scene.aboveSeaLevel(point.altitudeMsl) - scene.originAltitude,
+                scene.heightOf(point),
                 -scene.north(point.lat),
                 (scene.groundAt(point.lat, point.lon) ?: scene.originAltitude) -
                     scene.originAltitude)
@@ -369,7 +369,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         if (hasAttitude) lastModelHeading = modelHeading
         applyChaseBearing()
         val x = scene.east(last.lon)
-        val y = scene.aboveSeaLevel(last.altitudeMsl) - scene.originAltitude
+        val y = scene.heightOf(last)
         val z = -scene.north(last.lat)
         renderer.setModel(x, y, z, lastModelHeading,
             Math.max(15f, scene.extent / 40f), modelPitch, modelRoll)
@@ -526,7 +526,8 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         val height = when {
             // through the same reference as the model, or following it aimed
             // the camera at a point buried under the hill it is flying over
-            altitudeMsl != null -> scene.aboveSeaLevel(altitudeMsl) - scene.originAltitude
+            altitudeMsl != null && !altitudeMsl.isNaN() ->
+                scene.aboveSeaLevel(altitudeMsl) - scene.originAltitude
             ground != null -> ground - scene.originAltitude
             else -> 0f
         }

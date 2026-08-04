@@ -18,6 +18,12 @@ object LiveFlightPath {
     var version = 0
         private set
 
+    /**
+     * [altitudeMsl] may be NaN, for a link that says where it is but not how
+     * high — no barometer, and a GPS that reports position only. Those fixes
+     * belong to the flight as much as any other and are kept; what is done
+     * about the missing height is the drawing's business, not this one's.
+     */
     @Synchronized
     fun add(lat: Double, lon: Double, altitudeMsl: Float) {
         if (points.size >= LIMIT) return

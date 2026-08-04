@@ -48,7 +48,6 @@ class DataService : Service(), DataDecoder.Listener {
     private var lastSpeed: Float = 0.0f
     private var lastHeading: Float = 0.0f
     private lateinit var preferenceManager: PreferenceManager
-    val points: ArrayList<Position> = ArrayList()
     private var notification: Notification? = null
 
     override fun onCreate() {
@@ -264,24 +263,22 @@ class DataService : Service(), DataDecoder.Listener {
     }
 
     override fun onGPSData(latitude: Double, longitude: Double) {
-        if (hasGPSFix) {
-            points.add(Position(latitude, longitude))
-        }
         lastLatitude = latitude
         lastLongitude = longitude
         dataListener?.onGPSData(latitude, longitude)
         logListener?.onGPSData(latitude, longitude)
     }
 
+    /**
+     * Nothing to keep here: there is one record of the flight and it is not
+     * this one.
+     *
+     * There were two, filled by different paths — a replay reached one, a link
+     * with no height reached the other — so whichever was consulted was
+     * sometimes the empty one, and a map came up bare beside a view showing
+     * the flight.
+     */
     override fun onGPSData(list: List<Position>, addToEnd: Boolean) {
-        // The flight kept here is what a map is rebuilt from when one is
-        // created — switching between the map and the 3D ground, or coming back
-        // to the screen. A replay delivers it in batches, and those went
-        // unrecorded, so what was kept was one position per batch and a map
-        // built during a replay showed a few corners of the flight instead of
-        // the flight.
-        if (!addToEnd) points.clear()
-        if (hasGPSFix) points.addAll(list)
     }
 
     override fun onVBATData(voltage: Float) {
@@ -370,7 +367,6 @@ class DataService : Service(), DataDecoder.Listener {
     }
 
     override fun onDisconnected() {
-        points.clear()
         dataListener?.onDisconnected()
         logListener?.onDisconnected()
         dataPoller = null
@@ -484,7 +480,6 @@ class DataService : Service(), DataDecoder.Listener {
     }
 
     fun disconnect() {
-        points.clear()
         dataPoller?.disconnect()
         dataPoller = null
         satellites = 0

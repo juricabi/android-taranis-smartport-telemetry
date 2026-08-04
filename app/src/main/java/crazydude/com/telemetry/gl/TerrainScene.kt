@@ -17,6 +17,7 @@ import crazydude.com.telemetry.utils.Imagery
  */
 class TerrainScene {
 
+    /** [altitudeMsl] is NaN where the link reported no height at all. */
     class TrackPoint(val lat: Double, val lon: Double, val altitudeMsl: Float)
 
     /** One terrain tile: a grid of ground, with the aerial view of it. */
@@ -106,8 +107,14 @@ class TerrainScene {
             // has just started reports a few — would decide this for the whole
             // flight, and the answer is kept once it is made. The lowest
             // twentieth is still on the ground and cannot be one stray sample.
-            val reported = FloatArray(points.size)
-            for (i in points.indices) reported[i] = points[i].altitudeMsl
+            // Fixes that carried no height say nothing about what heights
+            // mean. A flight of nothing but those has no question to answer.
+            var known = 0
+            for (p in points) if (!p.altitudeMsl.isNaN()) known++
+            if (known == 0) return null
+            val reported = FloatArray(known)
+            var at = 0
+            for (p in points) if (!p.altitudeMsl.isNaN()) reported[at++] = p.altitudeMsl
             java.util.Arrays.sort(reported)
             val lowestReported = reported[reported.size / 20]
 
@@ -237,7 +244,7 @@ class TerrainScene {
         var i = 0
         for (p in points) {
             raw[i++] = east(p.lon)
-            raw[i++] = aboveSeaLevel(p.altitudeMsl) - originAltitude
+            raw[i++] = heightOf(p)
             raw[i++] = -north(p.lat)
             if (p.lat < minLat) minLat = p.lat
             if (p.lat > maxLat) maxLat = p.lat
@@ -271,23 +278,41 @@ class TerrainScene {
         return out
     }
 
+    /**
+     * The height to draw a fix at: its own where it has one, the ground where
+     * it has not.
+     *
+     * A link with no barometer and no GPS height says where it is and nothing
+     * about how high, and those fixes are kept — a flight without heights is
+     * still a flight, and dropping them left the map bare. Laid along the
+     * ground they say exactly what is known and claim nothing that is not.
+     */
+    fun heightOf(p: TrackPoint): Float =
+        if (p.altitudeMsl.isNaN()) {
+            (groundAt(p.lat, p.lon) ?: originAltitude) - originAltitude
+        } else {
+            aboveSeaLevel(p.altitudeMsl) - originAltitude
+        }
+
     fun setTrack(points: List<TrackPoint>): Boolean {
         if (points.size < 2) return false
         minLat = points[0].lat; maxLat = points[0].lat
         minLon = points[0].lon; maxLon = points[0].lon
-        var lowest = points[0].altitudeMsl
+        var lowest = Float.NaN
         for (p in points) {
             if (p.lat < minLat) minLat = p.lat
             if (p.lat > maxLat) maxLat = p.lat
             if (p.lon < minLon) minLon = p.lon
             if (p.lon > maxLon) maxLon = p.lon
-            if (p.altitudeMsl < lowest) lowest = p.altitudeMsl
+            if (!p.altitudeMsl.isNaN() && (lowest.isNaN() || p.altitudeMsl < lowest)) {
+                lowest = p.altitudeMsl
+            }
         }
         if (!originFixed) {
             originLat = (minLat + maxLat) / 2
             originLon = (minLon + maxLon) / 2
             // a stand-in until the ground is loaded and says otherwise
-            if (!datumFromGround) originAltitude = lowest
+            if (!datumFromGround && !lowest.isNaN()) originAltitude = lowest
             originFixed = true
         }
 
@@ -295,7 +320,7 @@ class TerrainScene {
         var i = 0
         for (p in points) {
             out[i++] = east(p.lon)
-            out[i++] = aboveSeaLevel(p.altitudeMsl) - originAltitude
+            out[i++] = heightOf(p)
             // north is -z, so the view looks the way a map does with north up
             out[i++] = -north(p.lat)
         }
