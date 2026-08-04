@@ -324,6 +324,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * has a button for that.
      */
     private var replayStartedAt: Date? = null
+    private var replayEndedAt: Date? = null
     private var replayTimeRead = false
 
     private val timeOfDayFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
@@ -792,7 +793,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             return
         }
         val text = if (isInReplayMode()) {
-            replayHappenedAt()?.let { flightDayFormat.format(it) }
+            replayTimeNow()?.let { flightDayFormat.format(it) }
         } else {
             timeOfDayFormat.format(Date())
         }
@@ -800,15 +801,61 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         clock_text.visibility = if (text == null) View.GONE else View.VISIBLE
     }
 
-    private fun replayHappenedAt(): Date? {
-        if (replayTimeRead) return replayStartedAt
+    /**
+     * The time of day at the point the replay has reached.
+     *
+     * The recording says when it began and the file says when it was last
+     * written, which is when it ended — so the flight has a real length, and
+     * the position in the log says how far through it we are. A telemetry link
+     * talks at a steady rate, so packets counted are as good a measure of time
+     * passed as anything in the file: it is exact at both ends of the flight
+     * and within a few seconds anywhere between.
+     *
+     * Where the beginning is not known — a log recorded before this was written
+     * down — there is nothing to run between, and it shows the one time it has.
+     */
+    private fun replayTimeNow(): Date? {
+        readReplayTimes()
+        val start = replayStartedAt ?: return null
+        val end = replayEndedAt ?: return start
+        if (end.time <= start.time) return start
+        val total = seekbar.max
+        if (total <= 0) return start
+        val at = (logPlayer?.currentPosition ?: 0).toFloat() / total
+        val part = Math.max(0f, Math.min(1f, at))
+        return Date(start.time + ((end.time - start.time) * part).toLong())
+    }
+
+    private fun readReplayTimes() {
+        if (replayTimeRead) return
         replayTimeRead = true
-        val name = replayFileString ?: return null
+        val name = replayFileString ?: return
         val file = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), name)
-        if (!file.exists()) return null
+        if (!file.exists()) return
         val written = file.lastModified()
-        replayStartedAt = madeAt(file) ?: if (written > 0) Date(written) else null
-        return replayStartedAt
+        replayEndedAt = if (written > 0) Date(written) else null
+        // What the recording wrote down when it began, where there is one;
+        // otherwise the file's own dates, which is all the older logs have.
+        replayStartedAt = noteOfStart(name) ?: madeAt(file) ?: replayEndedAt
+    }
+
+    /** The start time written beside the log while it was being recorded. */
+    private fun noteOfStart(logName: String): Date? {
+        val beside = File(
+            Environment.getExternalStoragePublicDirectory("TelemetryLogs"),
+            replaceExtension(logName, ".start")
+        )
+        if (!beside.exists()) return null
+        return try {
+            val epoch = beside.readLines()
+                .firstOrNull { it.startsWith("epoch=") }
+                ?.substringAfter("epoch=")
+                ?.trim()
+                ?.toLongOrNull()
+            if (epoch != null && epoch > 0) Date(epoch) else null
+        } catch (e: Exception) {
+            null
+        }
     }
 
     /** When the file was made, where the filesystem remembers that. */
@@ -828,6 +875,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     /** For a replay that has been closed, opened or renamed. */
     private fun forgetReplayTime() {
         replayStartedAt = null
+        replayEndedAt = null
         replayTimeRead = false
         showTime()
     }
@@ -4323,6 +4371,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             val csvNewFile = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), csvNewFileName)
             csvCurrentFile.renameTo(csvNewFile)
 
+            // and the note of when the flight started, which is no use to a log
+            // it has been left behind by
+            File(
+                Environment.getExternalStoragePublicDirectory("TelemetryLogs"),
+                replaceExtension(currentFileName, ".start")
+            ).renameTo(
+                File(
+                    Environment.getExternalStoragePublicDirectory("TelemetryLogs"),
+                    replaceExtension(newFileName, ".start")
+                )
+            )
+
             if (currentFileName == replayFileString) {
                 replayFileString = newFileName;
                 forgetReplayTime()
@@ -4385,8 +4445,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         for (file in files) {
             if (file.delete()) {
                 deleted++
-                // the CSV recorded alongside it, as deleting one log does
+                // the CSV recorded alongside it, and the note of when it
+                // started, as deleting one log does
                 File(file.parentFile, replaceExtension(file.name, ".csv")).delete()
+                File(file.parentFile, replaceExtension(file.name, ".start")).delete()
             }
         }
         val failed = files.size - deleted
@@ -4431,6 +4493,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             val csvFileName = replaceExtension( fileName, ".csv")
             val currentFileCSV = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), csvFileName)
             currentFileCSV.delete();
+
+            File(
+                Environment.getExternalStoragePublicDirectory("TelemetryLogs"),
+                replaceExtension(fileName, ".start")
+            ).delete()
 
             if (fileName == replayFileString) {
                 // the log being replayed has just been deleted, so the replay
