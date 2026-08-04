@@ -30,12 +30,16 @@ class TerrainScene {
 
     companion object {
         /**
-         * Vertices across one tile. The heights themselves are about 30m apart,
-         * so 97 across a zoom-15 tile — nine metres — is already finer than
-         * anything it can describe, and a quarter of the triangles that 193 was
-         * drawing sixty times a second.
+         * Vertices across one tile: 193 gives about 9m between them at zoom 14.
+         *
+         * Not the thing to trim for speed. Two thirds of a million triangles a
+         * frame is a fraction of what the phone can draw, and what actually
+         * cost time was uploading the textures and rebuilding the flight, not
+         * this. It does set how long a tile takes to build, though — one height
+         * lookup per vertex — so it is the place to look if the first load ever
+         * feels slow.
          */
-        private const val GRID = 97
+        private const val GRID = 193
 
         /**
          * Ground tiles at zoom 14 are about 1.7km across, so a texture two
