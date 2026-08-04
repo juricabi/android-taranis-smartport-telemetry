@@ -3982,6 +3982,24 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     private fun switchToConnectedState() {
+        // A link and a replay are two different flights, and this screen can
+        // only be showing one of them.
+        //
+        // Nothing used to end the replay here, and this is reached two ways:
+        // a link coming up, and the screen binding to a service that already
+        // had one. The second is what happens when the app is killed and
+        // started again while a link is up — the screen restores the replay it
+        // had open and the service reports it is connected — and it was then
+        // live and replaying at once: the recorded operator's arrow drawn over
+        // live telemetry, the clock reading a time from last week, and nearby
+        // aircraft left switched off.
+        if (isInReplayMode()) {
+            logPlayer?.stop()
+            logPlayer = null
+            seekBar.visibility = View.GONE
+            playButton.visibility = View.GONE
+            closeReplay()
+        }
         replayButton.visibility = View.GONE
         // The menu is for replay: log rename, delete, export, playback length.
         // While connected it only ever offered "copy UAV location" and "show
