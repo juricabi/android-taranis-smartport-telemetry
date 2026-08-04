@@ -2290,7 +2290,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private fun forgetModel() {
         lastGPS = Position(0.0, 0.0)
-        hasGPSFix = false
+        // Not whether there is a fix: that belongs to the link, not to the
+        // model, and the replay's own handler will not take a single point
+        // while it is false — so forgetting it here threw away the flight that
+        // was being rewound to.
         shownLat = Double.NaN
         shownLon = Double.NaN
         shownMarkerHeading = Float.NaN
@@ -3666,8 +3669,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     override fun onDecoderRestart() {
-        // where a replay run to the end and started again comes through
-        runOnUiThread { forgetFlight() }
+        // where a replay run to the end and started again comes through. The
+        // decoder will say again whether it has a fix.
+        runOnUiThread {
+            hasGPSFix = false
+            forgetFlight()
+        }
     }
 
     /**
