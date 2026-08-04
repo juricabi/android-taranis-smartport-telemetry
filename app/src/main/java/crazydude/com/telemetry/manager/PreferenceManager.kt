@@ -9,28 +9,15 @@ class PreferenceManager(context: Context) {
     private val sharedPreferences = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
     init {
-        // How long a replay takes was a list of choices, kept as text. It is a
-        // slider of seconds now, and a slider keeps a number — so an install
-        // that has the old text would throw the moment the settings screen
-        // read it, somewhere inside the framework where nothing here could
-        // catch it. Moved across once, before anything asks.
-        if (sharedPreferences.contains("playback_duration")) {
-            val was = try {
-                sharedPreferences.getString("playback_duration", null)?.toIntOrNull()
-            } catch (e: ClassCastException) {
-                null
+        // How long a replay takes was five choices kept as text, and is a
+        // slider of seconds now. Whatever was chosen comes across once.
+        val chosen = sharedPreferences.getString("playback_duration", null)?.toIntOrNull()
+        if (chosen != null) {
+            val moved = sharedPreferences.edit().remove("playback_duration")
+            if (chosen > 0 && !sharedPreferences.contains("playback_seconds")) {
+                moved.putInt("playback_seconds", Math.max(15, Math.min(300, chosen)))
             }
-            val edit = sharedPreferences.edit().remove("playback_duration")
-            if (was != null && !sharedPreferences.contains("playback_seconds")) {
-                // nought was the sentinel while real time was one of the
-                // choices, and is now a switch of its own
-                if (was <= 0) {
-                    edit.putBoolean("playback_real_time", true)
-                } else {
-                    edit.putInt("playback_seconds", Math.max(15, Math.min(300, was)))
-                }
-            }
-            edit.apply()
+            moved.apply()
         }
     }
     private val defaultHeadlineColor = context.resources.getColor(R.color.colorHeadline)
