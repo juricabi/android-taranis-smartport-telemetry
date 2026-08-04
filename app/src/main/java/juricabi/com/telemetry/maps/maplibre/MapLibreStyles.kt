@@ -93,15 +93,6 @@ object MapLibreStyles {
         return builder
     }
 
-    /**
-     * The layer everything of ours sits above.
-     *
-     * Whatever the topmost tile layer of this style turned out to be — the
-     * flight has to go above the place names, not under them.
-     */
-    fun topTileLayer(mapType: Int): String =
-        if (mapType == MAP_TYPE_SATELLITE_HYBRID) "places" else BASE_LAYER
-
     private fun raster(id: String, url: String, maxZoom: Float): RasterSource {
         val tiles = TileSet("2.1.0", url)
         tiles.minZoom = 0f

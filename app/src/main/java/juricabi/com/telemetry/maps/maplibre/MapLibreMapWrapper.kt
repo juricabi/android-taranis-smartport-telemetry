@@ -53,9 +53,6 @@ class MapLibreMapWrapper(
     private var cameraMoveListener: (() -> Unit)? = null
     private var orientationListener: ((Float) -> Unit)? = null
 
-    /** The tile layer everything of ours is drawn above. */
-    private val above = MapLibreStyles.topTileLayer(type)
-
     /**
      * Where this phone is, and where it stood while a replay was recorded.
      *
@@ -63,8 +60,19 @@ class MapLibreMapWrapper(
      * layered above whatever went in before it, and these two belong under the
      * flight and its markers rather than over them.
      */
-    private val me = MapLibreSpot(context, "me", above, ::whenReady)
-    private val logged = MapLibreSpot(context, "logged", above, ::whenReady)
+    /**
+     * Where the phone stood first, where it is now second — and the order is
+     * the point of it.
+     *
+     * Layers are stacked in the order they are made, so the second of these is
+     * drawn over the first. Replaying a flight from the field it was flown at
+     * stands the two on the same spot, and the one that is true of this moment
+     * is the one worth seeing. The map has always settled it this way, by the
+     * order of its two overlays; the ground view needed a depth bias to say the
+     * same thing.
+     */
+    private val logged = MapLibreSpot(context, "logged", ::whenReady)
+    private val me = MapLibreSpot(context, "me", ::whenReady)
 
     init {
         mapView.getMapAsync { ready ->
@@ -330,13 +338,13 @@ class MapLibreMapWrapper(
     private fun cameraZoom(osmdroidZoom: Float): Double = osmdroidZoom.toDouble() - 1.0
 
     override fun addMarker(icon: Int, color: Int, position: Position): MapMarker =
-        MapLibreMarker(context, icon, color, position, "m${markerCount++}", above, ::whenReady)
+        MapLibreMarker(context, icon, color, position, "m${markerCount++}", ::whenReady)
 
     override fun addMarker(icon: Int, position: Position): MapMarker =
-        MapLibreMarker(context, icon, null, position, "m${markerCount++}", above, ::whenReady)
+        MapLibreMarker(context, icon, null, position, "m${markerCount++}", ::whenReady)
 
     override fun addPolyline(width: Float, color: Int, vararg points: Position): MapLine {
-        val line = MapLibreLine("l${lineCount++}", above, ::whenReady)
+        val line = MapLibreLine("l${lineCount++}", ::whenReady)
         line.addPoints(points.toList())
         line.color = color
         // Not scaled by the display's density, which is what osmdroid needs:
@@ -348,7 +356,7 @@ class MapLibreMapWrapper(
     }
 
     override fun addPolyline(color: Int): MapLine {
-        val line = MapLibreLine("l${lineCount++}", above, ::whenReady)
+        val line = MapLibreLine("l${lineCount++}", ::whenReady)
         line.color = color
         return line
     }

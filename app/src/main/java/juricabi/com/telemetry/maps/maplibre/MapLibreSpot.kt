@@ -32,7 +32,6 @@ import org.maplibre.geojson.Polygon
 class MapLibreSpot(
     private val context: Context,
     private val id: String,
-    private val above: String,
     private val whenReady: ((Style) -> Unit) -> Unit
 ) {
 
@@ -62,14 +61,14 @@ class MapLibreSpot(
 
             val ring = GeoJsonSource(ringSrcId)
             s.addSource(ring)
-            // Under the arrow, and under the flight: it is the least important
-            // thing on the map and the only one drawn as an area.
-            s.addLayerAbove(
+            // The ring first and the arrow on top of it, and both of them
+            // before any line or marker is made — so the flight is drawn over
+            // these, which is where osmdroid draws it too.
+            s.addLayer(
                 FillLayer(ringLyrId, ringSrcId).withProperties(
                     PropertyFactory.fillColor(colour),
                     PropertyFactory.fillOpacity(0.15f)
-                ),
-                above
+                )
             )
             ringSrc = ring
 
@@ -82,7 +81,7 @@ class MapLibreSpot(
                 PropertyFactory.iconAllowOverlap(true),
                 PropertyFactory.iconIgnorePlacement(true)
             )
-            s.addLayerAbove(lyr, ringLyrId)
+            s.addLayer(lyr)
             arrowSrc = arrow
             arrowLyr = lyr
             push()

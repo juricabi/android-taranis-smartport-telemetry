@@ -29,7 +29,6 @@ import org.maplibre.geojson.Point
  */
 class MapLibreLine(
     private val id: String,
-    private val above: String,
     private val whenReady: ((Style) -> Unit) -> Unit
 ) : MapLine() {
 
@@ -58,9 +57,13 @@ class MapLibreLine(
                 PropertyFactory.lineJoin("round")
             )
             style.addSource(src)
-            // Above the tiles and under nothing: a flight drawn beneath the
-            // place names of the hybrid map disappears into the labels.
-            style.addLayerAbove(lyr, above)
+            // On top of everything there is so far, which makes the order these
+            // are drawn in the order they were made in — the rule osmdroid's
+            // overlays follow. Inserted just above the tiles instead, every new
+            // line went *under* the one before it, so the heading line was
+            // beneath the flight it points out of and the two flickered where
+            // they crossed.
+            style.addLayer(lyr)
             source = src
             layer = lyr
             push()

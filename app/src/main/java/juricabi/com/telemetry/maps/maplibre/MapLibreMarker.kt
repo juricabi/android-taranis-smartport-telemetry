@@ -37,7 +37,6 @@ class MapLibreMarker(
     color: Int?,
     position: Position,
     private val id: String,
-    private val above: String,
     private val whenReady: ((Style) -> Unit) -> Unit
 ) : MapMarker {
 
@@ -81,7 +80,9 @@ class MapLibreMarker(
                 PropertyFactory.iconIgnorePlacement(true)
             )
             s.addSource(src)
-            s.addLayerAbove(lyr, above)
+            // Above whatever exists so far: markers are made after the lines
+            // and belong over them, as they do on the osmdroid map.
+            s.addLayer(lyr)
             source = src
             layer = lyr
         }
