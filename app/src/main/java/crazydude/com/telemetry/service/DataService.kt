@@ -139,7 +139,7 @@ class DataService : Service(), DataDecoder.Listener {
      * of its rows was written — which is the only thing that lines the two up
      * when the link goes quiet.
      */
-    private var recording: CountingLog? = null
+    @Volatile private var recording: CountingLog? = null
 
     private fun createLogFile(): FileOutputStream? {
         var fileOutputStream: FileOutputStream? = null

@@ -615,6 +615,15 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         place(logged, x, y, z, headingDegrees)
     }
 
+    /**
+     * Under the lock for the mesh, which the two arrows share.
+     *
+     * One of them is placed by the compass, on the sensor thread, and the other
+     * by a replay on the screen's — and the drawing thread reads the mesh under
+     * this same lock. Built outside it, a buffer half-filled by one thread
+     * could be handed to either of the others as though it were finished.
+     */
+    @Synchronized
     private fun place(spot: Spot, x: Float, y: Float, z: Float, headingDegrees: Float) {
         spot.x = x; spot.y = y; spot.z = z
         spot.headingTarget = headingDegrees
