@@ -1503,12 +1503,23 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
+    /**
+     * Whether the model has said it is armed, and whether it has ever said.
+     *
+     * A link that never mentions arming must not have every height thrown
+     * away, so nothing is filtered until one has been reported.
+     */
+    @Volatile private var isArmed = false
+    @Volatile private var gotArmedState = false
+
     override fun onFlyModeData(
         armed: Boolean,
         heading: Boolean,
         firstFlightMode: DataDecoder.Companion.FlyMode?,
         secondFlightMode: DataDecoder.Companion.FlyMode?
     ) {
+        isArmed = armed
+        gotArmedState = true
         runOnUiThread {
             if (armed) {
                 mode.text = "Armed"
@@ -3253,8 +3264,26 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         rememberForProfile(latitude, longitude, heightNow())
     }
 
-    private fun heightNow(): Float =
-        if (!lastGpsAltitudeMsl.isNaN()) lastGpsAltitudeMsl else lastAnyAltitude
+    /**
+     * The height to record with a fix, or NaN where it would be a lie.
+     *
+     * Betaflight reports height above the sea while disarmed and height above
+     * the arming point once armed, so a flight recorded from power-up carries
+     * both meanings. What the whole flight means is decided from the lowest
+     * readings of it, which the armed ones win — and the handful from before
+     * arming were then lifted as though they were above-launch too, and drawn
+     * one ground-elevation into the sky.
+     *
+     * Left out rather than corrected: which of the two a disarmed reading is
+     * cannot be known from the reading. The fix itself is still recorded, and
+     * is drawn where it was, on the ground.
+     */
+    private fun heightNow(): Float {
+        if (gotArmedState && !isArmed && preferenceManager.isDisarmedHeightIgnored()) {
+            return Float.NaN
+        }
+        return if (!lastGpsAltitudeMsl.isNaN()) lastGpsAltitudeMsl else lastAnyAltitude
+    }
 
     /**
      * A fix, kept for everything that draws the flight.
