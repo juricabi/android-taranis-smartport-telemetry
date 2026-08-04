@@ -71,6 +71,14 @@ abstract class MapLine {
             val subList = spoints.subList(fi, spoints.size).toList()
             clear()
             addPoints(subList)
+            // Drained, like the other branch does. Left full, this one is
+            // entered once and then always: the staged points accumulate for
+            // the whole flight, every commit filters the lot of them again, and
+            // the line is torn down and rebuilt from scratch each time. It also
+            // meant the line went on showing a long stretch of flight however
+            // small the limit was set, since what it drew was the tail of that
+            // ever growing list rather than the points it had been given.
+            spoints.clear()
         } else {
             for (i in 1..toRemove) {
                 removeAt(0)

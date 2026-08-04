@@ -4020,17 +4020,19 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     fun commitRouteLinePoints() {
         var maxCount = preferenceManager.getMaxRoutePoints()
         if ( maxCount < 0) {
-            // How much flight is kept on the map. The oldest points are
-            // dropped past this, and below about fifteen hundred they are not
-            // thinned either, so a small number is a short memory rather than a
-            // cheap one: seven hundred, which this briefly was by accident,
-            // showed only the last kilometre or so of a flight.
+            // Unset means keep the whole flight.
             //
-            // It is not worth trimming for speed. Measured on a 120Hz phone,
-            // cutting the line from twenty five hundred points to a hundred and
-            // fifty moved the median frame from 10ms to 9ms — the map spends
-            // its time on tiles and on drawing itself, not on this.
-            maxCount = 2500
+            // A cap here does not save anything worth having: measured on a
+            // 120Hz phone, cutting the line from twenty five hundred points to
+            // a hundred and fifty moved the median frame from 10ms to 9ms. The
+            // map spends its time on tiles and on drawing itself. What a cap
+            // does do is throw away the start of the flight, oldest first,
+            // without saying so.
+            //
+            // The points are bounded anyway: the further a flight goes the
+            // further apart they are kept, up to thirty metres, so even a long
+            // one costs a few thousand.
+            maxCount = Int.MAX_VALUE
         }
         polyLine?.commitPoints(maxCount)
     }
