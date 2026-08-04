@@ -133,6 +133,9 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         private const val SMOOTHING = 0.18f
 
         /** How many fixes can arrive between two rebuilds of the flight. */
+        /** Beyond this in one frame, a turn is followed rather than eased. */
+        private const val SNAP_TURN = 25f
+
         private const val SPARE_POINTS = 600
 
         private const val FLOATS_PER_VERTEX = 8
@@ -248,11 +251,21 @@ class TerrainRenderer : GLSurfaceView.Renderer {
 
     private fun ease(from: Float, to: Float): Float = from + (to - from) * SMOOTHING
 
-    /** The short way round, so a turn through north is not a lap of the compass. */
+    /**
+     * The short way round, so a turn through north is not a lap of the compass.
+     *
+     * A share of the way each frame is smoothing for a model turning at the
+     * rate a model turns. A replay runs many times faster than that, so each
+     * tick of it brings a turn that would take half a second to follow — and
+     * the model was left pointing where it had been pointing seconds ago while
+     * everything around it kept up. Past a quarter turn there is nothing to
+     * smooth: it goes where it is pointing.
+     */
     private fun easeAngle(from: Float, to: Float): Float {
         var turn = to - from
         while (turn > 180f) turn -= 360f
         while (turn < -180f) turn += 360f
+        if (turn > SNAP_TURN || turn < -SNAP_TURN) return ((to % 360f) + 360f) % 360f
         return ((from + turn * SMOOTHING) % 360f + 360f) % 360f
     }
 

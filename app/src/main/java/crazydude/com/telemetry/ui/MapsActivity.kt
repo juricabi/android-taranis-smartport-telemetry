@@ -4482,6 +4482,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var shownLat = Double.NaN
     private var shownLon = Double.NaN
     private var shownMarkerHeading = Float.NaN
+
+    /** Beyond this in one frame, the marker is turned rather than eased. */
+    private val MARKER_SNAP_TURN = 25f
     private var smoothingMarker = false
 
     /** A step towards the last fix, at each frame the screen draws. */
@@ -4509,7 +4512,15 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 shownMarkerHeading = lastHeading
             } else {
                 val turn = ((lastHeading - shownMarkerHeading) % 360f + 540f) % 360f - 180f
-                if (Math.abs(turn) > 0.05f) {
+                if (Math.abs(turn) > MARKER_SNAP_TURN) {
+                    // A replay runs many times faster than the flight did, so a
+                    // share of the way each frame left the marker — and the line
+                    // ahead of it — pointing where the model had been pointing
+                    // seconds ago. Past a quarter turn there is nothing to
+                    // smooth.
+                    shownMarkerHeading = ((lastHeading % 360f) + 360f) % 360f
+                    moving = true
+                } else if (Math.abs(turn) > 0.05f) {
                     shownMarkerHeading =
                         ((shownMarkerHeading + turn * MARKER_EASE) % 360f + 360f) % 360f
                     moving = true
