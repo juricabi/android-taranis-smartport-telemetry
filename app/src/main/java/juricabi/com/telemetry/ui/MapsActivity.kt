@@ -1199,7 +1199,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val plans = FlightPlanManager(this).getPlans()
         for (plan in plans) {
             if (!plan.visible || plan.waypoints.size < 2) continue
-            val line = map?.addPolyline(4f, plan.color, *plan.waypoints.toTypedArray())
+            // Level with the line home, and under the weight of the flight
+            // itself. A plan is what was meant to happen; it was being drawn
+            // heavier than the flight that did, and heavier than everything
+            // else on the map.
+            val line = map?.addPolyline(2f, plan.color, *plan.waypoints.toTypedArray())
             if (line != null) {
                 flightPlanLines.add(line)
             }
