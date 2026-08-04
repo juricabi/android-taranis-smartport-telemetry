@@ -274,7 +274,14 @@ class DataService : Service(), DataDecoder.Listener {
     }
 
     override fun onGPSData(list: List<Position>, addToEnd: Boolean) {
-
+        // The flight kept here is what a map is rebuilt from when one is
+        // created — switching between the map and the 3D ground, or coming back
+        // to the screen. A replay delivers it in batches, and those went
+        // unrecorded, so what was kept was one position per batch and a map
+        // built during a replay showed a few corners of the flight instead of
+        // the flight.
+        if (!addToEnd) points.clear()
+        if (hasGPSFix) points.addAll(list)
     }
 
     override fun onVBATData(voltage: Float) {
