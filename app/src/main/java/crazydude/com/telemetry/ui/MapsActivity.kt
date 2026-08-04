@@ -3072,6 +3072,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
 
         hide3DView()
+        // Let go of properly rather than merely dropped: the tile threads and
+        // the tile cache belong to the view, and this happens every time the
+        // ground is opened.
+        map?.onDestroy()
         mapHolder.removeAllViews()
         map = null
         // Taking the map view away detaches every overlay on it, and osmdroid
@@ -4243,8 +4247,16 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     lastKnownGPS = lastGPS
                     lastKnownGPSAt = System.currentTimeMillis()
                 }
-                rememberForProfile(latitude, longitude)
-                terrain3D?.onNewPoint()
+                // Only with a fix, as the map's own line has always been. A
+                // receiver reports its last position while it is still looking
+                // for the satellites, and those positions were kept: a model
+                // and a flight drawn in the ground view where the map showed
+                // nothing — and, worse, the ground was then fetched around
+                // wherever that stale fix said, for the rest of the flight.
+                if (hasGPSFix) {
+                    rememberForProfile(latitude, longitude)
+                    terrain3D?.onNewPoint()
+                }
                 // the marker walks to it over the next few frames, and takes the
                 // lines and the camera with it
                 keepSmoothing()

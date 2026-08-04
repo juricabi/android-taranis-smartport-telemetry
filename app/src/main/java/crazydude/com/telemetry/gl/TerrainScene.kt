@@ -183,6 +183,29 @@ class TerrainScene {
     var tiles: List<TileMesh> = emptyList()
         private set
 
+    /**
+     * Whether this scene has been left behind.
+     *
+     * A load is a dozen tiles, each sixty-four pictures fetched over the
+     * network, and it runs on its own thread — which holds this scene, its
+     * pictures and the view that started it for as long as it takes. Switching
+     * to the map, connecting a link and opening a replay all build a new view,
+     * so without a way to say "stop, nobody is watching" two or three scenes
+     * ran at once, each holding a couple of hundred megabytes of imagery.
+     */
+    @Volatile private var abandoned = false
+
+    fun abandon() {
+        abandoned = true
+        val leaving = ArrayList(built.values)
+        built.clear()
+        tiles = emptyList()
+        // The pictures, which are nearly all of it: sixteen megabytes each. The
+        // drawing thread checks for a recycled picture before it uploads one,
+        // so letting them go while it is still finishing a frame is safe.
+        for (mesh in leaving) mesh.texture?.recycle()
+    }
+
     /** Kept between loads so extending the ground only builds what is new. */
     private val built = LinkedHashMap<Long, TileMesh>()
     private var builtZoom = -1
@@ -453,6 +476,7 @@ class TerrainScene {
         // arrives over it tile by tile instead of everything appearing at the
         // end together.
         for (t in window) {
+            if (abandoned) return
             val tx = t[0].toInt()
             val ty = t[1].toInt()
             val key = tileKey(tx, ty)
@@ -466,6 +490,7 @@ class TerrainScene {
         }
 
         for (t in window) {
+            if (abandoned) return
             val tx = t[0].toInt()
             val ty = t[1].toInt()
             val key = tileKey(tx, ty)
@@ -484,6 +509,7 @@ class TerrainScene {
             onTile()
         }
 
+        if (abandoned) return
         publish(keys)
         onDone()
     }

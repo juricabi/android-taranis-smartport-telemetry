@@ -328,6 +328,12 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
     }
 
     override fun onDestroy() {
+        // osmdroid's own teardown: without it the tile provider's threads and
+        // its cache outlive the view, and this view is thrown away and built
+        // again every time the map and the ground swap places.
+        compassLocationProvider.destroy()
+        loggedLocationProvider.destroy()
+        mapView.onDetach()
     }
 
     override fun onSaveInstanceState(outState: Bundle?) {

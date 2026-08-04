@@ -1162,5 +1162,8 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         ticker.removeCallbacks(poll)
         polling = false
         removeCallbacks(bearingWatch)
+        // and the ground: the thread loading it holds this view, and its
+        // pictures are the largest thing the app ever has in its hands
+        scene.abandon()
     }
 }
