@@ -176,6 +176,7 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
 
         override fun onPostExecute(result: ArrayList<Protocol.Companion.TelemetryData>) {
             cachedData = result
+            flightStart = -1
             dataReadyListener?.onDataReady(result.size)
 
             if (dataReadyListener?.getPlaybackAutostart() == true ){
@@ -189,7 +190,52 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
         task.execute(file)
     }
 
-    fun seek(position: Int) {
+    /**
+     * The packet the flight begins at: the first one that gives a position.
+     *
+     * A log opens with whatever the link was saying before the receiver had
+     * anywhere to say it was — voltages, rates, a fix it has not got yet — so
+     * its first packets carry no coordinates at all. Seeking to nought landed
+     * in the middle of that: the decoder started again, everything drawn was
+     * thrown away, and nothing came back to replace it, which left the start of
+     * every replay a blank map with no model on it.
+     *
+     * Worked out once per log and kept.
+     */
+    private var flightStart = -1
+
+    private fun startOfFlight(): Int {
+        if (flightStart >= 0) return flightStart
+        // Read through from the beginning until a position comes out. Nothing
+        // is fired while this runs: coordinates are only collected, and the fix
+        // state is held back by [fireGPSState].
+        this.fireGPSState = false
+        decodedCoordinates.clear()
+        protocol.dataDecoder.restart()
+        this.hasGPSFix = false
+        this.satellites = 0
+        var i = 0
+        while (i < cachedData.size && decodedCoordinates.isEmpty()) {
+            if (protocol.dataDecoder.isGPSOrImageData(cachedData[i].telemetryType)) {
+                protocol.dataDecoder.decodeData(cachedData[i])
+            }
+            i++
+        }
+        // A log with no fix in it anywhere has no flight to start: nought is
+        // then as good an answer as any, and the same one as before.
+        flightStart = if (decodedCoordinates.isEmpty()) 0 else i
+        // and left as it was found, ready to be read properly
+        decodedCoordinates.clear()
+        protocol.dataDecoder.restart()
+        this.hasGPSFix = false
+        this.satellites = 0
+        currentPosition = 0
+        return flightStart
+    }
+
+    fun seek(requested: Int) {
+        // The beginning means the beginning of the flight, not of the file.
+        val position = if (requested == 0) startOfFlight() else requested
         //seek forward: fire all packets from last position to new position
         //seek backward: fire all packets from the start to the new position
 
@@ -207,10 +253,15 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
 
         var addToEnd: Boolean = false;
 
-        if ( position == 0) {
+        if ( requested == 0) {
             //clear router line and message
             protocol.dataDecoder.restart()
             this.expireStatusText(10000)
+            this.hasGPSFix = false
+            this.satellites = 0
+            // read again from the file's first packet, so the flight is built
+            // from its first fix however it was arrived at
+            currentPosition = 0
         }
 
         if (position > currentPosition) {
