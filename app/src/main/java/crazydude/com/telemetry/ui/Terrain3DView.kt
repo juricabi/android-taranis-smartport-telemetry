@@ -250,6 +250,20 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
      * already somewhere else entirely, which is a glitch nobody can explain to
      * themselves.
      */
+    /**
+     * The model is gone, but what it flew stays.
+     *
+     * For a replay being closed: there is no model any more, so it and the two
+     * lines that start at it go, while the flight it made stays to be looked
+     * at. Nothing is rebuilt until another flight starts.
+     */
+    fun onModelGone() {
+        flightShown = false
+        renderer.hideModel()
+        renderer.setHomeLine(false, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
+        renderer.setHeadingLine(false, 0f, 0f, 0f, 0f)
+    }
+
     fun onFlightReset() {
         seenVersion = -1
         appendedThrough = 0

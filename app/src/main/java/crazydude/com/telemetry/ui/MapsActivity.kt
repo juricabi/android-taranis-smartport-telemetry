@@ -3500,19 +3500,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         replayButton.setOnClickListener {
             lastConnectionType = CONNTYPE_NONE; //reset last connection type to skip reconnection
             switchToIdleState()
-            replayFileString = null
+            closeReplay()
         }
         this.sensorTimeoutManager.disableTimeouts()
         this.tlmRate.setAlpha(0.5f);
         lastGPS = Position(0.0, 0.0);
         hasGPSFix = false;
-        // The model and its lines, but not the flight: what was flown is
-        // worth looking at after a landing, and after a replay is closed.
-        forgetModel()
-        marker?.remove()
-        marker = null
-        headingPolyline?.remove()
-        headingPolyline = null
     }
 
     private fun switchToIdleState() {
@@ -3533,14 +3526,29 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         connectButton.setOnClickListener {
             connect()
         }
-        marker?.remove()
-        marker = null
-        polyLine?.clear()
-        headingPolyline?.remove()
-        headingPolyline = null;
         this.sensorTimeoutManager.enableTimeouts()
         this.tlmRate.setAlpha(1.0f);
-        lastGPS = Position(0.0, 0.0)
+        // The model and the flight both stay. A link that drops leaves the last
+        // place the model was seen on the screen, which is the one thing worth
+        // having at that moment. Closing a replay is the other case, and that
+        // takes the model away — see closeReplay.
+    }
+
+    /**
+     * A replay is over: the model goes, the flight it made stays.
+     *
+     * Unlike a link dropping, there is no last known position worth keeping —
+     * the model in a replay is a recording being played, and when it stops
+     * there is nothing there.
+     */
+    private fun closeReplay() {
+        replayFileString = null
+        forgetModel()
+        marker?.remove()
+        marker = null
+        headingPolyline?.remove()
+        headingPolyline = null
+        terrain3D?.onModelGone()
     }
 
     private fun switchToConnectedState() {
@@ -4260,7 +4268,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         lastFileDialogSelectionIndex = -1
         if (replayFileString != null) {
             switchToIdleState()
-            replayFileString = null
+            closeReplay()
         }
     }
 
@@ -4292,8 +4300,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             currentFileCSV.delete();
 
             if (fileName == replayFileString) {
+                // the log being replayed has just been deleted, so the replay
+                // ends the same way as closing it
                 switchToIdleState()
-                replayFileString = null
+                closeReplay()
             }
         } else {
             Toast.makeText(this, "Failed to delete log.", Toast.LENGTH_SHORT).show()
