@@ -79,7 +79,7 @@ class PreferenceManager(context: Context) {
     }
 
     fun isDisarmedHeightIgnored(): Boolean {
-        return sharedPreferences.getBoolean("ignore_disarmed_height", true)
+        return sharedPreferences.getBoolean("ignore_disarmed_height", false)
     }
 
     fun isLiveShownInReplay(): Boolean {

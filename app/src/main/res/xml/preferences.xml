@@ -22,7 +22,7 @@
             app:iconSpaceReserved="false"
             android:title="Ignore heights reported before arming"
             android:summary="Betaflight reports height above the sea while disarmed and height above the launch once armed, so the two mean different things in one flight. With this on, the heights from before arming are left out of the 3D view and the altitude profile — the positions are still drawn, on the ground"
-            android:defaultValue="true"
+            android:defaultValue="false"
             android:key="ignore_disarmed_height"/>
 
     <SwitchPreference
