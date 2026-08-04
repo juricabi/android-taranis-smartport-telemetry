@@ -984,7 +984,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // minute where it said nothing at all.
         val player = logPlayer
         if (player != null) {
-            track.timeAtMark(player.bytesAt(player.currentPosition))?.let { return Date(it) }
+            // the packet just played, not the one about to be: seeking to a
+            // position decodes everything before it, so the last one on screen
+            // is the one before. Reading the next one's place in the recording
+            // told the time on the far side of a link outage while the model
+            // was still sitting on the near side of it.
+            track.timeAtMark(player.bytesAt(player.currentPosition - 1))?.let { return Date(it) }
         }
         // an older recording, with no marks in it: spread evenly, as before
         val span = track.endedAt - track.startedAt

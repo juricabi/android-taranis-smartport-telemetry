@@ -116,7 +116,12 @@ class TerrainScene {
             var at = 0
             for (p in points) if (!p.altitudeMsl.isNaN()) reported[at++] = p.altitudeMsl
             java.util.Arrays.sort(reported)
-            val lowestReported = reported[reported.size / 20]
+            // The lowest twentieth, and never the very lowest reading — which
+            // is what taking a twentieth of a short flight came to. A receiver
+            // that has just started reports a few wild heights, and one of
+            // those deciding the frame for the whole session is the thing this
+            // is here to prevent.
+            val lowestReported = reported[Math.min(known - 1, Math.max(1, known / 20))]
 
             var lowestGround = Float.NaN
             var groundAtStart = Float.NaN
@@ -399,7 +404,13 @@ class TerrainScene {
             }
         }
         resolveAltitudeReference(points)
-        buildShadow(points)
+        // The whole path, not just its shadow. The screen builds both from the
+        // thinned path twice a second; building only the shadow here, from the
+        // unthinned one, left the two different lengths for as long as it took
+        // the screen to come round again — and a flight and a shadow of
+        // different lengths is a flight with no curtain under it and a line
+        // that stops short of the model.
+        buildTrack(points)
 
         val x0 = Elevation.tileX(westEdge, z)
         val x1 = Elevation.tileX(eastEdge, z)

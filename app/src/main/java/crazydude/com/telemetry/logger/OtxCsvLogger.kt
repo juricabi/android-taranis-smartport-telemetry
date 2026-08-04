@@ -21,6 +21,9 @@ class OtxCsvLogger(
     private val bytesRecorded: () -> Long = { 0L }
 ) : DataDecoder.Listener {
 
+    // Written by the thread that ends the connection, read and used by the
+    // timer that writes the rows.
+    @Volatile
     private var fileWriter: FileWriter?
     private val file: File?
     private val timer = Timer()
@@ -207,11 +210,16 @@ class OtxCsvLogger(
     }
 
     override fun onConnectionFailed() {
+        // The timer first. Closing the writer takes a moment, and a row being
+        // written in that moment threw on a closed stream — out of a
+        // TimerTask, where nothing catches it and the process ends.
+        //
+        // The timer thread is not a daemon either, so a failed attempt would
+        // otherwise leave one parked for the life of the process, and a
+        // reconnect loop leaves many.
+        timer.cancel()
         fileWriter?.close()
         fileWriter = null
-        // the timer thread is not a daemon, so a failed attempt would leave one
-        // parked for the life of the process, and a reconnect loop leaves many
-        timer.cancel()
         timer.purge()
     }
 

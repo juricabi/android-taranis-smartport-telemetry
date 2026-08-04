@@ -82,6 +82,18 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private var following = true
 
     private val ticker = Handler()
+
+    /**
+     * Whether the tick is already going round.
+     *
+     * It starts the view when the first fix arrives, and starting the view
+     * posts the tick — from inside the tick itself, where nothing can take back
+     * the message already running. Two chains then ran for the life of the
+     * view, rebuilding and re-uploading the whole flight twice as often as
+     * anything needed.
+     */
+    private var polling = false
+
     private val poll = object : Runnable {
         override fun run() {
             // Opened with nowhere to stand — no fix from the model, none from
@@ -185,6 +197,13 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         val focusLat = if (hasFlight) points[points.size - 1].lat else scene.originLat
         val focusLon = if (hasFlight) points[points.size - 1].lon else scene.originLon
 
+        // Claimed before it starts. This was only ever cleared here and set by
+        // the extend, so throughout the first load — twelve tiles, sixty-four
+        // fetches each — anything that neared the edge of the window started a
+        // second loader on the same scene. Two threads then built into one map
+        // of tiles while the other walked it, which is a crash waiting for the
+        // day the timing suits it.
+        loadingTerrain = true
         val worker = Thread(Runnable {
             try {
             scene.loadTerrain(flight, focusLat, focusLon,
@@ -216,8 +235,11 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
      * rate for the life of the view.
      */
     private fun watch() {
-        ticker.removeCallbacks(poll)
-        ticker.post(poll)
+        if (!polling) {
+            polling = true
+            ticker.removeCallbacks(poll)
+            ticker.post(poll)
+        }
         removeCallbacks(bearingWatch)
         postOnAnimation(bearingWatch)
     }
@@ -466,13 +488,20 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             loadingTerrain = true
             status.text = ""
             val worker = Thread(Runnable {
-                scene.loadTerrain(points, lat, lon,
-                    { post { groundArrived() } },
-                    { post {
-                        groundArrived(true)
-                        renderer.maxDistance = Math.max(2500f, scene.extent * 5f)
-                        loadingTerrain = false
-                    } })
+                try {
+                    scene.loadTerrain(points, lat, lon,
+                        { post { groundArrived() } },
+                        { post {
+                            groundArrived(true)
+                            renderer.maxDistance = Math.max(2500f, scene.extent * 5f)
+                            loadingTerrain = false
+                        } })
+                } catch (e: Throwable) {
+                    // As the first load is guarded: no signal, a tile that will
+                    // not decode, memory. The ground stays as it is; letting it
+                    // out of the thread ends the process.
+                    post { loadingTerrain = false }
+                }
             })
             worker.name = "terrain-extend"
             worker.start()
@@ -1101,11 +1130,13 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     fun onPause() {
         surface.onPause()
         ticker.removeCallbacks(poll)
+        polling = false
         removeCallbacks(bearingWatch)
     }
 
     fun release() {
         ticker.removeCallbacks(poll)
+        polling = false
         removeCallbacks(bearingWatch)
     }
 }

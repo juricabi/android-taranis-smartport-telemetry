@@ -194,6 +194,19 @@ class OperatorTrack private constructor(
                 }
             }
 
+            // A row cut off half-written — the app killed, the battery gone,
+            // which is how recordings usually end — has a place and a time but
+            // no mark. Judging the whole file by its last row threw away the
+            // mapping and quietly went back to spreading the flight evenly.
+            while (marks.size > 1 && marks[marks.size - 1] < 0L) {
+                marks.removeAt(marks.size - 1)
+                times.removeAt(times.size - 1)
+                lats.removeAt(lats.size - 1)
+                lons.removeAt(lons.size - 1)
+                accuracies.removeAt(accuracies.size - 1)
+                headings.removeAt(headings.size - 1)
+            }
+
             // one row is a place but not a flight: there is nothing to run
             // between, and the clock would have nowhere to go
             if (times.size < 2) return null
