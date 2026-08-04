@@ -4018,6 +4018,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     fun commitRouteLinePoints() {
+        // Nothing new, nothing to do. This is called for every batch the link
+        // delivers — tens of times a second on a busy one — while points only
+        // arrive as fast as the fixes do.
+        if (polyLine?.spoints?.isEmpty() != false) return
         var maxCount = preferenceManager.getMaxRoutePoints()
         if ( maxCount < 0) {
             // Unset means keep the whole flight.

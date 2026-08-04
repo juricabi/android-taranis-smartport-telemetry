@@ -33,7 +33,10 @@ class OsmLine(private val mapView: MapView) : MapLine() {
         // A line whose map has been taken away has already been emptied by
         // osmdroid, and asking it for its points throws.
         try {
-            line.actualPoints.clear()
+            // through its own setter, not by emptying the list it hands out:
+            // that list is the one it draws from, and it keeps a projected copy
+            // beside it which only its setters know to throw away
+            line.setPoints(emptyList())
             mapView.invalidate()
         } catch (e: Exception) {
             // nothing left to clear
@@ -41,8 +44,15 @@ class OsmLine(private val mapView: MapView) : MapLine() {
     }
 
     override fun removeAt(index: Int) {
-        line.actualPoints.removeAt(index)
-        mapView.invalidate()
+        try {
+            val remaining = ArrayList(line.actualPoints)
+            if (index < 0 || index >= remaining.size) return
+            remaining.removeAt(index)
+            line.setPoints(remaining)
+            mapView.invalidate()
+        } catch (e: Exception) {
+            // nothing left to remove
+        }
     }
 
     override val size: Int
