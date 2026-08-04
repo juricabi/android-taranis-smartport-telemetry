@@ -1061,7 +1061,16 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             updateHomeLine()
             return
         }
+        // A flight recorded with the app in the background has times and no
+        // places: the clock runs, and nothing orange is drawn.
         val where = track.at(now.time)
+        if (where == null) {
+            map?.showRecordedLocation(null, 0f, 0f)
+            terrain3D?.hideLoggedLocation()
+            recordedMe = null
+            updateHomeLine()
+            return
+        }
         val here = Position(where.lat, where.lon)
         recordedMe = here
 

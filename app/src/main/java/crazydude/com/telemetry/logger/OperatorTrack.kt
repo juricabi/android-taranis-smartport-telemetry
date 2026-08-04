@@ -22,6 +22,7 @@ import java.util.Locale
 class OperatorTrack private constructor(
     private val times: LongArray,
     private val marks: LongArray,
+    private val stood: LongArray,
     private val lats: DoubleArray,
     private val lons: DoubleArray,
     private val accuracies: FloatArray,
@@ -30,6 +31,9 @@ class OperatorTrack private constructor(
 
     val startedAt: Long get() = times[0]
     val endedAt: Long get() = times[times.size - 1]
+
+    /** Whether anything is known about where the operator stood. */
+    fun hasPlaces(): Boolean = stood.isNotEmpty()
 
     class Where(
         val lat: Double,
@@ -45,19 +49,20 @@ class OperatorTrack private constructor(
      * faster than the flight did, so rows arrive in bursts, and stepping from
      * one to the next made the arrow jump where the live one glides.
      */
-    fun at(time: Long): Where {
-        val last = times.size - 1
-        if (time <= times[0]) return row(0)
-        if (time >= times[last]) return row(last)
+    fun at(time: Long): Where? {
+        if (stood.isEmpty()) return null
+        val last = stood.size - 1
+        if (time <= stood[0]) return row(0)
+        if (time >= stood[last]) return row(last)
 
         var low = 0
         var high = last
         while (low + 1 < high) {
             val middle = (low + high) / 2
-            if (times[middle] <= time) low = middle else high = middle
+            if (stood[middle] <= time) low = middle else high = middle
         }
-        val span = times[high] - times[low]
-        val part = if (span <= 0L) 0f else (time - times[low]).toFloat() / span
+        val span = stood[high] - stood[low]
+        val part = if (span <= 0L) 0f else (time - stood[low]).toFloat() / span
 
         return Where(
             lats[low] + (lats[high] - lats[low]) * part,
@@ -127,11 +132,14 @@ class OperatorTrack private constructor(
         private const val MARK = "LogBytes"
 
         /**
-         * Null where there is nothing to read: no CSV beside the log, or one
-         * recorded before any of this, or one whose rows carry no position
-         * because it was recorded with that turned off. Nothing is drawn then,
-         * which is the point — a guess about where somebody stood is worse than
-         * saying nothing.
+         * Null only where there is no time to read: no CSV beside the log, or
+         * one recorded before any of this.
+         *
+         * A CSV with times and no positions — recording turned off, or a flight
+         * watched with the app in somebody's pocket — still gives a clock. The
+         * operator is drawn from the rows that have a place and nothing is
+         * drawn from the rows that have none, which is why the two are kept
+         * apart.
          */
         fun read(csv: File): OperatorTrack? {
             if (!csv.exists()) return null
@@ -147,6 +155,7 @@ class OperatorTrack private constructor(
 
             val times = ArrayList<Long>()
             val marks = ArrayList<Long>()
+            val stood = ArrayList<Long>()
             val lats = ArrayList<Double>()
             val lons = ArrayList<Double>()
             val accuracies = ArrayList<Float>()
@@ -172,23 +181,31 @@ class OperatorTrack private constructor(
                             MARK -> mark = i
                         }
                     }
-                    if (time < 0 || lat < 0 || lon < 0) usable = false
+                    // A time is enough to be worth reading. The place is not
+                    // required: the screen stops saying where the phone is while
+                    // it is in the background, and the link goes on recording —
+                    // so most of a long flight can be rows with a time, a mark
+                    // and no position, and those rows are the clock.
+                    if (time < 0 || date < 0) usable = false
                     return@forEachLine
-                } else if (cell.size > Math.max(Math.max(date, time), Math.max(lat, lon))) {
+                } else if (cell.size > Math.max(date, time)) {
                     val whenAt = try {
                         stamp.parse(cell[date].trim() + " " + cell[time].trim())?.time
                     } catch (e: Exception) {
                         null
                     }
-                    val north = cell[lat].trim().toDoubleOrNull()
-                    val east = cell[lon].trim().toDoubleOrNull()
-                    if (whenAt != null && north != null && east != null) {
+                    if (whenAt != null) {
                         times.add(whenAt)
                         marks.add(cellLong(cell, mark))
-                        lats.add(north)
-                        lons.add(east)
-                        accuracies.add(cellFloat(cell, accuracy))
-                        headings.add(cellFloat(cell, heading))
+                        val north = cellDouble(cell, lat)
+                        val east = cellDouble(cell, lon)
+                        if (north != null && east != null) {
+                            stood.add(whenAt)
+                            lats.add(north)
+                            lons.add(east)
+                            accuracies.add(cellFloat(cell, accuracy))
+                            headings.add(cellFloat(cell, heading))
+                        }
                     }
                 }
             }
@@ -198,12 +215,15 @@ class OperatorTrack private constructor(
             // no mark. Judging the whole file by its last row threw away the
             // mapping and quietly went back to spreading the flight evenly.
             while (marks.size > 1 && marks[marks.size - 1] < 0L) {
+                val dropped = times.removeAt(times.size - 1)
                 marks.removeAt(marks.size - 1)
-                times.removeAt(times.size - 1)
-                lats.removeAt(lats.size - 1)
-                lons.removeAt(lons.size - 1)
-                accuracies.removeAt(accuracies.size - 1)
-                headings.removeAt(headings.size - 1)
+                if (stood.isNotEmpty() && stood[stood.size - 1] == dropped) {
+                    stood.removeAt(stood.size - 1)
+                    lats.removeAt(lats.size - 1)
+                    lons.removeAt(lons.size - 1)
+                    accuracies.removeAt(accuracies.size - 1)
+                    headings.removeAt(headings.size - 1)
+                }
             }
 
             // one row is a place but not a flight: there is nothing to run
@@ -212,6 +232,7 @@ class OperatorTrack private constructor(
             return OperatorTrack(
                 LongArray(times.size) { times[it] },
                 LongArray(marks.size) { marks[it] },
+                LongArray(stood.size) { stood[it] },
                 DoubleArray(lats.size) { lats[it] },
                 DoubleArray(lons.size) { lons[it] },
                 FloatArray(accuracies.size) { accuracies[it] },
@@ -222,6 +243,11 @@ class OperatorTrack private constructor(
         private fun cellLong(cell: List<String>, at: Int): Long {
             if (at < 0 || at >= cell.size) return -1L
             return cell[at].trim().toLongOrNull() ?: -1L
+        }
+
+        private fun cellDouble(cell: List<String>, at: Int): Double? {
+            if (at < 0 || at >= cell.size) return null
+            return cell[at].trim().toDoubleOrNull()
         }
 
         private fun cellFloat(cell: List<String>, at: Int): Float {
