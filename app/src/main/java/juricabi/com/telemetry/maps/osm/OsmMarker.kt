@@ -9,11 +9,28 @@ import juricabi.com.telemetry.maps.MapMarker
 import juricabi.com.telemetry.maps.Position
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Overlay
 
-class OsmMarker(icon: Int, color: Int?, position: Position, private val mapView: MapView, private val context: Context) : MapMarker {
+class OsmMarker(
+    icon: Int,
+    color: Int?,
+    position: Position,
+    private val mapView: MapView,
+    private val context: Context,
+    /**
+     * An overlay to go under, where being added later is not the same as
+     * belonging on top. Null appends, which is the usual case.
+     */
+    below: Overlay? = null,
+    /** Told when this marker goes, so nothing keeps a dead one. */
+    private val onRemoved: ((OsmMarker) -> Unit)? = null
+) : MapMarker {
 
     private val marker = Marker(mapView)
     private var heading: Float = 0f
+
+    /** For anything that has to be kept above this one. */
+    internal val overlay: Overlay get() = marker
 
     private fun buildIcon(icon: Int, color: Int?): Drawable {
         val body = context.resources.getDrawable(icon).mutate()
@@ -41,7 +58,14 @@ class OsmMarker(icon: Int, color: Int?, position: Position, private val mapView:
         // gets one whether or not it has a title. Only the aircraft from
         // FlightRadar have anything to put in one.
         marker.infoWindow = null
-        mapView.overlayManager.add(marker)
+        // Last in the list is drawn on top, so a marker that belongs underneath
+        // another has to be put in at its place rather than added to the end.
+        val at = if (below != null) mapView.overlayManager.indexOf(below) else -1
+        if (at >= 0) {
+            mapView.overlayManager.add(at, marker)
+        } else {
+            mapView.overlayManager.add(marker)
+        }
     }
 
     private fun showBubbleIfWorthIt() {
@@ -84,5 +108,11 @@ class OsmMarker(icon: Int, color: Int?, position: Position, private val mapView:
 
     override fun remove() {
         marker.remove(mapView)
+        // and out of the list the map keeps for turning them all, which was
+        // only ever added to: the Flightradar traffic is thrown away and made
+        // again on every poll, so that list grew for as long as the app was
+        // open and every rotation of the map turned markers that had not been
+        // on it for hours.
+        onRemoved?.invoke(this)
     }
 }

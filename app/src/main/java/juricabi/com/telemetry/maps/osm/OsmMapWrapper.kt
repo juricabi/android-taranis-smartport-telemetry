@@ -16,6 +16,7 @@ import org.osmdroid.tileprovider.MapTileProviderBasic
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.views.CustomZoomButtonsController
 import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Overlay
 import org.osmdroid.views.overlay.TilesOverlay
 import android.animation.ValueAnimator
 import android.view.animation.DecelerateInterpolator
@@ -296,14 +297,29 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
         mapView.controller.setCenter(position.toGeoPoint())
     }
 
+    /**
+     * The model's own marker, which everything else keeps under.
+     *
+     * The two ways of asking for a marker are not interchangeable: one takes
+     * the colour the model is drawn in and is the model, the other is the
+     * traffic from Flightradar. Traffic is thrown away and made again on every
+     * poll of it, and the last overlay in the list is the one drawn on top — so
+     * the aircraft being flown went under an airliner passing overhead, and
+     * went back under it every half minute for as long as one was in the sky.
+     */
+    private var modelOverlay: Overlay? = null
+
     override fun addMarker(icon: Int, color: Int, position: Position): MapMarker {
-        val marker = OsmMarker(icon, color, position, mapView, context)
+        val marker = OsmMarker(icon, color, position, mapView, context, null) { markers.remove(it) }
+        modelOverlay = marker.overlay
         markers.add(marker)
         return marker
     }
 
     override fun addMarker(icon: Int, position: Position): MapMarker {
-        val marker = OsmMarker(icon, null, position, mapView, context)
+        val marker = OsmMarker(icon, null, position, mapView, context, modelOverlay) {
+            markers.remove(it)
+        }
         markers.add(marker)
         return marker
     }
