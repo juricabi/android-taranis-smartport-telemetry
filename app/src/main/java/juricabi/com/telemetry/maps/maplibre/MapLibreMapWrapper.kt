@@ -84,6 +84,10 @@ class MapLibreMapWrapper(
                 cameraZoom(MapLibreStyles.maxTileZoom(type) + 2f)
             )
             ready.setMinZoomPreference(0.0)
+            // and wherever it was pointed while it was still being built —
+            // after the limits, so the opening zoom is clamped by them rather
+            // than clamping them
+            applyPendingCamera()
             ready.setStyle(MapLibreStyles.forType(type)) { loaded ->
                 style = loaded
                 val queued = ArrayList(pending)
@@ -164,12 +168,48 @@ class MapLibreMapWrapper(
      * its own glide on top because other things centred it too; this does not,
      * and adding one would only make the map lag the marker riding on it.
      */
+    /**
+     * Where the camera was asked to look before there was a camera.
+     *
+     * The screen points the map at the model the moment it has built one, and
+     * a MapLibre map does not exist yet at that moment — getMapAsync has not
+     * come back. Every one of those calls went into a null and was lost, so the
+     * map opened looking at the whole world from zoom four wherever it was
+     * pointed. osmdroid's view is usable the instant it is constructed and
+     * never had the problem.
+     *
+     * The two are kept apart on purpose: the frame loop asks for a place
+     * without a zoom many times a second, and it must not be able to throw away
+     * the zoom the opening call asked for.
+     */
+    private var pendingTarget: Position? = null
+    private var pendingZoom: Float? = null
+
+    private fun applyPendingCamera() {
+        val target = pendingTarget ?: return
+        val zoom = pendingZoom
+        pendingTarget = null
+        pendingZoom = null
+        if (zoom != null) moveCamera(target, zoom) else moveCamera(target)
+    }
+
     override fun moveCamera(position: Position) {
-        map?.moveCamera(CameraUpdateFactory.newLatLng(LatLng(position.lat, position.lon)))
+        val ready = map
+        if (ready == null) {
+            pendingTarget = position
+            return
+        }
+        ready.moveCamera(CameraUpdateFactory.newLatLng(LatLng(position.lat, position.lon)))
     }
 
     override fun moveCamera(position: Position, zoom: Float) {
-        map?.moveCamera(
+        val ready = map
+        if (ready == null) {
+            pendingTarget = position
+            pendingZoom = zoom
+            return
+        }
+        ready.moveCamera(
             CameraUpdateFactory.newCameraPosition(
                 CameraPosition.Builder()
                     .target(LatLng(position.lat, position.lon))
