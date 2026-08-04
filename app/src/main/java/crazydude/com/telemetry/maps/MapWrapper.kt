@@ -20,6 +20,9 @@ interface MapWrapper {
     /** Which way this phone is facing, read once by the screen. */
     fun setPhoneBearing(degrees: Float) {}
 
+    /** Where this phone is, from the one listener the screen keeps. */
+    fun setPhoneLocation(position: Position, accuracy: Float) {}
+
     fun moveCamera(position: Position)
     fun moveCamera(position: Position, zoom: Float)
     fun addMarker(icon: Int, color: Int, position: Position): MapMarker

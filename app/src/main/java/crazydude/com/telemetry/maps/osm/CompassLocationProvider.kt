@@ -1,121 +1,116 @@
 package crazydude.com.telemetry.maps.osm
 
-import android.content.Context
 import android.location.Location
-import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.IMyLocationConsumer
 import org.osmdroid.views.overlay.mylocation.IMyLocationProvider
 
 /**
- * The map's own arrow: where the phone is, from the system, and which way it is
- * facing, from whoever is reading the compass.
+ * The map's own arrow: where the phone is and which way it is facing, both
+ * handed in from outside.
  *
- * The compass is not read here. It is read once by the screen and handed to
- * this, to the 3D view's arrow and to the recording — three readers of the same
- * two sensors was three sets of samples and three lots of filtering to arrive
- * at one number.
+ * Nothing is read here. The screen listens to the satellites once and reads the
+ * compass once, and hands the same two numbers to this, to the 3D view's arrow
+ * and to the recording. Before, there were two listeners on the satellites and
+ * three readers of the same two sensors, each with its own filtering, all
+ * answering one question slightly differently — and the map's answer was the
+ * unfiltered one.
+ *
+ * A replay hands in where the phone *was* instead. While it is doing that, live
+ * fixes are ignored, so the arrow cannot flick between then and now.
  */
-class CompassLocationProvider(private val context: Context) : IMyLocationProvider {
+class CompassLocationProvider : IMyLocationProvider {
 
-    private val gpsProvider = GpsMyLocationProvider(context)
-
-    private var compassBearing: Float = 0f
     private var consumer: IMyLocationConsumer? = null
-    private var accepted: Location? = null
-    private var lastBearingPush = 0L
-    private var pushedBearing = -999f
-    private var hasBearing = false
 
-    /**
-     * A replay handing back where the phone was, instead of where it is.
-     *
-     * Fed through the same provider the live arrow comes from, so the map draws
-     * it with the same dot, the same arrow and the same ring — a hand-drawn
-     * imitation beside the real one is exactly the kind of thing that looks
-     * wrong without anybody being able to say why.
-     */
-    private var fed = false
-    private var fedLocation: Location? = null
+    /** The place being drawn, and whether it is a recorded one. */
+    private var here: Location? = null
+    private var replaying = false
 
-    fun feed(location: Location?) {
-        fedLocation = location
-        fed = location != null
-        if (location == null) return
-        accepted = location
-        consumer?.onLocationChanged(location, this)
+    private var bearing = Float.NaN
+    private var drawnBearing = Float.NaN
+    private var bearingDrawnAt = 0L
+
+    /** A fix, as the screen believes it: the same one everything else draws. */
+    fun setLocation(location: Location) {
+        if (replaying) return
+        here = location
+        draw()
     }
 
     /**
-     * Which way the phone is facing, as read by the screen.
+     * Where the phone stood at this point of a replay.
      *
-     * Every push of this redraws the map, so it is only passed on when the
-     * angle has actually moved and not too often — with the phone lying still
-     * it would otherwise redraw all day.
+     * Null hands the arrow back to the live one — and takes the recorded place
+     * away with it, since a recorded place is not where anybody is now. The
+     * screen pushes the live fix in behind it.
+     */
+    fun replay(location: Location?) {
+        replaying = location != null
+        here = location
+        draw()
+    }
+
+    /**
+     * Which way the phone is facing.
+     *
+     * Every angle drawn redraws the map, so one is drawn only when it has
+     * really turned, and no oftener than sixteen times a second: a phone lying
+     * still would otherwise redraw all day.
      */
     fun setBearing(degrees: Float) {
-        if (degrees.isNaN()) return
-        compassBearing = degrees
-        hasBearing = true
-        if (fed) return
+        if (degrees.isNaN() || replaying) return
+        bearing = degrees
+        val turned = Math.abs(((degrees - drawnBearing + 540f) % 360f) - 180f)
         val now = System.currentTimeMillis()
-        var moved = ((compassBearing - pushedBearing + 540f) % 360f) - 180f
-        if (moved < 0f) moved = -moved
-        if (now - lastBearingPush > 60 && moved > 0.5f) {
-            lastBearingPush = now
-            pushedBearing = compassBearing
-            accepted?.let { consumer?.onLocationChanged(injectBearing(Location(it)), this) }
+        if (drawnBearing.isNaN() || (now - bearingDrawnAt > 60L && turned > 0.5f)) {
+            bearingDrawnAt = now
+            drawnBearing = degrees
+            draw()
         }
     }
 
     override fun startLocationProvider(myLocationConsumer: IMyLocationConsumer?): Boolean {
         consumer = myLocationConsumer
-        // Whatever is being fed goes straight back out. Turning the overlay on
-        // takes this provider round again, and without this the recorded place
-        // was lost on the way, so the arrow blinked out between one feed and
-        // the next while a replay was being dragged.
-        fedLocation?.let { myLocationConsumer?.onLocationChanged(it, this) }
-        // ask for frequent updates so a GPS fix replaces the first coarse one quickly
-        gpsProvider.locationUpdateMinTime = 1000
-        gpsProvider.locationUpdateMinDistance = 0f
-        return gpsProvider.startLocationProvider { location, source ->
-            // osmdroid's provider already ignores network fixes for a while
-            // after a gps one, so take what it gives us; filtering on accuracy
-            // here could latch onto one good fix and freeze the position.
-            if (fed) return@startLocationProvider
-            accepted = location
-            myLocationConsumer?.onLocationChanged(injectBearing(location), source)
-        }
+        // Whatever is known already, so switching the overlay on draws the
+        // arrow rather than waiting for the next fix to come round. osmdroid
+        // takes this provider round from the start every time the overlay is
+        // enabled, which while a seek bar is dragged is many times a second.
+        draw()
+        return true
     }
 
+    /** Switched off with the overlay; what is known stays known. */
     override fun stopLocationProvider() {
-        // fed and fedLocation are the replay's, and outlive this: only feeding
-        // null gives the arrow back to the live one
-        accepted = null
-        hasBearing = false
-        pushedBearing = -999f
-        gpsProvider.stopLocationProvider()
         consumer = null
     }
 
-    override fun getLastKnownLocation(): Location? {
-        fedLocation?.let { return it }
-        return gpsProvider.lastKnownLocation?.let { injectBearing(it) }
-    }
+    override fun getLastKnownLocation(): Location? = here?.let { facing(it) }
 
     override fun destroy() {
-        stopLocationProvider()
-        gpsProvider.destroy()
+        consumer = null
+        here = null
+        replaying = false
     }
 
-    private fun injectBearing(location: Location?): Location? {
-        if (location == null) return null
-        // Only once the compass has actually read something. Assigning a bearing
-        // at all makes Location report that it has one, and osmdroid then draws
-        // the direction arrow — which on a phone with no magnetometer sat
-        // pointing due north for the whole session, and hid the plain dot that
-        // is there for exactly this case.
-        if (hasBearing) location.bearing = compassBearing
-        return location
+    private fun draw() {
+        val at = here ?: return
+        consumer?.onLocationChanged(facing(at), this)
     }
 
+    /**
+     * A copy of the place, pointing the way the phone points.
+     *
+     * A copy, because osmdroid keeps what it is handed and draws from it later:
+     * the same object edited underneath it is the object it has already drawn.
+     *
+     * A bearing only once one is known: setting it at all is what makes the map
+     * draw an arrow rather than nothing, so a phone with no magnetometer would
+     * be left with an arrow pointing north for the whole session. A recorded
+     * place arrives with its own bearing on it and is left alone.
+     */
+    private fun facing(at: Location): Location {
+        val copy = Location(at)
+        if (!replaying && !bearing.isNaN()) copy.bearing = bearing
+        return copy
+    }
 }

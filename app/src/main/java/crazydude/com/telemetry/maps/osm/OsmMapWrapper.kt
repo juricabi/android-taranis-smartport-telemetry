@@ -34,7 +34,7 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
         public const val MAP_TYPE_SATELLITE_HYBRID = 8
     }
 
-    private val compassLocationProvider = CompassLocationProvider(context)
+    private val compassLocationProvider = CompassLocationProvider()
     private val myLocationNewOverlay = MyLocationNewOverlay(compassLocationProvider, mapView)
     private val markers = mutableListOf<OsmMarker>()
 
@@ -108,23 +108,30 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
         compassLocationProvider.setBearing(degrees)
     }
 
+    override fun setPhoneLocation(position: Position, accuracy: Float) {
+        compassLocationProvider.setLocation(placeAt(position, accuracy, Float.NaN))
+    }
+
+    private fun placeAt(position: Position, accuracy: Float, heading: Float): Location {
+        val at = Location("phone")
+        at.latitude = position.lat
+        at.longitude = position.lon
+        if (!accuracy.isNaN() && accuracy > 0f) at.accuracy = accuracy
+        // a bearing at all is what makes the map draw the arrow rather than
+        // nothing, so an unknown one is left unset
+        if (!heading.isNaN()) at.bearing = heading
+        return at
+    }
+
     override fun showRecordedLocation(position: Position?, accuracy: Float, heading: Float) {
         if (position == null) {
-            compassLocationProvider.feed(null)
+            compassLocationProvider.replay(null)
             return
         }
-        val stood = Location("replay")
-        stood.latitude = position.lat
-        stood.longitude = position.lon
-        if (!accuracy.isNaN() && accuracy > 0f) stood.accuracy = accuracy
-        // a bearing at all is what makes the map draw the arrow rather than the
-        // plain dot, so an unknown one is left unset
-        if (!heading.isNaN()) stood.bearing = heading
-        // only where it is not already on: turning it on again takes the
-        // provider round from the start, twenty times a second while a seek bar
-        // is being dragged
+        // only where it is off: turning it on takes the provider round from the
+        // start, which while a seek bar is dragged is many times a second
         if (!myLocationNewOverlay.isMyLocationEnabled) myLocationNewOverlay.enableMyLocation()
-        compassLocationProvider.feed(stood)
+        compassLocationProvider.replay(placeAt(position, accuracy, heading))
     }
 
     override fun getMyLocation(): Position? {

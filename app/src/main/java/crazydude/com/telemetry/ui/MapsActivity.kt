@@ -271,6 +271,16 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * Only where it is being recorded at all — it lands in the CSV, which
      * travels with the log wherever the log goes.
      */
+    /** What the screen knows about this phone, onto the map that draws it. */
+    private fun tellMapWhereIAm() {
+        val fix = bestPhoneFix ?: return
+        map?.setPhoneLocation(
+            Position(fix.latitude, fix.longitude),
+            if (fix.hasAccuracy()) fix.accuracy else Float.NaN
+        )
+        if (!phoneHeading.isNaN()) map?.setPhoneBearing(phoneHeading)
+    }
+
     private fun recordWhereIAm() {
         if (!preferenceManager.isMyPositionLoggingEnabled()) return
         val fix = bestPhoneFix ?: return
@@ -293,6 +303,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 // not over a replay, which is drawing where the phone was then
                 if (!isInReplayMode()) {
                     terrain3D?.setMyPosition(location.latitude, location.longitude, phoneAccuracy)
+                    // and the map's arrow, which used to listen to the
+                    // satellites itself and answer slightly differently
+                    tellMapWhereIAm()
                 }
             }
         }
@@ -844,6 +857,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // turning the map to a heading swung it round the empty middle
             // instead of round the model.
             centreOnModel()
+            // a map that has just been built knows nothing until it is told
+            tellMapWhereIAm()
             map?.moveCamera(shownPosition(), LOCATE_ZOOM)
             updateHeading()
             updateHomeLine()
@@ -985,6 +1000,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         map?.showRecordedLocation(null, 0f, 0f)
         terrain3D?.useRecordedHeading(false)
         showMyLocation()
+        tellMapWhereIAm()
         showTime()
     }
 
