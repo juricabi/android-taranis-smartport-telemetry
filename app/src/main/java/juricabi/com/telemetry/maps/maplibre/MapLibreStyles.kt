@@ -39,20 +39,26 @@ object MapLibreStyles {
     /** Where the flight, the markers and everything else are drawn above. */
     const val BASE_LAYER = "base"
 
+    /**
+     * The deepest zoom each of these actually has pictures for, in tile terms.
+     *
+     * Declared on the source so MapLibre stops asking past it and draws what it
+     * has, scaled up — blurry rather than blank, which is what the map has
+     * always done. Without it every tile past the end is a request that 404s
+     * and a white square where the ground should be.
+     */
+    fun maxTileZoom(mapType: Int): Float = when (mapType) {
+        MAP_TYPE_TOPO -> 17f
+        else -> 19f
+    }
+
     fun forType(mapType: Int): Style.Builder {
         val base = when (mapType) {
             MAP_TYPE_TOPO -> TOPO
             MAP_TYPE_SATELLITE, MAP_TYPE_SATELLITE_HYBRID -> ESRI
             else -> OSM
         }
-        // The maximum zoom each of these actually has imagery for. Past it
-        // MapLibre keeps drawing the deepest tiles it has, scaled up, which is
-        // the blurry-rather-than-blank behaviour the map already had.
-        val maxZoom = when (mapType) {
-            MAP_TYPE_TOPO -> 17f
-            MAP_TYPE_SATELLITE, MAP_TYPE_SATELLITE_HYBRID -> 19f
-            else -> 19f
-        }
+        val maxZoom = maxTileZoom(mapType)
 
         val builder = Style.Builder()
             .withSource(raster("base-src", base, maxZoom))

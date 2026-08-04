@@ -76,6 +76,14 @@ class MapLibreMapWrapper(
             ready.uiSettings.isCompassEnabled = false
             ready.uiSettings.isLogoEnabled = false
             ready.uiSettings.isAttributionEnabled = false
+            // Two levels past the last real pictures, which osmdroid allowed
+            // too: past that the ground is upscaled mush and the flight is
+            // being read off nothing. Left at MapLibre's own ceiling a pinch
+            // runs to twenty-five and the map is a colour.
+            ready.setMaxZoomPreference(
+                cameraZoom(MapLibreStyles.maxTileZoom(type) + 2f)
+            )
+            ready.setMinZoomPreference(0.0)
             ready.setStyle(MapLibreStyles.forType(type)) { loaded ->
                 style = loaded
                 val queued = ArrayList(pending)
@@ -165,11 +173,26 @@ class MapLibreMapWrapper(
             CameraUpdateFactory.newCameraPosition(
                 CameraPosition.Builder()
                     .target(LatLng(position.lat, position.lon))
-                    .zoom(zoom.toDouble())
+                    .zoom(cameraZoom(zoom))
                     .build()
             )
         )
     }
+
+    /**
+     * A zoom level in osmdroid's terms, in MapLibre's.
+     *
+     * They are not the same number. MapLibre's zoom is defined against 512
+     * pixel tiles and every tile server here serves 256 pixel ones, so the same
+     * ground scale is one level lower: MapLibre 17 shows what osmdroid calls
+     * 18. Handed straight across, everything sat one level deeper than it was
+     * asked for — which is also one level past the last pictures there are, so
+     * the ground went white.
+     *
+     * Everything upstream speaks osmdroid's, as it does for orientation, and
+     * the swap happens here.
+     */
+    private fun cameraZoom(osmdroidZoom: Float): Double = osmdroidZoom.toDouble() - 1.0
 
     override fun addMarker(icon: Int, color: Int, position: Position): MapMarker =
         MapLibreMarker(context, icon, color, position, "m${markerCount++}", above, ::whenReady)
@@ -181,7 +204,11 @@ class MapLibreMapWrapper(
         val line = MapLibreLine("l${lineCount++}", above, ::whenReady)
         line.addPoints(points.toList())
         line.color = color
-        line.width = width * context.resources.displayMetrics.density
+        // Not scaled by the display's density, which is what osmdroid needs:
+        // it paints in real pixels, MapLibre takes a width already independent
+        // of them. Multiplied here as well, a three pixel heading line came out
+        // at eight on any modern screen.
+        line.width = width
         return line
     }
 
