@@ -488,6 +488,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         followButton.setOnClickListener {
             // from behind the model, this is a step back to plain tracking
             // rather than a step to nothing
+            centreOnModel()
             if (chaseMode) {
                 setChaseMode(false)
                 setFollowMode(true)
@@ -506,6 +507,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
         chaseButton.setOnClickListener {
             shownMapHeading = Float.NaN
+            centreOnModel()
             setChaseMode(!chaseMode)
         }
 
@@ -523,6 +525,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         myLocationButton.setOnClickListener {
             // going to where you are standing is leaving the model behind, so
             // it ends both ways of watching it
+            centreOnModel()
             setChaseMode(false)
             terrain3D?.let {
                 setFollowMode(false)
@@ -674,11 +677,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val osmMap = OsmMapWrapper(applicationContext, mapView, tileSource, { initHeadingLine() }, overlayTileSources)
         map = osmMap
         map?.setOnCameraMoveStartedListener {
-            // Dragging the map is taking it somewhere, which ends both ways of
-            // watching the model — otherwise the chase button stayed lit and
-            // the map went on turning to the heading while no longer following.
-            setChaseMode(false)
-            setFollowMode(false);
+            // No gesture gives up following or the chase, here as in three
+            // dimensions. What the hand does is kept — the map goes on keeping
+            // up with the model from wherever it has been put, and goes on
+            // turning with its heading from whatever angle it has been left at.
+            // The buttons put it back to the middle.
+            leanOutOfFollowing()
         }
         osmMap.setOnOrientationChangedListener { orientation ->
             updateCompassHeading(orientation)
@@ -3640,7 +3644,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 updateHeading()
                 if (followMode) {
                     if (map?.initialized() ?: false) {
-                        map?.moveCamera(lastGPS)
+                        map?.moveCamera(
+                            Position(lastGPS.lat + mapLeanLat, lastGPS.lon + mapLeanLon))
                     }
                 }
                 if (hasGPSFix) {
@@ -3871,6 +3876,36 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
+    /** How far the map has been dragged and turned away from the model. */
+    private var mapLeanLat = 0.0
+    private var mapLeanLon = 0.0
+    private var mapLeanTurn = 0f
+
+    /**
+     * Take up whatever the hand has just done as the new offset.
+     *
+     * Read from where the map actually is rather than accumulated from the
+     * gesture, so it cannot drift: after any touch the offset is exactly the
+     * gap between the model and what is on screen.
+     */
+    private fun leanOutOfFollowing() {
+        val centre = map?.getCentre() ?: return
+        if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) {
+            mapLeanLat = centre.lat - lastGPS.lat
+            mapLeanLon = centre.lon - lastGPS.lon
+        }
+        if (chaseMode) {
+            val wanted = -lastHeading
+            mapLeanTurn = ((map!!.getMapOrientation() - wanted) % 360f + 540f) % 360f - 180f
+        }
+    }
+
+    private fun centreOnModel() {
+        mapLeanLat = 0.0
+        mapLeanLon = 0.0
+        mapLeanTurn = 0f
+    }
+
     private var shownMapHeading = Float.NaN
 
     /**
@@ -3882,9 +3917,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private fun applyHeadingUp() {
         if (!chaseMode || terrain3D != null) return
-        // Just the angle it should end at. The map eases towards it on its own
-        // clock, which is the screen's rather than the telemetry's.
-        map?.setMapOrientation(-lastHeading)
+        // The angle it should end at, plus however far it has been turned away
+        // from that by hand. The map eases towards it on its own clock, which
+        // is the screen's rather than the telemetry's.
+        map?.setMapOrientation(-lastHeading + mapLeanTurn)
     }
 
     fun commitRouteLinePoints() {

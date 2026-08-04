@@ -148,7 +148,12 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
             }
             val turnTo = glideTurn
             if (!turnTo.isNaN()) {
-                var turn = ((turnTo - mapView.mapOrientation + 540f) % 360f) - 180f
+                // Twice round, because a remainder in Kotlin keeps the sign of
+                // what went into it: a target of minus three hundred and an
+                // orientation of plus three hundred gave a turn of minus two
+                // hundred and ninety where it should have been seventy, and the
+                // map span most of the way round instead of a little way back.
+                var turn = ((turnTo - mapView.mapOrientation) % 360f + 540f) % 360f - 180f
                 if (Math.abs(turn) < 0.05f) {
                     turnMapTo(turnTo)
                     glideTurn = Float.NaN
@@ -280,6 +285,11 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
 
     override fun getMapOrientation(): Float {
         return mapView.mapOrientation
+    }
+
+    override fun getCentre(): Position {
+        val c = mapView.mapCenter
+        return Position(c.latitude, c.longitude)
     }
 
     private var orientationAnimator: ValueAnimator? = null

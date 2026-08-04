@@ -18,6 +18,9 @@ interface MapWrapper {
     fun addPolyline(color: Int): MapLine
 
     fun getMapOrientation(): Float
+
+    /** Where the map is looking now, which after a drag is where the hand left it. */
+    fun getCentre(): Position
     fun resetMapOrientation()
 
     /** Turn the map to an angle and stay there, for heading up. */
