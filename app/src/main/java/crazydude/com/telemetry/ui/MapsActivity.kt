@@ -2210,8 +2210,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         this.setRssiDbm2Icon(0)
         rssiDbmd.text = "-"
         this.setRssiDbmdIcon(0)
-        horizonView.setPitch(0f)
-        horizonView.setRoll(0f)
+        horizonView.snapLevel()
         cell_voltage.text = "-"
         this.lastCellVoltage = 0.0f;
         throttle.text = "-"
