@@ -37,8 +37,17 @@ class MapLibreMarker(
     color: Int?,
     position: Position,
     private val id: String,
+    /**
+     * A layer to stay underneath, where being made later is not the same as
+     * belonging on top. Null puts this above everything, which is the usual
+     * case.
+     */
+    private val below: String?,
     private val whenReady: ((Style) -> Unit) -> Unit
 ) : MapMarker {
+
+    /** What to name if something else must be kept above this one. */
+    val layerName: String get() = layerId
 
     private val sourceId = "mark-src-$id"
     private val layerId = "mark-lyr-$id"
@@ -81,8 +90,14 @@ class MapLibreMarker(
             )
             s.addSource(src)
             // Above whatever exists so far: markers are made after the lines
-            // and belong over them, as they do on the osmdroid map.
-            s.addLayer(lyr)
+            // and belong over them, as they do on the osmdroid map. Unless
+            // something has been named to stay under — and then only if it is
+            // still there, since a marker can be taken off the map at any time.
+            if (below != null && s.getLayer(below) != null) {
+                s.addLayerBelow(lyr, below)
+            } else {
+                s.addLayer(lyr)
+            }
             source = src
             layer = lyr
         }

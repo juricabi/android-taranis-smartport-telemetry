@@ -337,11 +337,30 @@ class MapLibreMapWrapper(
      */
     private fun cameraZoom(osmdroidZoom: Float): Double = osmdroidZoom.toDouble() - 1.0
 
-    override fun addMarker(icon: Int, color: Int, position: Position): MapMarker =
-        MapLibreMarker(context, icon, color, position, "m${markerCount++}", ::whenReady)
+    /**
+     * The model's own marker, which everything else keeps under.
+     *
+     * The two ways of asking for a marker are not interchangeable here: one
+     * takes the colour the model is drawn in and is the model, the other is the
+     * traffic from Flightradar. Traffic is thrown away and made again on every
+     * poll of it, so made the ordinary way it climbs above everything each time
+     * — and the aircraft being flown disappears under an airliner passing
+     * overhead, every half minute, for as long as one is in the sky.
+     */
+    private var modelLayer: String? = null
+
+    override fun addMarker(icon: Int, color: Int, position: Position): MapMarker {
+        val marker = MapLibreMarker(
+            context, icon, color, position, "m${markerCount++}", null, ::whenReady
+        )
+        modelLayer = marker.layerName
+        return marker
+    }
 
     override fun addMarker(icon: Int, position: Position): MapMarker =
-        MapLibreMarker(context, icon, null, position, "m${markerCount++}", ::whenReady)
+        MapLibreMarker(
+            context, icon, null, position, "m${markerCount++}", modelLayer, ::whenReady
+        )
 
     override fun addPolyline(width: Float, color: Int, vararg points: Position): MapLine {
         val line = MapLibreLine("l${lineCount++}", ::whenReady)
