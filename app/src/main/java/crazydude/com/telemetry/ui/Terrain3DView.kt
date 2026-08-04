@@ -278,7 +278,6 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         // tells a view that opened with nothing that a flight is under way.
         flightShown = true
         if (!started || !terrainReady) return
-        placeModel()
         // The flight grows with the model rather than waiting for the tick, so
         // the line, its shadow and the curtain between them always end where
         // the model is.
@@ -308,6 +307,11 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
             appendedThrough++
             arrived++
         }
+        // The model last, so it is placed with the course worked out from the
+        // points that have just arrived. Placed first it was set facing
+        // whichever way it had been facing before them — and with a replay
+        // paused after a jump nothing came along to place it again.
+        placeModel()
         // A batch at a time is a replay, not a flight: the model belongs at the
         // end of it rather than walking through it while the flight it is
         // supposed to be at the end of is already drawn past it.
