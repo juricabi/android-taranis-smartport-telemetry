@@ -184,7 +184,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
             try {
             scene.loadTerrain(flight, focusLat, focusLon,
                 { post { groundArrived() } },
-                { post { groundArrived(); loadingTerrain = false } })
+                { post { groundArrived(true); loadingTerrain = false } })
             } catch (e: Throwable) {
                 // Whatever went wrong out here — no signal, a tile that would
                 // not decode, memory — the ground is as ready as it is ever
@@ -211,10 +211,20 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
      * on goes on the first one, not the last — that is the difference between a
      * black screen for several seconds and terrain under the model at once.
      */
-    private fun groundArrived() {
-        val first = !terrainReady
-        terrainReady = true
+    private fun groundArrived(whateverHasCome: Boolean = false) {
         val meshes = scene.tiles
+        // The flight waits for the ground to have its picture.
+        //
+        // The shape of the ground is built first and shown as it comes, which
+        // is what puts something on the screen quickly. But a model flying
+        // across bare grey mesh, with its whole path drawn over it, is a worse
+        // thing to watch than a moment of empty screen — so the flight, the
+        // model and the lines hold until at least one tile has its photograph.
+        // Once the loading has finished they are shown whatever came of it, or
+        // somewhere with no imagery at all would never show a flight.
+        val dressed = whateverHasCome || meshes.any { it.texture != null }
+        val first = !terrainReady && dressed
+        if (dressed) terrainReady = true
         val keys = HashSet<Long>()
         for (mesh in meshes) keys.add(mesh.key)
         renderer.keepOnly(keys)
@@ -419,7 +429,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
                 scene.loadTerrain(points, lat, lon,
                     { post { groundArrived() } },
                     { post {
-                        groundArrived()
+                        groundArrived(true)
                         renderer.maxDistance = Math.max(2500f, scene.extent * 5f)
                         loadingTerrain = false
                     } })
