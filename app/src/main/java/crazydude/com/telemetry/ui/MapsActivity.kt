@@ -3358,9 +3358,19 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // and waited for it
             val towards = if (shownMarkerHeading.isNaN()) lastHeading else shownMarkerHeading
             headingPolyline?.let { headingLine ->
-                headingLine.setPoint(0, from)
                 val (offsetLat, offsetLon) = GeoUtils.computeOffset(from.lat, from.lon, 1000.0, towards.toDouble())
-                headingLine.setPoint(1, Position(offsetLat, offsetLon))
+                val ahead = Position(offsetLat, offsetLon)
+                // built when it is not there rather than written into: it is
+                // emptied when a replay resets, and setting a point of an empty
+                // line throws — which the home line beside it has always
+                // guarded against and this one never did.
+                if (headingLine.size == 2) {
+                    headingLine.setPoint(0, from)
+                    headingLine.setPoint(1, ahead)
+                } else {
+                    headingLine.clear()
+                    headingLine.addPoints(listOf(from, ahead))
+                }
             }
         }
     }

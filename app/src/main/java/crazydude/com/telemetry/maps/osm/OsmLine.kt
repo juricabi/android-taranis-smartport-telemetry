@@ -29,6 +29,8 @@ class OsmLine(private val mapView: MapView) : MapLine() {
 
     override fun setPoint(index: Int, position: Position) {
         val actualPoints = ArrayList(line.actualPoints)
+        // a line that has been emptied has no point to write to
+        if (index < 0 || index >= actualPoints.size) return
         actualPoints[index] = position.toGeoPoint()
         line.setPoints(actualPoints)
     }
