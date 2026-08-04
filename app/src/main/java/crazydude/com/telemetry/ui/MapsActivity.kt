@@ -350,6 +350,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 if (it.isConnected()) {
                     switchToConnectedState()
                     polyLine?.submitPoints(it.points)
+                    commitRouteLinePoints()
                 }
             }
         }
@@ -707,6 +708,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val p = dataService?.points
         if (p != null && (dataService?.isConnected() == true || isInReplayMode())) {
             polyLine?.submitPoints(p)
+            // and put them on it. Handing them over only stages them; without
+            // this the flight was invisible on a map just built until something
+            // else happened to commit — which in a replay meant nothing until
+            // the slider was moved.
+            commitRouteLinePoints()
         }
         homeLine = map?.addPolyline(2f, preferenceManager.getHomeLineColor())
         drawFlightPlans()
@@ -3625,6 +3631,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 //last one will be fired in onGPSData()
                 if ( list.size>=2) {
                     polyLine?.submitPoints(list.dropLast(1))
+                    commitRouteLinePoints()
+                    // The 3D path too, or it is left with one point per batch —
+                    // and a replay hands over whole batches at a time, so it
+                    // came out as a few straight legs across the flight.
+                    //
+                    // Their heights are the height known now rather than the
+                    // height each was flown at, which the log does not give
+                    // back here. Over a batch that is a step or two; against
+                    // having no path at all it is worth having.
+                    for (i in 0..list.size - 2) {
+                        rememberForProfile(list[i].lat, list[i].lon)
+                    }
                 }
 
                 for (i in 0..list.size - 2) {
