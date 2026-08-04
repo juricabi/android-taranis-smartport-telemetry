@@ -1,25 +1,25 @@
 package crazydude.com.telemetry.maps.osm
 
 import android.content.Context
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
 import android.location.Location
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.IMyLocationConsumer
 import org.osmdroid.views.overlay.mylocation.IMyLocationProvider
 
-class CompassLocationProvider(private val context: Context) : IMyLocationProvider, SensorEventListener {
+/**
+ * The map's own arrow: where the phone is, from the system, and which way it is
+ * facing, from whoever is reading the compass.
+ *
+ * The compass is not read here. It is read once by the screen and handed to
+ * this, to the 3D view's arrow and to the recording — three readers of the same
+ * two sensors was three sets of samples and three lots of filtering to arrive
+ * at one number.
+ */
+class CompassLocationProvider(private val context: Context) : IMyLocationProvider {
 
     private val gpsProvider = GpsMyLocationProvider(context)
-    private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
 
     private var compassBearing: Float = 0f
-    private val gravity = FloatArray(3)
-    private val geomagnetic = FloatArray(3)
-    private var hasGravity = false
-    private var hasGeomagnetic = false
     private var consumer: IMyLocationConsumer? = null
     private var accepted: Location? = null
     private var lastBearingPush = 0L
@@ -45,6 +45,28 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
         consumer?.onLocationChanged(location, this)
     }
 
+    /**
+     * Which way the phone is facing, as read by the screen.
+     *
+     * Every push of this redraws the map, so it is only passed on when the
+     * angle has actually moved and not too often — with the phone lying still
+     * it would otherwise redraw all day.
+     */
+    fun setBearing(degrees: Float) {
+        if (degrees.isNaN()) return
+        compassBearing = degrees
+        hasBearing = true
+        if (fed) return
+        val now = System.currentTimeMillis()
+        var moved = ((compassBearing - pushedBearing + 540f) % 360f) - 180f
+        if (moved < 0f) moved = -moved
+        if (now - lastBearingPush > 60 && moved > 0.5f) {
+            lastBearingPush = now
+            pushedBearing = compassBearing
+            accepted?.let { consumer?.onLocationChanged(injectBearing(Location(it)), this) }
+        }
+    }
+
     override fun startLocationProvider(myLocationConsumer: IMyLocationConsumer?): Boolean {
         consumer = myLocationConsumer
         // Whatever is being fed goes straight back out. Turning the overlay on
@@ -52,12 +74,6 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
         // was lost on the way, so the arrow blinked out between one feed and
         // the next while a replay was being dragged.
         fedLocation?.let { myLocationConsumer?.onLocationChanged(it, this) }
-        sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
-        }
-        sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
-        }
         // ask for frequent updates so a GPS fix replaces the first coarse one quickly
         gpsProvider.locationUpdateMinTime = 1000
         gpsProvider.locationUpdateMinDistance = 0f
@@ -75,11 +91,8 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
         // fed and fedLocation are the replay's, and outlive this: only feeding
         // null gives the arrow back to the live one
         accepted = null
-        hasGravity = false
-        hasGeomagnetic = false
         hasBearing = false
         pushedBearing = -999f
-        sensorManager.unregisterListener(this)
         gpsProvider.stopLocationProvider()
         consumer = null
     }
@@ -105,69 +118,4 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
         return location
     }
 
-    // Averaging the sensor readings themselves is what makes the needle steady;
-    // filtering only the final angle still passes the noise through.
-    private fun smooth(target: FloatArray, values: FloatArray, initialised: Boolean) {
-        if (!initialised) {
-            System.arraycopy(values, 0, target, 0, 3)
-            return
-        }
-        for (i in 0..2) {
-            target[i] += (values[i] - target[i]) * 0.10f
-        }
-    }
-
-    override fun onSensorChanged(event: SensorEvent) {
-        when (event.sensor.type) {
-            Sensor.TYPE_ACCELEROMETER -> {
-                smooth(gravity, event.values, hasGravity)
-                hasGravity = true
-            }
-            Sensor.TYPE_MAGNETIC_FIELD -> {
-                smooth(geomagnetic, event.values, hasGeomagnetic)
-                hasGeomagnetic = true
-            }
-        }
-        if (hasGravity && hasGeomagnetic) {
-            val r = FloatArray(9)
-            if (SensorManager.getRotationMatrix(r, null, gravity, geomagnetic)) {
-                val orientation = FloatArray(3)
-                SensorManager.getOrientation(r, orientation)
-                var raw = Math.toDegrees(orientation[0].toDouble()).toFloat()
-                if (raw < 0) raw += 360f
-
-                if (!hasBearing) {
-                    compassBearing = raw
-                    hasBearing = true
-                } else {
-                    // shortest way round the circle, then ease towards it so the
-                    // needle does not jitter on every sample
-                    var diff = ((raw - compassBearing + 540f) % 360f) - 180f
-                    compassBearing = (compassBearing + diff * 0.25f + 360f) % 360f
-                }
-
-                // the arrow used to turn only when a location update arrived, about
-                // once a second, which looked like it was stepping
-                val now = System.currentTimeMillis()
-                var moved = ((compassBearing - pushedBearing + 540f) % 360f) - 180f
-                if (moved < 0f) moved = -moved
-                // Every push redraws the map, so this is not free — but three
-                // degrees and a fifth of a second was coarse enough to see: the
-                // needle turned in steps beside a 3D view that eases its arrow
-                // every frame. Half a degree, sixteen times a second, is smooth
-                // to the eye and still a fraction of what the map draws while
-                // following a model.
-                if (fed) return
-                if (now - lastBearingPush > 60 && moved > 0.5f) {
-                    // redrawing the map on every sample would run all day with
-                    // the phone lying still, so only do it when it has turned
-                    lastBearingPush = now
-                    pushedBearing = compassBearing
-                    accepted?.let { consumer?.onLocationChanged(injectBearing(Location(it)), this) }
-                }
-            }
-        }
-    }
-
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 }

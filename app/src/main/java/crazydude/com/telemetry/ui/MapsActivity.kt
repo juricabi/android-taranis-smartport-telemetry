@@ -249,6 +249,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             if (degrees < 0) degrees += 360f
             phoneHeading = degrees
             recordWhereIAm()
+            // and to everything that draws with it. Not over a replay, which is
+            // saying which way the phone was facing then.
+            if (!isInReplayMode()) {
+                map?.setPhoneBearing(degrees)
+                terrain3D?.setMyHeading(degrees)
+            }
         }
     }
 
@@ -3015,9 +3021,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // it, so the view drops the chase when it is told to stop keeping up.
         view.setFollowing(followMode)
         if (chaseMode) view.setChasing(true)
-        // and where the operator was, if this is opening over a replay: without
-        // it the view reads this phone's compass for a moment before the tick
-        // hands it the recorded one
+        // pointing where the phone is pointing, since the reader that knows
+        // that is on this screen and has been running all along
+        if (!phoneHeading.isNaN()) view.setMyHeading(phoneHeading)
+        // and where the operator was, if this is opening over a replay
         showOperator()
         updateCompassHeading(view.bearing())
         setFollowMode(followMode)

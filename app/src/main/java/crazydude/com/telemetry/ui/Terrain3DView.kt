@@ -23,7 +23,7 @@ import crazydude.com.telemetry.utils.Imagery
  * exactly where it was. Choosing 3D is choosing how to draw the ground, not
  * leaving the app.
  */
-class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.SensorEventListener {
+class Terrain3DView(context: Context) : FrameLayout(context) {
 
     companion object {
         private const val FOLLOW_INTERVAL_MS = 500L
@@ -988,75 +988,10 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         return Math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
     }
 
-    // The compass, so the arrow points where the phone is pointing. Same
-    // sensors the map's own arrow uses, read straight rather than through
-    // osmdroid, since nothing here is an osmdroid overlay.
-    private val sensors =
-        context.getSystemService(Context.SENSOR_SERVICE) as android.hardware.SensorManager?
-    private val gravity = FloatArray(3)
-    private val geomagnetic = FloatArray(3)
-    private var hasGravity = false
-    private var hasGeomagnetic = false
-
-    override fun onSensorChanged(event: android.hardware.SensorEvent) {
-        when (event.sensor.type) {
-            android.hardware.Sensor.TYPE_ACCELEROMETER -> {
-                smooth(gravity, event.values, hasGravity)
-                hasGravity = true
-            }
-            android.hardware.Sensor.TYPE_MAGNETIC_FIELD -> {
-                smooth(geomagnetic, event.values, hasGeomagnetic)
-                hasGeomagnetic = true
-            }
-        }
-        if (!hasGravity || !hasGeomagnetic) return
-        val r = FloatArray(9)
-        if (!android.hardware.SensorManager.getRotationMatrix(r, null, gravity, geomagnetic)) return
-        val orientation = FloatArray(3)
-        android.hardware.SensorManager.getOrientation(r, orientation)
-        var degrees = Math.toDegrees(orientation[0].toDouble()).toFloat()
-        if (degrees < 0) degrees += 360f
-        // not while a replay is saying which way the phone was facing then
-        if (headingFromRecord) return
-        setMyHeading(degrees)
-    }
-
-    override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) {}
-
-    /** Filtering the readings themselves, not the angle they produce. */
-    private fun smooth(target: FloatArray, values: FloatArray, initialised: Boolean) {
-        if (!initialised) {
-            System.arraycopy(values, 0, target, 0, 3)
-            return
-        }
-        for (i in 0..2) target[i] += (values[i] - target[i]) * 0.10f
-    }
-
-    /**
-     * Sensors follow the view being on screen, not the activity's lifecycle.
-     *
-     * This view is built when 3D is chosen, which is long after the activity
-     * resumed — so registering in onResume alone meant the compass was never
-     * listened to at all and the arrow never turned.
-     */
-    override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
-        listenToCompass()
-    }
-
-    override fun onDetachedFromWindow() {
-        super.onDetachedFromWindow()
-        sensors?.unregisterListener(this)
-    }
-
-    private fun listenToCompass() {
-        sensors?.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER)?.let {
-            sensors.registerListener(this, it, android.hardware.SensorManager.SENSOR_DELAY_UI)
-        }
-        sensors?.getDefaultSensor(android.hardware.Sensor.TYPE_MAGNETIC_FIELD)?.let {
-            sensors.registerListener(this, it, android.hardware.SensorManager.SENSOR_DELAY_UI)
-        }
-    }
+    // The compass is read once, by the screen this view belongs to, and
+    // handed to everything that draws with it — [setMyHeading] here, the map's
+    // own arrow, and the recording. Three readers of the same two sensors is
+    // three sets of samples and three lots of filtering for one number.
 
     fun onResume() {
         surface.onResume()
@@ -1064,13 +999,11 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         // two chains of it ran the whole first session at twice the rate
         ticker.removeCallbacks(poll)
         ticker.post(poll)
-        listenToCompass()
     }
 
     fun onPause() {
         surface.onPause()
         ticker.removeCallbacks(poll)
-        sensors?.unregisterListener(this)
     }
 
     fun release() {

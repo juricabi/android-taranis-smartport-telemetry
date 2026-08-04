@@ -104,6 +104,10 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
         return true;
     }
 
+    override fun setPhoneBearing(degrees: Float) {
+        compassLocationProvider.setBearing(degrees)
+    }
+
     override fun showRecordedLocation(position: Position?, accuracy: Float, heading: Float) {
         if (position == null) {
             compassLocationProvider.feed(null)
