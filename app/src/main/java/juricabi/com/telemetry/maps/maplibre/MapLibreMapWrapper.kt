@@ -174,9 +174,30 @@ class MapLibreMapWrapper(
         }
     }
 
+    /**
+     * Run something against the style, once there is one — and never against
+     * one that has been replaced.
+     *
+     * A style is only good while it is the map's current one. Change the map
+     * type, or come back from the ground view, and the screen builds a new map
+     * and takes the old one's lines and markers off first — each of which asks
+     * the style it was made on to remove its layer. MapLibre throws for that
+     * rather than ignoring it: "Calling removeLayer when a newer style is
+     * loading/has loaded". It crashed the app on a switch, and again whenever a
+     * Flightradar poll landed on one, which is why it looked occasional.
+     *
+     * Nothing is lost by dropping the work. A style that has been replaced is
+     * not drawn any more, and taking layers off it is tidying something already
+     * thrown away.
+     */
     internal fun whenReady(action: (Style) -> Unit) {
         val loaded = style
-        if (loaded != null) action(loaded) else pending.add(action)
+        if (loaded == null) {
+            pending.add(action)
+            return
+        }
+        if (!loaded.isFullyLoaded) return
+        action(loaded)
     }
 
     override fun initialized(): Boolean = style != null

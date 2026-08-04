@@ -90,9 +90,13 @@ class MapLibreSpot(
 
     fun setColour(value: Int) {
         colour = value
-        style?.addImage(imageId, arrowBitmap(value))
-        style?.getLayerAs<FillLayer>(ringLyrId)
-            ?.setProperties(PropertyFactory.fillColor(value))
+        // Through whenReady rather than the style held here: after a change of
+        // map type that one has been replaced, and writing to a replaced style
+        // throws rather than being ignored.
+        whenReady { s ->
+            s.addImage(imageId, arrowBitmap(value))
+            s.getLayerAs<FillLayer>(ringLyrId)?.setProperties(PropertyFactory.fillColor(value))
+        }
     }
 
     fun setVisible(value: Boolean) {

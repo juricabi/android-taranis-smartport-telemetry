@@ -177,8 +177,10 @@ class MapLibreMarker(
         iconRes = icon
         iconColor = color
         // Replacing the image under the name the layer already points at, so
-        // the layer does not have to be rebuilt to change colour.
-        style?.addImage(imageId, bitmapFor(icon, color))
+        // the layer does not have to be rebuilt to change colour. Through
+        // whenReady rather than the style held here, so a style that has since
+        // been replaced is left alone rather than written to.
+        whenReady { it.addImage(imageId, bitmapFor(icon, color)) }
     }
 
     override fun remove() {
