@@ -214,6 +214,20 @@ abstract class DataDecoder(protected val listener: Listener) {
         fun commit()
     }
 
+    /**
+     * Heights, which describe a flight the way its positions do.
+     *
+     * Everything that is not a position is replaced by its latest value when a
+     * replay is seeked, since only the newest voltage or mode is worth showing.
+     * A height is not like that: it belongs to the point it was measured at,
+     * and collapsing a whole seek to one of them leaves the flight drawn flat
+     * or sloping straight from one end of the jump to the other.
+     */
+    fun isHeightData(telemetryType : Int ) : Boolean {
+        return telemetryType == Protocol.ALTITUDE ||
+            telemetryType == Protocol.GPS_ALTITUDE;
+    }
+
     fun isGPSOrImageData(telemetryType : Int ) : Boolean {
         return telemetryType == Protocol.GPS ||
             telemetryType == Protocol.GPS_STATE ||

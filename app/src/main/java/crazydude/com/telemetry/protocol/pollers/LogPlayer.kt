@@ -227,6 +227,14 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
                         }
                         outUniqueData[index]?.add(i);
                     }
+                } else if ( protocol.dataDecoder.isHeightData( cachedData[i].telemetryType )) {
+                    // where it happened, not collapsed to the last one: a
+                    // height belongs to the position it was measured at
+                    var index = decodedCoordinates.size;
+                    if ( outUniqueData[index] == null) {
+                        outUniqueData[index] = ArrayList<Int>();
+                    }
+                    outUniqueData[index]?.add(i);
                 } else {
                     uniqueData[cachedData[i].telemetryType] = i
                     uniqueDataIndex[cachedData[i].telemetryType] = decodedCoordinates.size;
@@ -253,6 +261,14 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
                         uniqueData.remove(cachedData[i].telemetryType)
                         uniqueDataIndex.remove(cachedData[i].telemetryType)
                     }
+                } else if ( protocol.dataDecoder.isHeightData( cachedData[i].telemetryType )) {
+                    // where it happened, not collapsed to the last one: a
+                    // height belongs to the position it was measured at
+                    var index = decodedCoordinates.size;
+                    if ( outUniqueData[index] == null) {
+                        outUniqueData[index] = ArrayList<Int>();
+                    }
+                    outUniqueData[index]?.add(i);
                 } else {
                     uniqueData[cachedData[i].telemetryType] = i
                     uniqueDataIndex[cachedData[i].telemetryType] = decodedCoordinates.size;
