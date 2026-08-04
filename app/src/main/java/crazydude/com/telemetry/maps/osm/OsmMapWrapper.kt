@@ -116,7 +116,10 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
         // a bearing at all is what makes the map draw the arrow rather than the
         // plain dot, so an unknown one is left unset
         if (!heading.isNaN()) stood.bearing = heading
-        myLocationNewOverlay.enableMyLocation()
+        // only where it is not already on: turning it on again takes the
+        // provider round from the start, twenty times a second while a seek bar
+        // is being dragged
+        if (!myLocationNewOverlay.isMyLocationEnabled) myLocationNewOverlay.enableMyLocation()
         compassLocationProvider.feed(stood)
     }
 

@@ -35,19 +35,23 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
      * wrong without anybody being able to say why.
      */
     private var fed = false
+    private var fedLocation: Location? = null
 
     fun feed(location: Location?) {
-        if (location == null) {
-            fed = false
-            return
-        }
-        fed = true
+        fedLocation = location
+        fed = location != null
+        if (location == null) return
         accepted = location
         consumer?.onLocationChanged(location, this)
     }
 
     override fun startLocationProvider(myLocationConsumer: IMyLocationConsumer?): Boolean {
         consumer = myLocationConsumer
+        // Whatever is being fed goes straight back out. Turning the overlay on
+        // takes this provider round again, and without this the recorded place
+        // was lost on the way, so the arrow blinked out between one feed and
+        // the next while a replay was being dragged.
+        fedLocation?.let { myLocationConsumer?.onLocationChanged(it, this) }
         sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
         }
@@ -68,7 +72,8 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
     }
 
     override fun stopLocationProvider() {
-        fed = false
+        // fed and fedLocation are the replay's, and outlive this: only feeding
+        // null gives the arrow back to the live one
         accepted = null
         hasGravity = false
         hasGeomagnetic = false
@@ -80,6 +85,7 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
     }
 
     override fun getLastKnownLocation(): Location? {
+        fedLocation?.let { return it }
         return gpsProvider.lastKnownLocation?.let { injectBearing(it) }
     }
 
