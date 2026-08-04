@@ -718,7 +718,14 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
 
     /** Quad or plane, from the setting; the map marker follows the same one. */
     fun setModelShape(shape: String) {
+        if (renderer.modelShape == shape) return
         renderer.modelShape = shape
+        // The new shape is built where the model is placed, and what places it
+        // is a fix arriving — so a replay standing still went on showing the old
+        // one until the flight moved again, while the map's marker changed at
+        // once. Only where there is already a model standing somewhere: before
+        // the ground is up there is deliberately nothing drawn.
+        if (terrainReady && placedOnce) placeModel()
     }
 
     /** The model's own attitude, which is worth far more than its shape. */
