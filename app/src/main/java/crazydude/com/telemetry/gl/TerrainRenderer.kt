@@ -763,6 +763,14 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // ladder of separate rungs: height reads as a surface where it only
         // ever read as a hint before, and a translucent one does not bury the
         // ground it stands on.
+        if (track.size != shadow.size || trackCount <= 1) {
+            // Nothing to hang a curtain from. Without this the last one stayed
+            // exactly where it was: jumping a replay back to the start empties
+            // the flight, and the curtain of the flight that was there before
+            // went on hanging in the air over the new one.
+            dropBuffer = null
+            dropCount = 0
+        }
         if (track.size == shadow.size && trackCount > 1) {
             // one quad per point is more than a screen can show; a couple of
             // thousand is plenty for a whole flight
