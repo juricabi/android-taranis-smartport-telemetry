@@ -2427,8 +2427,30 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
         if (lastGpsAltitudeMsl.isNaN()) lastAnyAltitude = altitude
         this.sensorTimeoutManager.onAltitudeData(altitude);
+        showAltitude(altitude, false)
+    }
+
+    /**
+     * The height on screen, written once however many arrive.
+     *
+     * Seeking a replay backwards replays the log from its beginning, and every
+     * height in it now comes through — which is what the flight needs. A screen
+     * only needs the last of them: posting each one across to the other thread
+     * to be laid out and drawn is thousands of pieces of work for one line of
+     * text, and it is felt as a rewind that drags.
+     */
+    @Volatile private var altitudeShown = Float.NaN
+    @Volatile private var altitudeMslShown = Float.NaN
+    @Volatile private var altitudePosted = false
+
+    private fun showAltitude(metres: Float, msl: Boolean) {
+        if (msl) altitudeMslShown = metres else altitudeShown = metres
+        if (altitudePosted) return
+        altitudePosted = true
         runOnUiThread {
-            this.altitude.text = this.formatHeight(altitude);
+            altitudePosted = false
+            if (!altitudeShown.isNaN()) this.altitude.text = formatHeight(altitudeShown)
+            if (!altitudeMslShown.isNaN()) this.altitude_msl.text = formatHeight(altitudeMslShown)
         }
     }
 
@@ -2436,9 +2458,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         this.sensorTimeoutManager.onGPSAltitudeData(altitude);
         lastGpsAltitudeMsl = altitude
         lastGpsAltitudeAt = System.currentTimeMillis()
-        runOnUiThread {
-            this.altitude_msl.text = this.formatHeight(altitude);
-        }
+        showAltitude(altitude, true)
     }
 
     override fun onDistanceData(distance: Int) {

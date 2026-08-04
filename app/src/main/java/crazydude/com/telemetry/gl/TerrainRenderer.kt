@@ -910,10 +910,18 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         Matrix.multiplyMM(vm, 0, view, 0, scaled, 0)
         Matrix.multiplyMM(mvp, 0, projection, 0, vm, 0)
 
+        // The flight before the model, so the model is never painted over.
+        //
+        // Its curtain reaches all the way to where the model is drawn, which
+        // means it passes through it; drawn afterwards, wherever that surface
+        // was nearer to the eye than the model it covered it. Lines that really
+        // are in front of the model still show, since they leave their depth
+        // behind them and the model is drawn against it — only the curtain,
+        // which deliberately leaves no depth, gives way.
         drawTerrain()
+        drawLines()
         drawModelLit()
         drawMyArrow()
-        drawLines()
     }
 
     /**
