@@ -1317,12 +1317,26 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glDrawArrays(GLES20.GL_LINES, 0, mCount)
             GLES20.glDrawArrays(GLES20.GL_POINTS, 1, 1)
         }
-        if (track != null && tCount > 1) {
+        if (track != null && airCount > 1) {
+            // As far as the model has got, like its shadow and its curtain: it
+            // was the one piece of the flight still drawn to the very end, so
+            // it alone ran on in front of the model.
             track.position(0)
             GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, track)
             GLES20.glUniform4f(uColor, trackColor[0], trackColor[1], trackColor[2], 1f)
             GLES20.glLineWidth(4f)
-            GLES20.glDrawArrays(GLES20.GL_LINE_STRIP, 0, tCount)
+            GLES20.glDrawArrays(GLES20.GL_LINE_STRIP, 0, airCount)
+        }
+        if (joined) {
+            // and on to the model, which is the stretch it stops short of
+            leaderPair[0] = headQuad[0]; leaderPair[1] = headQuad[1]; leaderPair[2] = headQuad[2]
+            leaderPair[3] = headQuad[6]; leaderPair[4] = headQuad[7]; leaderPair[5] = headQuad[8]
+            fill(leaderPairBuffer, leaderPair)
+            GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12,
+                leaderPairBuffer)
+            GLES20.glUniform4f(uColor, trackColor[0], trackColor[1], trackColor[2], 1f)
+            GLES20.glLineWidth(4f)
+            GLES20.glDrawArrays(GLES20.GL_LINES, 0, 2)
         }
         GLES20.glDisableVertexAttribArray(aPosition)
         // put back what the ground and the model expect to find
