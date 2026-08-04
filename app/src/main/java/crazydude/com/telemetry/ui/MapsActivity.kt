@@ -327,7 +327,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var replayTimeRead = false
 
     private val timeOfDayFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-    private val flightDayFormat = SimpleDateFormat("d MMM yyyy HH:mm", Locale.getDefault())
+    private val flightDayFormat = SimpleDateFormat("d MMM yyyy HH:mm:ss", Locale.getDefault())
 
     private val clockTicker = object : Runnable {
         override fun run() {
