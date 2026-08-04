@@ -73,8 +73,15 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
             mapView.overlayManager.add(tilesOverlay)
         }
         mapView.overlayManager.add(DeadbandRotationGestureOverlay(mapView))
+        // The arrow, and nothing where there is no arrow to draw.
+        //
+        // The map draws one of two things: the arrow when it knows which way
+        // the phone is facing, and a plain dot when it does not. The dot is a
+        // moment at the start before the compass has read anything, and a
+        // second thing to look at for no gain — the ring already says where the
+        // phone is and how well it is known.
         myLocationNewOverlay.setDirectionArrow(
-            bitmapFrom(R.drawable.ic_pos_dot, 16),
+            Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888),
             bitmapFrom(R.drawable.ic_pos_arrow, 22)
         )
         mapView.overlayManager.add(myLocationNewOverlay)

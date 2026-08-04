@@ -410,6 +410,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private val clockTicker = object : Runnable {
         override fun run() {
             showTime()
+            // and where the operator was standing: a replay standing paused
+            // moves nothing, so a map or a view built while it stood there had
+            // nothing to draw the arrow from until the flight moved again
+            showOperator()
             clock_text.postDelayed(this, 1000)
         }
     }
@@ -837,6 +841,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             map?.moveCamera(shownPosition(), LOCATE_ZOOM)
             updateHeading()
             updateHomeLine()
+            showOperator()
         } else {
             // Nothing flown yet: open on where this phone is, at the same
             // height the locate button uses. A map is built looking at the
