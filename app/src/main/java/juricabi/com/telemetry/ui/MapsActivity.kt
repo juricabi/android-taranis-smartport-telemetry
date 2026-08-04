@@ -56,7 +56,9 @@ import juricabi.com.telemetry.maps.MapLine
 import juricabi.com.telemetry.maps.MapMarker
 import juricabi.com.telemetry.maps.MapWrapper
 import juricabi.com.telemetry.maps.Position
+import juricabi.com.telemetry.maps.maplibre.MapLibreMapWrapper
 import juricabi.com.telemetry.maps.osm.OsmMapWrapper
+import org.maplibre.android.MapLibre
 import juricabi.com.telemetry.utils.GeoUtils
 import juricabi.com.telemetry.utils.PlusCode
 import juricabi.com.telemetry.protocol.decoder.DataDecoder
@@ -822,6 +824,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         airplaneMarkers.values.forEach { it.remove() }
         airplaneMarkers.clear()
 
+        if (preferenceManager.useMapLibre()) {
+            initMapLibreMap()
+            return
+        }
+
         if (mapType == OsmMapWrapper.MAP_TYPE_DEFAULT) {
             initOSMMap(TileSourceFactory.DEFAULT_TILE_SOURCE)
         } else if (mapType == OsmMapWrapper.MAP_TYPE_SATELLITE) {
@@ -836,8 +843,39 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private fun initOSMMap(tileSource: OnlineTileSourceBase, overlayTileSources: List<OnlineTileSourceBase> = emptyList()) {
         val mapView = org.osmdroid.views.MapView(this)
         mapHolder.addView(mapView)
-        val osmMap = OsmMapWrapper(applicationContext, mapView, tileSource, { initHeadingLine() }, overlayTileSources)
-        map = osmMap
+        map = OsmMapWrapper(applicationContext, mapView, tileSource, { initHeadingLine() }, overlayTileSources)
+        finishMapSetup()
+    }
+
+    /**
+     * The same map, drawn by MapLibre. Off unless it has been asked for.
+     *
+     * The map types are the same four, built as a style out of the same tile
+     * URLs, so nothing about what is drawn changes — only what draws it.
+     */
+    private fun initMapLibreMap() {
+        MapLibre.getInstance(applicationContext)
+        val mapView = org.maplibre.android.maps.MapView(this)
+        // A MapLibre view renders nothing until it has been through these, and
+        // a map built here has already missed the screen's own — the type can
+        // be changed, or the view switched back from the ground, long after
+        // onCreate. osmdroid did not care because its lifecycle calls do
+        // nothing at all.
+        mapView.onCreate(null)
+        mapView.onStart()
+        mapView.onResume()
+        mapHolder.addView(mapView)
+        map = MapLibreMapWrapper(applicationContext, mapView, mapType) { initHeadingLine() }
+        finishMapSetup()
+    }
+
+    /**
+     * Everything a map needs once it exists, whichever one it is.
+     *
+     * Was the tail of initOSMMap, and is the whole reason a second map is
+     * tractable at all: only the few lines that build the view differ.
+     */
+    private fun finishMapSetup() {
         map?.setOnCameraMoveStartedListener {
             // No gesture gives up following or the chase, here as in three
             // dimensions. What the hand does is kept — the map goes on keeping
@@ -846,10 +884,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // The buttons put it back to the middle.
             leanOutOfFollowing()
         }
-        osmMap.setArrowColours(
+        map?.setArrowColours(
             preferenceManager.getLiveArrowColor(), preferenceManager.getLoggedArrowColor()
         )
-        osmMap.setOnOrientationChangedListener { orientation ->
+        map?.setOnOrientationChangedListener { orientation ->
             updateCompassHeading(orientation)
         }
         polyLine = map?.addPolyline(preferenceManager.getRouteColor())

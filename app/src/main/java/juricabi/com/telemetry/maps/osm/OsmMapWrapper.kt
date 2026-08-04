@@ -344,7 +344,7 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
         }
     }
 
-    fun setOnOrientationChangedListener(listener: (Float) -> Unit) {
+    override fun setOnOrientationChangedListener(listener: (Float) -> Unit) {
         onOrientationChangedListener = listener
         listener(mapView.mapOrientation)
     }

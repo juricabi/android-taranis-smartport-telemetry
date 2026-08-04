@@ -153,6 +153,18 @@ class PreferenceManager(context: Context) {
         return sharedPreferences.getBoolean("show_artificial_horizon", true)
     }
 
+    /**
+     * Draw the map with MapLibre rather than osmdroid.
+     *
+     * Off, so nobody who has not asked for it gets a different map. Both are
+     * built into the app while this is here, which is the point of it: the same
+     * flight can be flown on each and compared, rather than one being swapped
+     * for the other and hoped about.
+     */
+    fun useMapLibre(): Boolean {
+        return sharedPreferences.getBoolean("use_maplibre", false)
+    }
+
     fun getMapType(): Int {
         return sharedPreferences.getInt("map_type", OsmMapWrapper.MAP_TYPE_DEFAULT)
     }
