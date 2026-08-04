@@ -57,18 +57,6 @@ class OsmLine(private val mapView: MapView) : MapLine() {
         }
     }
 
-    override fun removeAt(index: Int) {
-        try {
-            val remaining = ArrayList(line.actualPoints)
-            if (index < 0 || index >= remaining.size) return
-            remaining.removeAt(index)
-            line.setPoints(remaining)
-            mapView.invalidate()
-        } catch (e: Exception) {
-            // nothing left to remove
-        }
-    }
-
     override val size: Int
         get() = try {
             line.actualPoints.size

@@ -11,7 +11,6 @@ abstract class MapLine {
     abstract fun addPoints(points: List<Position>)
     abstract fun setPoint(index: Int, position: Position)
     abstract fun clear()
-    abstract fun removeAt(index: Int)
 
     abstract val size: Int
     abstract var color: Int

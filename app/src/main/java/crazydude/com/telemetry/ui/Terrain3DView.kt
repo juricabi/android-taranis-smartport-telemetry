@@ -166,7 +166,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
                 watch()
                 return
             }
-            scene.setOrigin(fallbackLat, fallbackLon, 0f)
+            scene.setOrigin(fallbackLat, fallbackLon)
         }
         val flight = if (hasFlight) points else emptyList()
 
@@ -1131,8 +1131,6 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         LiveFlightPath.latest()?.let { lookAt(it.lat, it.lon, it.altitudeMsl) }
         applyChaseBearing()
     }
-
-    fun isChasing(): Boolean = chasing
 
     /**
      * Behind the model, looking the way it is going.

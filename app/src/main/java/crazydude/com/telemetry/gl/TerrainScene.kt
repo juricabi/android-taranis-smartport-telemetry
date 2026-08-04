@@ -75,9 +75,7 @@ class TerrainScene {
         class Reference(
             val aboveLaunch: Boolean,
             /** What to add to them to make them heights above the sea. */
-            val lift: Float,
-            /** The lowest of them, low outliers excepted. */
-            val lowest: Float
+            val lift: Float
         )
 
         /**
@@ -135,7 +133,7 @@ class TerrainScene {
             // thirty metres of slack for the terrain data, which is thirty
             // metre data, and for a fix only good to a few metres vertically
             val aboveLaunch = lowestReported < lowestGround - 30f
-            return Reference(aboveLaunch, if (aboveLaunch) groundAtStart else 0f, lowestReported)
+            return Reference(aboveLaunch, if (aboveLaunch) groundAtStart else 0f)
         }
     }
 
@@ -252,10 +250,9 @@ class TerrainScene {
      * this frame, so moving the origin afterwards would slide the terrain out
      * from under the path.
      */
-    fun setOrigin(lat: Double, lon: Double, altitude: Float) {
+    fun setOrigin(lat: Double, lon: Double) {
         originLat = lat
         originLon = lon
-        if (!datumFromGround) originAltitude = altitude
         // Only claim the area when there is nothing else to go on. Calling this
         // to fix an origin already worked out from a flight must not throw that
         // flight's extent away, or the ground gets built around a point.
@@ -507,7 +504,7 @@ class TerrainScene {
             val ty = t[1].toInt()
             val key = tileKey(tx, ty)
             if (built.containsKey(key)) continue
-            val mesh = buildTile(z, tx, ty, false)
+            val mesh = buildTile(z, tx, ty)
             if (mesh != null) {
                 built[key] = mesh
                 publish(keys)
@@ -647,7 +644,7 @@ class TerrainScene {
         return Math.toDegrees(Math.atan(Math.sinh(n)))
     }
 
-    private fun buildTile(z: Int, tx: Int, ty: Int, withImagery: Boolean): TileMesh? {
+    private fun buildTile(z: Int, tx: Int, ty: Int): TileMesh? {
         val westLon = tileLon(tx, z)
         val eastLon = tileLon(tx + 1, z)
         val northLat = tileLat(ty, z)
@@ -712,15 +709,9 @@ class TerrainScene {
             }
         }
 
-        val texture = if (!withImagery) {
-            null
-        } else {
-            try {
-                Imagery.mosaic(z, tx, ty, IMAGERY_DETAIL)
-            } catch (e: Throwable) {
-                null
-            }
-        }
+        // No picture: a tile is built for its shape, and its photograph is
+        // hung on it afterwards by the pass that fetches them.
+        val texture = null
         return TileMesh(tileKey(tx, ty), vertices, indices, texture)
     }
 
