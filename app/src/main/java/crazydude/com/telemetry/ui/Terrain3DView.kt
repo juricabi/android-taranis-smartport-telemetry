@@ -252,6 +252,16 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         flightShown = true
         if (!started || !terrainReady) return
         placeModel()
+        // The flight grows with the model rather than waiting for the tick, so
+        // the line, its shadow and the curtain between them always end where
+        // the model is.
+        LiveFlightPath.latest()?.let {
+            renderer.appendFlightPoint(
+                scene.east(it.lon),
+                scene.aboveSeaLevel(it.altitudeMsl) - scene.originAltitude,
+                -scene.north(it.lat),
+                (scene.groundAt(it.lat, it.lon) ?: scene.originAltitude) - scene.originAltitude)
+        }
     }
 
     /** Where the model is now, from the newest point; cheap enough for every fix. */
@@ -494,23 +504,6 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         // doing that for every fix is what left no room for anything else — but
         // the model moves on every one of them, so its line was trailing half a
         // second behind it. Two vertices close the gap.
-        // Where the built flight ends. The stretch from there to the model is
-        // drawn by the renderer, from the eased position the model itself is
-        // drawn at — handed over as vertices here it snapped to each fix, out
-        // ahead of the model it was supposed to be joined to.
-        val trail = scene.track
-        val shade = scene.shadow
-        if (model != null && trail.size >= 3 && shade.size == trail.size) {
-            val n = trail.size
-            renderer.setTrackLeader(
-                trail[n - 3], trail[n - 2], trail[n - 1],
-                shade[n - 3], shade[n - 2], shade[n - 1],
-                (scene.groundAt(model.lat, model.lon) ?: scene.originAltitude) -
-                    scene.originAltitude)
-        } else {
-            renderer.clearTrackLeader()
-        }
-
         // where it is heading, a kilometre of it
         if (headingLineOn && model != null && hasAttitude) {
             val c = colorOf(headingLineColor)
