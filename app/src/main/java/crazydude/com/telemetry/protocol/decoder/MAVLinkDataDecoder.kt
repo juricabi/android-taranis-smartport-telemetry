@@ -129,6 +129,13 @@ class MAVLinkDataDecoder(listener: Listener) : DataDecoder(listener) {
                 fix = data.data == 3
                 listener.onGPSState(satellites, fix)
             }
+            Protocol.HEADING -> {
+                // Hundredths of a degree, from the estimator or from the course
+                // the receiver is making good. Both protocols have been sending
+                // this for years and nothing here was listening, so a MAVLink
+                // model was drawn pointing north for the whole of every flight.
+                listener.onHeadingData(data.data / 100f)
+            }
             Protocol.ALTITUDE -> {
                 val altitude = data.data / 100f
                 listener.onAltitudeData(altitude)

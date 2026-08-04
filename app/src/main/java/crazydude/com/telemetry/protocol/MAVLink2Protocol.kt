@@ -29,6 +29,16 @@ class MAVLink2Protocol : Protocol {
     private var crcLow: Int? = null
     private var crcHigh: Int? = null
     private var unique = HashSet<Int>()
+    /**
+     * Whether the estimator's own position is being sent.
+     *
+     * GPS_RAW_INT is the receiver talking; GLOBAL_POSITION_INT is the flight
+     * controller after it has weighed that against everything else it has. Both
+     * carry a place, and taking both put the model in two places a second
+     * apart, so the raw one steps aside where the other is arriving.
+     */
+    private var gotGlobalPosition = false
+
     private var gotRadioStatus = false;  //preffer RADIO_STATUS messages over RC_CHANNELS_RAW
 
     companion object {
@@ -45,6 +55,7 @@ class MAVLink2Protocol : Protocol {
         private const val MAV_PACKET_RC_CHANNELS_ID = 65
         private const val MAV_PACKET_VFR_HUD_ID = 74
         private const val MAV_PACKET_GPS_RAW_ID = 24
+        private const val MAV_PACKET_GLOBAL_POSITION_ID = 33
         private const val MAV_PACKET_RADIO_STATUS_ID = 109
         private const val MAV_PACKET_GPS_ORIGIN_ID = 49
         private const val MAV_PACKET_HOME_POSITION_ID = 242
@@ -276,6 +287,36 @@ class MAVLink2Protocol : Protocol {
             val remnoise = byteBuffer.get()
             gotRadioStatus = true;
             dataDecoder.decodeData( Protocol.Companion.TelemetryData( RSSI, rssi.toInt()))
+        } else if (messageId == MAV_PACKET_GLOBAL_POSITION_ID) {
+            // Where the flight controller believes it is, rather than where the
+            // GPS receiver alone says: position, height and heading after the
+            // estimator has had the accelerometers, the barometer and the
+            // compass as well. ArduPilot and PX4 both stream it by default.
+            val bootTime = byteBuffer.int
+            val lat = byteBuffer.int
+            val lon = byteBuffer.int
+            val altitude = byteBuffer.int
+            val relativeAltitude = byteBuffer.int
+            val vx = byteBuffer.short
+            val vy = byteBuffer.short
+            val vz = byteBuffer.short
+            val heading = byteBuffer.short.toInt() and 0xFFFF
+
+            gotGlobalPosition = true
+            dataDecoder.decodeData(Protocol.Companion.TelemetryData(Protocol.GPS_ALTITUDE, altitude))
+            dataDecoder.decodeData(Protocol.Companion.TelemetryData(Protocol.GPS_LATITUDE, lat))
+            this.processLatitude(lat / 10000000.toDouble())
+            dataDecoder.decodeData(Protocol.Companion.TelemetryData(Protocol.GPS_LONGITUDE, lon))
+            this.processLongitude(lon / 10000000.toDouble())
+            // millimetres above the launch, and the readout counts centimetres
+            dataDecoder.decodeData(
+                Protocol.Companion.TelemetryData(Protocol.ALTITUDE, relativeAltitude / 10))
+            // and the climb, which this frame measures downwards
+            dataDecoder.decodeData(Protocol.Companion.TelemetryData(Protocol.VSPEED, -vz.toInt()))
+            // hundredths of a degree, and all ones for "no idea"
+            if (heading != 0xFFFF) {
+                dataDecoder.decodeData(Protocol.Companion.TelemetryData(Protocol.HEADING, heading))
+            }
         } else if (messageId == MAV_PACKET_GPS_RAW_ID) {
             val time = byteBuffer.long
             val lat = byteBuffer.int 
@@ -288,15 +329,23 @@ class MAVLink2Protocol : Protocol {
             val fixType = byteBuffer.get()
             val satellites = byteBuffer.get()
 
+            // The fix and how many satellites are behind it come from here
+            // whatever else is arriving: the estimator's position frame says
+            // nothing about either.
             dataDecoder.decodeData( Protocol.Companion.TelemetryData( Protocol.GPS_STATE, fixType.toInt()))
             dataDecoder.decodeData( Protocol.Companion.TelemetryData( Protocol.GPS_SATELLITES, satellites.toInt()))
-            dataDecoder.decodeData(Protocol.Companion.TelemetryData(Protocol.GPS_ALTITUDE, altitude))
-            dataDecoder.decodeData(Protocol.Companion.TelemetryData(Protocol.GPS_LATITUDE, lat))
-            this.processLatitude(lat / 10000000.toDouble());
-            dataDecoder.decodeData(Protocol.Companion.TelemetryData(Protocol.GPS_LONGITUDE, lon))
-            this.processLongitude(lon / 10000000.toDouble());
+            // The place itself only while nothing better is being sent. Both
+            // frames at once made the model step between the receiver's own
+            // position and the estimator's several times a second.
+            if (!gotGlobalPosition) {
+                dataDecoder.decodeData(Protocol.Companion.TelemetryData(Protocol.GPS_ALTITUDE, altitude))
+                dataDecoder.decodeData(Protocol.Companion.TelemetryData(Protocol.GPS_LATITUDE, lat))
+                this.processLatitude(lat / 10000000.toDouble());
+                dataDecoder.decodeData(Protocol.Companion.TelemetryData(Protocol.GPS_LONGITUDE, lon))
+                this.processLongitude(lon / 10000000.toDouble());
+            }
 
-            if (cog.toInt() != -1)
+            if (cog.toInt() != -1 && !gotGlobalPosition)
                 dataDecoder.decodeData( Protocol.Companion.TelemetryData( Protocol.HEADING, cog.toInt()))
         } else if (messageId == MAV_PACKET_GPS_ORIGIN_ID) {
             val lat = byteBuffer.int
