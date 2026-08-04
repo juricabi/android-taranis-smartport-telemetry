@@ -13,7 +13,7 @@
     <SwitchPreference
             app:iconSpaceReserved="false"
             android:title="Telemetry logging to CSV"
-            android:summary="Save telemetry data to sdcard in OpenTX CSV format (.csv)"
+            android:summary="Save telemetry data to sdcard in OpenTX CSV format (.csv). A replay takes its clock and your position from this file, so without it a replay has neither"
             android:text="Logging enabled"
             android:defaultValue="true"
             android:key="csv_logging_enabled"/>
