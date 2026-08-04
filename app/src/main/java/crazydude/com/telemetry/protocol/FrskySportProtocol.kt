@@ -341,8 +341,14 @@ class FrSkySportProtocol : Protocol {
                             )
                         }
                         SPORT_DATA_ID_GPS_ALT_BP_SENSOR -> {
+                            // Whole metres above the sea — ArduPilot sends
+                            // alt_gps_meters here and the centimetres in the
+                            // sensor after it. Everything downstream of this
+                            // one is in centimetres, so it is scaled to match:
+                            // sent as it stood, a flight at three hundred
+                            // metres was reported at three.
                             dataDecoder.decodeData(
-                            Protocol.Companion.TelemetryData(GPS_ALTITUDE, rawData) //gps altitude integer part
+                            Protocol.Companion.TelemetryData(GPS_ALTITUDE, rawData * 100)
                             )
                         }
                         SPORT_DATA_ID_TEMP1_SENSOR -> {
@@ -367,8 +373,11 @@ class FrSkySportProtocol : Protocol {
                             )
                         }
                         SPORT_DATA_ID_BARO_ALT_BP_SENSOR -> {
+                            // Whole metres above home. It was being sent under
+                            // the name of the GPS sensor, which nothing decodes,
+                            // so on this link the altitude was simply missing.
                             dataDecoder.decodeData(
-                                Protocol.Companion.TelemetryData(DATA_ID_GPS_ALT_BP, rawData)
+                                Protocol.Companion.TelemetryData(ALTITUDE, rawData * 100)
                             )
                         }
                         SPORT_DATA_ID_GPS_SPEED_BP_SENSOR -> {

@@ -68,12 +68,12 @@ class LTMDataDecoder(listener: Listener) : DataDecoder(listener) {
                 listener.onGPSState(((gpsState.toUInt() shr 2) and 0xFF.toUInt()).toInt(), ((gpsState.toUInt() shr 0) and 1.toUInt()) == 1.toUInt())
                 listener.onGPSData(latitude, longitude)
                 listener.onGSpeedData(speed.toUByte().toByte() * (18 / 5f))
-                // The G frame's altitude comes from the GPS, so it is a height
-                // above sea level as well as the altitude reading — and only
-                // saying the latter left nothing able to place the flight
-                // against terrain.
+                // Height above home, not above the sea, whatever the frame is
+                // called: ArduPilot fills it from get_relative_position_D_home
+                // and INAV from its fused estimate relative to home. Reporting
+                // it as a sea level height as well put a flight from a hilltop
+                // at zero metres above the sea.
                 listener.onAltitudeData(altitude / 100f)
-                listener.onGPSAltitudeData(altitude / 100f)
                 this.latitude = latitude;
                 this.longitude = longitude;
                 this.newLatitude = true;
