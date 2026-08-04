@@ -1848,11 +1848,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         clock_text.postDelayed(clockTicker, 1000)
         initHeadingLine()
         updateHomeLine()
-        // whether this phone is drawn over a replay is a setting, and this is
-        // the way back from it
-        showMyLocation()
-        if (!showLiveArrow()) terrain3D?.hideMyLocation()
-        tellViewsWhereIAm()
         dataService?.watchPhone { onPhoneFix(it) }
         val sensors = getSystemService(SENSOR_SERVICE) as SensorManager?
         sensors?.let {
