@@ -4022,23 +4022,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // delivers — tens of times a second on a busy one — while points only
         // arrive as fast as the fixes do.
         if (polyLine?.spoints?.isEmpty() != false) return
-        var maxCount = preferenceManager.getMaxRoutePoints()
-        if ( maxCount < 0) {
-            // Unset means keep the whole flight.
-            //
-            // A cap here does not save anything worth having: measured on a
-            // 120Hz phone, cutting the line from twenty five hundred points to
-            // a hundred and fifty moved the median frame from 10ms to 9ms. The
-            // map spends its time on tiles and on drawing itself. What a cap
-            // does do is throw away the start of the flight, oldest first,
-            // without saying so.
-            //
-            // The points are bounded anyway: the further a flight goes the
-            // further apart they are kept, up to thirty metres, so even a long
-            // one costs a few thousand.
-            maxCount = Int.MAX_VALUE
-        }
-        polyLine?.commitPoints(maxCount)
+        polyLine?.commitPoints()
     }
 
     fun showRenameLogDialog(fileName: String? = null) {

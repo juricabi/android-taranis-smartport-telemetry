@@ -21,7 +21,7 @@ abstract class MapLine {
         spoints.addAll(points)
     }
 
-    private fun simplifySPoints(limit: Int) {
+    private fun simplifySPoints() {
         if (size == 0) {
             lastLat = 0.0
             lastLon = 0.0
@@ -62,29 +62,19 @@ abstract class MapLine {
         }.toMutableList()
     }
 
-    fun commitPoints(limit: Int) {
-        simplifySPoints(limit)
-        var toRemove = (size + spoints.size) - limit
-        if (toRemove >= size) {
-            var fi = spoints.size - limit
-            if (fi < 0) fi = 0
-            val subList = spoints.subList(fi, spoints.size).toList()
-            clear()
-            addPoints(subList)
-            // Drained, like the other branch does. Left full, this one is
-            // entered once and then always: the staged points accumulate for
-            // the whole flight, every commit filters the lot of them again, and
-            // the line is torn down and rebuilt from scratch each time. It also
-            // meant the line went on showing a long stretch of flight however
-            // small the limit was set, since what it drew was the tail of that
-            // ever growing list rather than the points it had been given.
-            spoints.clear()
-        } else {
-            for (i in 1..toRemove) {
-                removeAt(0)
-            }
-            addPoints(spoints)
-            spoints.clear()
-        }
+    /**
+     * Hand the staged points to the line. Nothing is ever taken off it.
+     *
+     * There was a cap, and it dropped the oldest points first — so the start of
+     * a flight quietly disappeared as it went on. It bought nothing: measured
+     * on a 120Hz phone, a line of twenty five hundred points and one of a
+     * hundred and fifty drew within a millisecond of each other. The length is
+     * bounded by the thinning above anyway, which spreads points further apart
+     * the longer the flight runs, so even a long one costs a few thousand.
+     */
+    fun commitPoints() {
+        simplifySPoints()
+        addPoints(spoints)
+        spoints.clear()
     }
 }

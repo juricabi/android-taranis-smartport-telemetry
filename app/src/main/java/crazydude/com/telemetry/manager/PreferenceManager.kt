@@ -212,10 +212,6 @@ class PreferenceManager(context: Context) {
         return sharedPreferences.getBoolean("connection_voice_messages", true)
     }
 
-    fun getMaxRoutePoints() : Int {
-        return sharedPreferences.getString("route_max_points", "-1")?.toInt() ?: -1
-    }
-
     fun getPlaybackAutostart() : Boolean {
         return sharedPreferences.getBoolean("playback_autostart", true)
     }
