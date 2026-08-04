@@ -78,11 +78,13 @@ class OperatorTrack private constructor(
      * at that place is somewhere in that stretch of rows, and the clock stands
      * still there exactly as it did on the day.
      *
-     * The stretch is answered at its end, so the clock reads the moment the
-     * link came back rather than the moment it went away: the packet being
-     * drawn is the first one after the silence, and that is when it arrived.
+     * The stretch is answered at its beginning: the first row that had seen
+     * this much of the recording. The packet being drawn is the last one before
+     * the silence, so the honest time for it is the moment the link went quiet,
+     * and the packets after it read the moment it came back — the jump lands
+     * between them, which is where it happened.
      *
-     * NaN of a kind: no marks in this CSV at all, and there is nothing to
+     * Null where this CSV has no marks in it at all, and there is nothing to
      * answer with.
      */
     fun timeAtMark(mark: Long): Long? {
@@ -95,11 +97,10 @@ class OperatorTrack private constructor(
         var high = last
         while (low + 1 < high) {
             val middle = (low + high) / 2
-            if (marks[middle] <= mark) low = middle else high = middle
+            if (marks[middle] < mark) low = middle else high = middle
         }
-        // low is the last row that had got no further than here, and high is
-        // the first that had got past it
-        return times[low]
+        // high is the first row that had seen this much written
+        return times[high]
     }
 
     private fun between(from: Float, to: Float, part: Float): Float {
