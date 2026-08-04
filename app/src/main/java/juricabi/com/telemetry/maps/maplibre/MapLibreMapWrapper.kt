@@ -1,7 +1,13 @@
 package juricabi.com.telemetry.maps.maplibre
 
 import android.content.Context
+import android.graphics.Color
+import android.graphics.RectF
 import android.os.Bundle
+import android.view.Gravity
+import android.view.ViewGroup
+import android.widget.PopupWindow
+import android.widget.TextView
 import juricabi.com.telemetry.maps.MapLine
 import juricabi.com.telemetry.maps.MapMarker
 import juricabi.com.telemetry.maps.MapWrapper
@@ -120,6 +126,7 @@ class MapLibreMapWrapper(
             }
             // A hand on the map gives up neither following nor the chase, here
             // as everywhere else — the screen is told, and decides.
+            ready.addOnMapClickListener { at -> tapped(ready, at) }
             ready.addOnCameraMoveStartedListener { reason ->
                 if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
                     cameraMoveListener?.invoke()
@@ -360,18 +367,90 @@ class MapLibreMapWrapper(
      */
     private var modelLayer: String? = null
 
-    override fun addMarker(icon: Int, color: Int, position: Position): MapMarker {
-        val marker = MapLibreMarker(
-            context, icon, color, position, "m${markerCount++}", null, ::whenReady
-        )
-        modelLayer = marker.layerName
+    /** Every marker on the map, by the name it puts on its own features. */
+    private val markersById = HashMap<String, MapLibreMarker>()
+
+    private fun remember(marker: MapLibreMarker): MapLibreMarker {
+        markersById[marker.markerId] = marker
         return marker
     }
 
+    override fun addMarker(icon: Int, color: Int, position: Position): MapMarker {
+        val marker = MapLibreMarker(
+            context, icon, color, position, "m${markerCount++}", null, ::whenReady
+        ) { markersById.remove(it.markerId) }
+        modelLayer = marker.layerName
+        return remember(marker)
+    }
+
     override fun addMarker(icon: Int, position: Position): MapMarker =
-        MapLibreMarker(
-            context, icon, null, position, "m${markerCount++}", modelLayer, ::whenReady
+        remember(
+            MapLibreMarker(
+                context, icon, null, position, "m${markerCount++}", modelLayer, ::whenReady
+            ) { markersById.remove(it.markerId) }
         )
+
+    /**
+     * What a tap on an aircraft says, the way the other map says it.
+     *
+     * osmdroid gives every marker a bubble and this map has none: the layer API
+     * draws symbols and knows nothing about being tapped. So the tap is caught,
+     * what is under the finger is asked for, and the words that marker is
+     * carrying are put on the screen beside it.
+     *
+     * Only the Flightradar traffic has anything to say. Tapping the model, or
+     * empty ground, closes whatever is open and does nothing else — which is
+     * also why an empty bubble never appears, the fault osmdroid had to have
+     * its own answer to.
+     */
+    private var bubble: PopupWindow? = null
+
+    private fun dismissBubble() {
+        bubble?.dismiss()
+        bubble = null
+    }
+
+    private fun tapped(ready: MapLibreMap, at: LatLng): Boolean {
+        dismissBubble()
+        val talkative = markersById.values.filter { it.hasSomethingToSay() }
+        if (talkative.isEmpty()) return false
+
+        val density = context.resources.displayMetrics.density
+        val point = ready.projection.toScreenLocation(at)
+        // A box rather than the point itself: a finger is not a pixel, and an
+        // aircraft icon at this size is a few dozen of them.
+        val slop = 22f * density
+        val box = RectF(point.x - slop, point.y - slop, point.x + slop, point.y + slop)
+        val hits = ready.queryRenderedFeatures(box, *talkative.map { it.layerName }.toTypedArray())
+        val name = hits.firstOrNull { it.hasProperty("marker") }
+            ?.getStringProperty("marker") ?: return false
+        val marker = markersById[name] ?: return false
+
+        val words = if (marker.snippet.isEmpty()) marker.title
+        else marker.title + "\n" + marker.snippet
+        if (words.isEmpty()) return false
+
+        val pad = (8 * density).toInt()
+        val view = TextView(context)
+        view.setPadding(pad, pad, pad, pad)
+        view.setBackgroundColor(0xE6202020.toInt())
+        view.setTextColor(Color.WHITE)
+        view.textSize = 12f
+        view.text = words
+
+        val pop = PopupWindow(view, ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT)
+        pop.isOutsideTouchable = true
+        pop.isFocusable = false
+        val where = IntArray(2)
+        mapView.getLocationInWindow(where)
+        pop.showAtLocation(
+            mapView, Gravity.NO_GRAVITY,
+            where[0] + point.x.toInt(), where[1] + point.y.toInt()
+        )
+        bubble = pop
+        return true
+    }
 
     override fun addPolyline(width: Float, color: Int, vararg points: Position): MapLine {
         val line = MapLibreLine("l${lineCount++}", ::whenReady)
@@ -467,7 +546,11 @@ class MapLibreMapWrapper(
     override fun onLowMemory() = mapView.onLowMemory()
     override fun onStart() = mapView.onStart()
     override fun onStop() = mapView.onStop()
-    override fun onDestroy() = mapView.onDestroy()
+    override fun onDestroy() {
+        // a window of ours, which outlives the screen if nobody takes it down
+        dismissBubble()
+        mapView.onDestroy()
+    }
     override fun onSaveInstanceState(outState: Bundle?) {
         if (outState != null) mapView.onSaveInstanceState(outState)
     }

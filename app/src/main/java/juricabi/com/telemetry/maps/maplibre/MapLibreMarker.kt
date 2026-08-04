@@ -43,11 +43,25 @@ class MapLibreMarker(
      * case.
      */
     private val below: String?,
-    private val whenReady: ((Style) -> Unit) -> Unit
+    private val whenReady: ((Style) -> Unit) -> Unit,
+    /** Told when this marker goes, so nothing keeps a dead one. */
+    private val onRemoved: ((MapLibreMarker) -> Unit)? = null
 ) : MapMarker {
 
     /** What to name if something else must be kept above this one. */
     val layerName: String get() = layerId
+
+    /** What this marker calls itself on the features it puts on the map. */
+    val markerId: String get() = id
+
+    /**
+     * Whether tapping it is worth anything.
+     *
+     * Only the aircraft from Flightradar have anything to say; the model has a
+     * name for none of this. osmdroid decides the same way — it keeps the
+     * bubble aside and puts it back only for a marker with words in it.
+     */
+    fun hasSomethingToSay(): Boolean = title.isNotEmpty() || snippet.isNotEmpty()
 
     private val sourceId = "mark-src-$id"
     private val layerId = "mark-lyr-$id"
@@ -106,6 +120,11 @@ class MapLibreMarker(
     private fun feature(): Feature {
         val at = Feature.fromGeometry(Point.fromLngLat(where.lon, where.lat))
         at.addNumberProperty("bearing", heading)
+        // Its own name, carried on the feature: a query of what is under a
+        // finger hands back features and does not say which layer each came
+        // from, so without this there is no way back from a hit to the marker
+        // that was hit.
+        at.addStringProperty("marker", id)
         return at
     }
 
@@ -164,6 +183,7 @@ class MapLibreMarker(
 
     override fun remove() {
         removed = true
+        onRemoved?.invoke(this)
         whenReady { s ->
             s.removeLayer(layerId)
             s.removeSource(sourceId)
