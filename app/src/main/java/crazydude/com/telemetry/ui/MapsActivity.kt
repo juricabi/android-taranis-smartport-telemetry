@@ -3572,6 +3572,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             this.hasGPSFix = false;
             this.lastTraveledDistance = 0.0
             this.polyLine?.clear()
+            // The 3D flight as well, which was left holding the old one: this
+            // is where a replay run to the end and started again comes through,
+            // and the map has been cleared here since long before there was a
+            // second view to keep in step with it.
+            crazydude.com.telemetry.gl.LiveFlightPath.clear()
+            terrain3D?.onFlightReset()
+            lastRememberedHeight = Float.NaN
         }
     }
 
