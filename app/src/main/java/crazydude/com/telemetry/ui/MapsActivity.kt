@@ -380,6 +380,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             preferenceManager.setMapType(mapType)
         }
         followMode = savedInstanceState?.getBoolean("follow_mode", true) ?: true
+        detectedCells = savedInstanceState?.getInt("cells", 0) ?: 0
+        cellsAnswered = savedInstanceState?.getBoolean("cells_answered", false) ?: false
+        cellsAsked = savedInstanceState?.getBoolean("cells_asked", false) ?: false
         replayFileString = savedInstanceState?.getString("replay_file_name")
         fullscreenWindow = preferenceManager.isFullscreenWindow()
 
@@ -409,6 +412,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         followButton = findViewById(R.id.follow_button)
         chaseButton = findViewById(R.id.chase_button)
         chaseButton.imageAlpha = 128
+        if (savedInstanceState?.getBoolean("chase_mode", false) == true) setChaseMode(true)
         mapTypeButton = findViewById(R.id.map_type_button)
         northUpButton = findViewById(R.id.north_up_button)
         compassHeading = findViewById(R.id.compass_heading)
@@ -1250,6 +1254,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         super.onSaveInstanceState(outState)
         map?.onSaveInstanceState(outState)
         outState?.putBoolean("follow_mode", followMode)
+        // Turning the phone round builds this screen again from nothing, and an
+        // answer already given should not be asked for a second time.
+        outState?.putInt("cells", detectedCells)
+        outState?.putBoolean("cells_answered", cellsAnswered)
+        outState?.putBoolean("cells_asked", cellsAsked)
+        outState?.putBoolean("chase_mode", chaseMode)
         outState?.putString("replay_file_name", replayFileString)
         preferenceManager.setFullscreenWindow(fullscreenWindow)
     }
