@@ -135,6 +135,11 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         myAccuracy = accuracy
 
         val hasFlight = points.size >= 2 && scene.setTrack(points)
+        // A flight handed over at the start is a flight to draw, as much as one
+        // that arrives afterwards. Waiting for a fix meant that switching to
+        // this view while a replay was paused showed the ground and nothing on
+        // it until playback was started again.
+        if (hasFlight) flightShown = true
         if (!hasFlight) {
             if (fallbackLat.isNaN() || fallbackLon.isNaN()) {
                 status.text = "No position yet"
