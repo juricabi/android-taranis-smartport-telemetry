@@ -87,6 +87,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private val flightPath: List<crazydude.com.telemetry.gl.TerrainScene.TrackPoint>
         get() = crazydude.com.telemetry.gl.LiveFlightPath.snapshot()
     private var lastGpsAltitudeMsl = Float.NaN
+    private var lastGpsAltitudeAt = 0L
 
     @Volatile private var detectedCells = 0
     @Volatile private var highestPackVoltage = 0f
@@ -966,6 +967,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     private fun startReplay(file: File?) {
         GhstProtocol.forgetLaunchAltitude()
+        startFlightIn3D()
         detectedCells = 0
         highestPackVoltage = 0f
         cellsAsked = false
@@ -2218,6 +2220,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     /** Called when a link is started by hand: none of the previous one carries over. */
     private fun clearCrsfSystem() {
         GhstProtocol.forgetLaunchAltitude()
+        startFlightIn3D()
         detectedCells = 0
         highestPackVoltage = 0f
         cellsAsked = false
@@ -2385,6 +2388,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var lastAnyAltitude = Float.NaN
 
     override fun onAltitudeData(altitude: Float) {
+        // A GPS altitude that has stopped arriving is not an altitude. It used
+        // to be believed for the rest of the flight, so a receiver that lost
+        // the altitude sensor mid-air left the flight recorded as dead flat at
+        // whatever height it had reached, while the model went on climbing.
+        if (System.currentTimeMillis() - lastGpsAltitudeAt > 10000L) {
+            lastGpsAltitudeMsl = Float.NaN
+        }
         if (lastGpsAltitudeMsl.isNaN()) lastAnyAltitude = altitude
         this.sensorTimeoutManager.onAltitudeData(altitude);
         runOnUiThread {
@@ -2395,6 +2405,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     override fun onGPSAltitudeData(altitude: Float) {
         this.sensorTimeoutManager.onGPSAltitudeData(altitude);
         lastGpsAltitudeMsl = altitude
+        lastGpsAltitudeAt = System.currentTimeMillis()
         runOnUiThread {
             this.altitude_msl.text = this.formatHeight(altitude);
         }
@@ -2605,6 +2616,22 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             where?.lat ?: Double.NaN, where?.lon ?: Double.NaN,
             mine?.lat ?: Double.NaN, mine?.lon ?: Double.NaN, phoneAccuracy
         )
+    }
+
+    /**
+     * Begin the 3D ground again for a new flight.
+     *
+     * Whether reported heights mean sea level or the launch is settled once and
+     * kept, deliberately — it cannot be allowed to flip mid-flight. But a new
+     * flight is a new question, and one begun at another field without leaving
+     * this screen was being drawn against the last field's answer, hundreds of
+     * metres out. The origin it is all measured from is fixed for the same
+     * reason and wants the same fresh start.
+     */
+    private fun startFlightIn3D() {
+        if (terrain3D == null) return
+        hide3DView()
+        show3DView(quiet = true)
     }
 
     private fun forgetMapOverlays() {
