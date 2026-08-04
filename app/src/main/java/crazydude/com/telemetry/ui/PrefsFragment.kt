@@ -22,6 +22,7 @@ class PrefsFragment : PreferenceFragmentCompat() {
 
     companion object {
         private const val REQUEST_IMPORT_FLIGHT_PLAN = 100
+        private const val REQUEST_LOCATION = 101
     }
 
     private lateinit var prefManager: PreferenceManager
@@ -47,13 +48,25 @@ class PrefsFragment : PreferenceFragmentCompat() {
         }
 
         findPreference("background_location").setOnPreferenceClickListener {
-            // Android will not offer "all the time" in a dialog for an app of
-            // this vintage — it is only offered in the app's own settings — so
-            // the honest thing is to take the user there rather than to ask for
-            // something that cannot be granted from here.
-            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-            intent.data = Uri.parse("package:" + context!!.packageName)
-            startActivity(intent)
+            val ctx = context
+            if (ctx != null && ContextCompat.checkSelfPermission(
+                    ctx, android.Manifest.permission.ACCESS_FINE_LOCATION
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                // Plain location can be asked for properly, so ask.
+                requestPermissions(
+                    arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION),
+                    REQUEST_LOCATION
+                )
+            } else {
+                // "All the time" cannot: Android will not offer it in a dialog
+                // for an app of this vintage, only in the app's own settings.
+                // Taking the user there is the honest thing, rather than asking
+                // for something that cannot be granted from here.
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                intent.data = Uri.parse("package:" + context!!.packageName)
+                startActivity(intent)
+            }
             true
         }
 
@@ -209,6 +222,15 @@ class PrefsFragment : PreferenceFragmentCompat() {
         preferenceManager.sharedPreferences.unregisterOnSharedPreferenceChangeListener(listener)
     }
 
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_LOCATION) showBackgroundLocationState()
+    }
+
     override fun onResume() {
         super.onResume()
         // Read again on the way back from the system settings, which is where
@@ -239,8 +261,8 @@ class PrefsFragment : PreferenceFragmentCompat() {
         }
         pref.summary = when {
             !fine ->
-                "Location is not allowed at all. Tap to allow it, or the flight is " +
-                    "recorded without where you were standing."
+                "Not allowed. Tap to allow it — without it a replay cannot show " +
+                    "where you were standing, only where the model went."
             always ->
                 "Allowed all the time. Where you stood is recorded for the whole " +
                     "flight, including while the screen is off or the app is away."
