@@ -313,6 +313,10 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         // until something else happened to move.
         if (appendedThrough == 0) {
             pickUpNewPoints()
+            // and the model in its own right: there is no flight to build from
+            // a single point, and that is exactly what a replay opened at its
+            // beginning has — which left it standing there with nothing drawn
+            placeModel()
             // a jump, not a flight: the camera belongs where the model has
             // landed rather than travelling there
             renderer.snapToTarget()
