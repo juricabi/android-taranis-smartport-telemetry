@@ -195,6 +195,21 @@ class TerrainScene {
      */
     @Volatile private var abandoned = false
 
+    /**
+     * Whether the frame moved under the ground already built.
+     *
+     * Taken rather than read: whoever acts on it has to hand the renderer an
+     * empty set of tiles to keep, and doing that twice would throw away the
+     * ground that has just been rebuilt.
+     */
+    @Volatile private var worldMoved = false
+
+    fun takeWorldMoved(): Boolean {
+        if (!worldMoved) return false
+        worldMoved = false
+        return true
+    }
+
     fun abandon() {
         abandoned = true
         val leaving = ArrayList(built.values)
@@ -426,6 +441,17 @@ class TerrainScene {
         if (!datumFromGround) {
             val here = Elevation.elevationAt(originLat, originLon, z)
             if (here != null) {
+                // Every tile already built has this baked into every one of its
+                // vertices, so a datum that arrives after them leaves a step in
+                // the ground where the old ones meet the new. It only arrives
+                // late when the origin is outside the first window — a switch
+                // to the ground view halfway through a flight — and then it
+                // arrives for good, so the tiles built without it are thrown
+                // away and built again.
+                if (built.isNotEmpty() && here != originAltitude) {
+                    built.clear()
+                    worldMoved = true
+                }
                 originAltitude = here
                 datumFromGround = true
             }
@@ -598,6 +624,13 @@ class TerrainScene {
         }
         altitudeResolved = true
         altitudeIsAboveLaunch = aboveLaunch
+        // Published, so the altitude profile draws the flight at the height the
+        // ground view draws it. The two sample the terrain at different
+        // resolutions — the profile covers a whole flight, this covers a window
+        // around the model — so working it out twice was two answers, metres
+        // apart on a steep launch and further where they disagreed about
+        // whether the heights were above the launch at all.
+        AltitudeFrame.remember(found)
         // Only this. The ground stays where it is: what changes is where the
         // flight sits in it, which is the whole of what was in doubt.
         launchGroundElevation = found.lift

@@ -264,6 +264,9 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         val dressed = whateverHasCome || meshes.any { it.texture != null }
         val first = !terrainReady && dressed
         if (dressed) terrainReady = true
+        // The frame moved under ground that was already up: every tile has
+        // the old datum baked into it, so none of them is worth keeping.
+        if (scene.takeWorldMoved()) renderer.keepOnly(emptySet())
         val keys = HashSet<Long>()
         for (mesh in meshes) keys.add(mesh.key)
         renderer.keepOnly(keys)

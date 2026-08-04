@@ -2677,6 +2677,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private fun forgetFlight() {
         crazydude.com.telemetry.gl.LiveFlightPath.clear()
+        // a new flight is a new question about what its heights mean
+        crazydude.com.telemetry.gl.AltitudeFrame.forget()
         polyLine?.clear()
         terrain3D?.onFlightReset()
         lastTraveledDistance = 0.0
@@ -3033,6 +3035,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // terrain under it — a test the 3D view documents as unsound, and which
         // disagreed with it: a flight starting high above a valley was declared
         // to be measured from the launch and drawn a few hundred metres up.
+        // The answer the ground view settled on, where it has settled one:
+        // it samples the terrain far more finely than this does, and two
+        // answers to one question is how the same flight came to be drawn at
+        // two heights.
+        crazydude.com.telemetry.gl.AltitudeFrame.lift()?.let { return it }
         return crazydude.com.telemetry.gl.TerrainScene.referenceOf(
             flightPath, crazydude.com.telemetry.utils.Elevation.TILE_ZOOM)?.lift ?: 0f
     }
