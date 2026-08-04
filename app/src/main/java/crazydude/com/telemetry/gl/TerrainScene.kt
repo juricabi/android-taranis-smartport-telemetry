@@ -134,9 +134,20 @@ class TerrainScene {
         }
     }
 
-    var originLat = 0.0
+    /**
+     * The frame everything else is measured in, and the detail it was built at.
+     *
+     * Written by the thread that loads the ground, and read by three others:
+     * the screen, the compass — which stands this phone's arrow on the terrain
+     * from the sensor thread — and the drawing thread, which asks how high the
+     * ground under the camera is on every frame. None of them takes a lock for
+     * it and none should: they are four numbers, and the answer being one load
+     * out of date is worth nothing. Being half-written is another matter, which
+     * is what volatile is for.
+     */
+    @Volatile var originLat = 0.0
         private set
-    var originLon = 0.0
+    @Volatile var originLon = 0.0
         private set
     /**
      * The height everything is drawn relative to.
@@ -151,17 +162,17 @@ class TerrainScene {
      * What the reported heights are measured from is a separate question, and
      * only moves the flight within the world — see [launchGroundElevation].
      */
-    var originAltitude = 0f
+    @Volatile var originAltitude = 0f
     private var datumFromGround = false
         private set
     private var originFixed = false
 
     /** Flight path as x, y, z triples in the local frame. */
-    var track = FloatArray(0)
+    @Volatile var track = FloatArray(0)
         private set
 
     /** The same path dropped onto the ground, for a shadow and drop lines. */
-    var shadow = FloatArray(0)
+    @Volatile var shadow = FloatArray(0)
         private set
 
     var tiles: List<TileMesh> = emptyList()
@@ -657,7 +668,7 @@ class TerrainScene {
     }
 
     /** The detail the ground was built at, chosen from how much area it covers. */
-    var zoom = PREFERRED_ZOOM
+    @Volatile var zoom = PREFERRED_ZOOM
         private set
 
     private fun tileCount(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
