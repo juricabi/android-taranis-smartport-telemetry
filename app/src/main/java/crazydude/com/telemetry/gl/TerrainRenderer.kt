@@ -261,6 +261,19 @@ class TerrainRenderer : GLSurfaceView.Renderer {
      * else entirely — a jump to your own location, or the first position of
      * all, should arrive rather than glide.
      */
+    /**
+     * Put the model where it has been told, at once, without easing to it.
+     *
+     * Easing assumes the next place is a fix or so away. When a whole batch of
+     * flight arrives together — which is how a replay delivers it — the model
+     * would otherwise walk through it while the flight is already drawn to the
+     * end of the batch, so the flight runs on past the model in front of it.
+     */
+    @Synchronized
+    fun snapToTarget() {
+        placed = false
+    }
+
     private fun settle() {
         val t = target
         val far = Math.max(200f, distance * 0.5f)

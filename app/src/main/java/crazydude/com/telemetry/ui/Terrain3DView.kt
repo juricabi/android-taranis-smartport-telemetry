@@ -278,6 +278,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         // long straight piece of flight — and one long piece of curtain under
         // it — across the whole batch, until the tick came round and replaced
         // it with the real shape.
+        var arrived = 0
         for (point in LiveFlightPath.since(appendedThrough)) {
             renderer.appendFlightPoint(
                 scene.east(point.lon),
@@ -286,7 +287,12 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
                 (scene.groundAt(point.lat, point.lon) ?: scene.originAltitude) -
                     scene.originAltitude)
             appendedThrough++
+            arrived++
         }
+        // A batch at a time is a replay, not a flight: the model belongs at the
+        // end of it rather than walking through it while the flight it is
+        // supposed to be at the end of is already drawn past it.
+        if (arrived > 1) renderer.snapToTarget()
     }
 
     /** Where the model is now, from the newest point; cheap enough for every fix. */
