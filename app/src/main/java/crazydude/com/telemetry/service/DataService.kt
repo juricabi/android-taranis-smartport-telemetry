@@ -144,6 +144,10 @@ class DataService : Service(), DataDecoder.Listener {
     private fun createLogFile(): FileOutputStream? {
         var fileOutputStream: FileOutputStream? = null
         logName = null
+        // and no recording, until there is one: left pointing at the last
+        // flight's, every row of a CSV recorded without a log beside it carried
+        // the size the last recording happened to end at
+        recording = null
         if (preferenceManager.isLoggingEnabled()
             && ContextCompat.checkSelfPermission(
                 this,

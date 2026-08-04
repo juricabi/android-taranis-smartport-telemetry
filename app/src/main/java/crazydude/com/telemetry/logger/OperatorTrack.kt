@@ -97,8 +97,8 @@ class OperatorTrack private constructor(
             val middle = (low + high) / 2
             if (marks[middle] <= mark) low = middle else high = middle
         }
-        // the last row that had got no further than here
-        while (low + 1 <= last && marks[low + 1] <= mark) low++
+        // low is the last row that had got no further than here, and high is
+        // the first that had got past it
         return times[low]
     }
 

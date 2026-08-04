@@ -282,6 +282,22 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private fun showLiveArrow(): Boolean =
         !isInReplayMode() || preferenceManager.isLiveShownInReplay()
 
+    /**
+     * What the screen knows about this phone, onto everything that draws it.
+     *
+     * The map and the ground view are both fed by fixes arriving, which is
+     * fine while they arrive — but a view built between two of them, or an
+     * arrow switched back on between two of them, would have waited with
+     * nothing drawn until the next one came round.
+     */
+    private fun tellViewsWhereIAm() {
+        tellMapWhereIAm()
+        val fix = bestPhoneFix ?: return
+        if (!showLiveArrow()) return
+        terrain3D?.setMyPosition(fix.latitude, fix.longitude, phoneAccuracy)
+        if (!phoneHeading.isNaN()) terrain3D?.setMyHeading(phoneHeading)
+    }
+
     /** What the screen knows about this phone, onto the map that draws it. */
     private fun tellMapWhereIAm() {
         // The system's last known place until this screen has heard one of its
@@ -766,7 +782,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                         )
                         showMyLocation()
                         if (!showLiveArrow()) terrain3D?.hideMyLocation()
-                        tellMapWhereIAm()
+                        tellViewsWhereIAm()
                     }
                 }
                 dialog.dismiss()
@@ -3090,9 +3106,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // it, so the view drops the chase when it is told to stop keeping up.
         view.setFollowing(followMode)
         if (chaseMode) view.setChasing(true)
-        // pointing where the phone is pointing, since the reader that knows
-        // that is on this screen and has been running all along
-        if (!phoneHeading.isNaN()) view.setMyHeading(phoneHeading)
+        // standing where the phone is standing and pointing where it points,
+        // since the readers that know both are on this screen and have been
+        // running all along
+        tellViewsWhereIAm()
         // and where the operator was, if this is opening over a replay
         showOperator()
         updateCompassHeading(view.bearing())
