@@ -310,19 +310,22 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var replayFileString: String? = null
 
     /**
-     * When the flight being replayed happened.
+     * When the flight being replayed happened, from the log file's own dates.
      *
      * A log is a recording of the bytes off the link and carries no clock of
-     * its own — nothing here decodes a time or a date from any protocol — so
-     * the only record of when it was flown is its name, which is the moment the
-     * recording started, and, for a log since renamed, the file's own date.
-     * Where neither can be read the clock says nothing rather than guessing:
-     * the time of day would be a lie about a flight from last week.
+     * its own — nothing here decodes a time or a date out of any protocol — so
+     * when it was flown has to come from the file. Its creation date is the
+     * moment the recording started, where the filesystem kept one; otherwise
+     * the date it was last written, which is the moment it stopped and is the
+     * same flight either way.
+     *
+     * Not from the name. The name is written as the time the recording began,
+     * which reads as the better answer until a log is renamed — and this app
+     * has a button for that.
      */
     private var replayStartedAt: Date? = null
     private var replayTimeRead = false
 
-    private val logNameFormat = SimpleDateFormat("yyyy-MM-dd HH-mm-ss", Locale.US)
     private val timeOfDayFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
     private val flightDayFormat = SimpleDateFormat("d MMM yyyy HH:mm", Locale.getDefault())
 
@@ -801,13 +804,25 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         if (replayTimeRead) return replayStartedAt
         replayTimeRead = true
         val name = replayFileString ?: return null
-        replayStartedAt = try {
-            logNameFormat.parse(name.substringBeforeLast('.'))
-        } catch (e: Exception) {
-            null
-        } ?: File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), name)
-            .let { if (it.exists()) Date(it.lastModified()) else null }
+        val file = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), name)
+        if (!file.exists()) return null
+        val written = file.lastModified()
+        replayStartedAt = madeAt(file) ?: if (written > 0) Date(written) else null
         return replayStartedAt
+    }
+
+    /** When the file was made, where the filesystem remembers that. */
+    private fun madeAt(file: File): Date? {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return null
+        return try {
+            val made = java.nio.file.Files.readAttributes(
+                file.toPath(), java.nio.file.attribute.BasicFileAttributes::class.java
+            ).creationTime().toMillis()
+            if (made > 0) Date(made) else null
+        } catch (e: Throwable) {
+            // no such thing on this filesystem, or no reading it
+            null
+        }
     }
 
     /** For a replay that has been closed, opened or renamed. */
