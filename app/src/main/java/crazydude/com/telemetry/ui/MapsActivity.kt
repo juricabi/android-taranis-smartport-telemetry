@@ -4515,21 +4515,34 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      *
      * It keeps up with the model itself, so plain tracking gives way to it.
      */
+    /** Whether the model was being tracked before the chase took over. */
+    private var followBeforeChase = false
+
     private fun setChaseMode(on: Boolean) {
         if (chaseMode == on) return
         chaseMode = on
         chaseButton.imageAlpha = if (on) 255 else 128
         terrain3D?.setChasing(on)
         if (on) {
+            // Riding behind the model is a way of keeping up with it, so the
+            // chase takes tracking with it — but it is borrowing it, not
+            // turning it on.
+            followBeforeChase = followMode
             setFollowMode(true)
             terrain3D?.setFollowing(true)
             applyHeadingUp()
         } else {
-            // Left where the chase left it, in both views. The north-up
-            // button is the way back to north, and it is one tap; snapping the
-            // map round on its own was a second, unasked-for movement at the
-            // exact moment the user had asked for something else.
-            setFollowMode(followMode)
+            // Given back exactly as it was. Turning the chase off used to leave
+            // tracking on behind it, so switching the chase on and off again
+            // was a way of switching tracking on — which nobody asked for, and
+            // the button then lit itself.
+            //
+            // The angle is left where the chase left it, in both views: the
+            // north-up button is the way back to north and it is one tap, and
+            // swinging the map round unasked, at the moment somebody has asked
+            // for something else, is a movement nobody wanted.
+            setFollowMode(followBeforeChase)
+            terrain3D?.setFollowing(followBeforeChase)
         }
     }
 
