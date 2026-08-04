@@ -431,7 +431,14 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
             val most = (PACKETS_PER_SECOND_MAX * TICK_MS / 1000L).toInt()
             val step = Math.max(1, Math.min(most, cachedData.size / ticks))
 
-            this.mTimer?.scheduleAtFixedRate(object : TimerTask() {
+            // schedule, not scheduleAtFixedRate: at a fixed rate a timer makes
+            // up for runs it missed, and the first seconds of a replay are
+            // exactly when it misses them — the ground is loading and the
+            // screen is busy. The backlog then ran off in one go and the flight
+            // sprinted through its first minute before settling to the speed
+            // that was asked for. Late is better than fast: a replay held up
+            // for a moment simply carries on from where it is.
+            this.mTimer?.schedule(object : TimerTask() {
                 override fun run() {
                     val prevPosition = currentPosition;
 
