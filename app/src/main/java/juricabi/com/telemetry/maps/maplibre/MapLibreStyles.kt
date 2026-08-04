@@ -1,6 +1,9 @@
 package juricabi.com.telemetry.maps.maplibre
 
+import android.graphics.Color
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.layers.BackgroundLayer
+import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.RasterLayer
 import org.maplibre.android.style.sources.RasterSource
 import org.maplibre.android.style.sources.TileSet
@@ -49,6 +52,11 @@ object MapLibreStyles {
      */
     fun maxTileZoom(mapType: Int): Float = when (mapType) {
         MAP_TYPE_TOPO -> 17f
+        // Eighteen, which is what osmdroid was told and is the number that
+        // matters: ArcGIS does not refuse a tile it has no imagery for, it
+        // serves a white one. So a request past the end does not fail and get
+        // scaled up from what is there — it succeeds, and the ground is white.
+        MAP_TYPE_SATELLITE, MAP_TYPE_SATELLITE_HYBRID -> 18f
         else -> 19f
     }
 
@@ -61,6 +69,15 @@ object MapLibreStyles {
         val maxZoom = maxTileZoom(mapType)
 
         val builder = Style.Builder()
+            // Under everything, and the same dark grey osmdroid was given.
+            // Without one, anything not yet drawn — a tile still on its way, a
+            // corner of the world with nothing over it — is whatever the
+            // surface was cleared to, and that is white.
+            .withLayer(
+                BackgroundLayer("background").withProperties(
+                    PropertyFactory.backgroundColor(Color.rgb(28, 28, 28))
+                )
+            )
             .withSource(raster("base-src", base, maxZoom))
             .withLayer(RasterLayer(BASE_LAYER, "base-src"))
 
