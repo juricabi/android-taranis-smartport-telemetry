@@ -3291,10 +3291,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         gotHeading = true;
         lastHeading = heading
         runOnUiThread {
-            marker?.let {
-                it.rotation = heading
-                updateHeading()
-            }
+            // Turned towards, not turned to. Setting it here put the marker
+            // straight onto each heading the model sent, undoing the easing
+            // that was meant to carry it round smoothly.
+            keepSmoothing()
         }
     }
 
@@ -3302,9 +3302,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         applyHeadingUp()
         if (lastGPS.lat != 0.0 && lastGPS.lon != 0.0) {
             val from = shownPosition()
+            // and pointing the way the marker is pointing: drawn to the last
+            // heading while the marker eased towards it, the line swung ahead
+            // and waited for it
+            val towards = if (shownMarkerHeading.isNaN()) lastHeading else shownMarkerHeading
             headingPolyline?.let { headingLine ->
                 headingLine.setPoint(0, from)
-                val (offsetLat, offsetLon) = GeoUtils.computeOffset(from.lat, from.lon, 1000.0, lastHeading.toDouble())
+                val (offsetLat, offsetLon) = GeoUtils.computeOffset(from.lat, from.lon, 1000.0, towards.toDouble())
                 headingLine.setPoint(1, Position(offsetLat, offsetLon))
             }
         }
