@@ -115,7 +115,12 @@ class OperatorTrack private constructor(
             val accuracies = ArrayList<Float>()
             val headings = ArrayList<Float>()
 
+            // A CSV recorded before any of this has a Date and a Time and no
+            // operator at all. Reading on would ask for column minus one.
+            var usable = true
+
             csv.forEachLine { line ->
+                if (!usable) return@forEachLine
                 val cell = line.split(",")
                 if (date < 0) {
                     // the header, whose order is not worth relying on
@@ -129,7 +134,8 @@ class OperatorTrack private constructor(
                             HEADING -> heading = i
                         }
                     }
-                    if (date < 0 || time < 0 || lat < 0 || lon < 0) return@forEachLine
+                    if (time < 0 || lat < 0 || lon < 0) usable = false
+                    return@forEachLine
                 } else if (cell.size > Math.max(Math.max(date, time), Math.max(lat, lon))) {
                     val whenAt = try {
                         stamp.parse(cell[date].trim() + " " + cell[time].trim())?.time

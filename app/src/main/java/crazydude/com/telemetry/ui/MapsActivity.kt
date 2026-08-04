@@ -3015,6 +3015,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // it, so the view drops the chase when it is told to stop keeping up.
         view.setFollowing(followMode)
         if (chaseMode) view.setChasing(true)
+        // and where the operator was, if this is opening over a replay: without
+        // it the view reads this phone's compass for a moment before the tick
+        // hands it the recorded one
+        showOperator()
         updateCompassHeading(view.bearing())
         setFollowMode(followMode)
         // Whatever flight there is. This used to be withheld unless a link
