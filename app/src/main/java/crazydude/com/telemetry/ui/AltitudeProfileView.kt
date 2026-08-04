@@ -314,9 +314,8 @@ class AltitudeProfileView @JvmOverloads constructor(
         return if (y < plotTop) plotTop else if (y > plotBottom) plotBottom else y
     }
 
-    override fun onDraw(canvas: Canvas?) {
+    override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        if (canvas == null) return
         val w = width.toFloat()
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return

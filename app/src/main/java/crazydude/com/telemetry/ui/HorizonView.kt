@@ -63,10 +63,10 @@ class HorizonView @JvmOverloads constructor(
         }
     }
 
-    override fun onDraw(canvas: Canvas?) {
+    override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
-        canvas?.let {
+        canvas.let {
             it.save()
             it.clipPath(circlePath, Region.Op.INTERSECT)
             it.rotate(-shownRoll, center, center)

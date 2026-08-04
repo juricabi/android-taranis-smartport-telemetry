@@ -198,7 +198,7 @@ class PreferenceManager(context: Context) {
             SensorSetting(
                 it.name,
                 sharedPreferences.getInt(key + "_index", it.index),
-                sharedPreferences.getString(key + "_position", it.position),
+                sharedPreferences.getString(key + "_position", it.position) ?: it.position,
                 sharedPreferences.getBoolean(key + "_shown", it.shown)
             )
         }

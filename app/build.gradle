@@ -1,6 +1,5 @@
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
-apply plugin: 'kotlin-android-extensions'
 apply plugin: 'com.google.protobuf'
 
 
@@ -17,14 +16,29 @@ android {
             storePassword keystoreProperties['storePassword']
         }
     }
-    compileSdkVersion 28
+    // What the R class and BuildConfig are generated into, and what the manifest
+    // used to declare as its package. The applicationId below is what the phone
+    // installs it as, and the two have never been the same here.
+    namespace 'crazydude.com.telemetry'
+    compileSdk 35
     defaultConfig {
         applicationId "jauler.com.telemetry"
-        minSdkVersion 21
-        targetSdkVersion 28
+        minSdk 21
+        // Deliberately behind compileSdk. Compiling against 35 is what the
+        // newer AndroidX libraries require; targeting it is a separate job —
+        // scoped storage for the logs, foreground service types for the one
+        // that records with the screen away, the notification permission — and
+        // none of that is owed while this is handed out as an APK rather than
+        // through a store.
+        targetSdk 28
         versionCode 48
         versionName "2.0.23"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+    buildFeatures {
+        // Off by default since AGP 8, and the settings screen puts
+        // BuildConfig.VERSION_NAME in its title.
+        buildConfig true
     }
     buildTypes {
         release {
@@ -43,7 +57,13 @@ android {
 		targetCompatibility javaTargetCompatibility
 	}
 
-    lintOptions {
+    kotlinOptions {
+        // Kept level with compileOptions above; AGP 8 fails the build where the
+        // two disagree rather than quietly picking one.
+        jvmTarget = '1.8'
+    }
+
+    lint {
         abortOnError false
     }
 
@@ -73,7 +93,7 @@ protobuf {
 
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
-    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
     implementation 'androidx.appcompat:appcompat:1.0.2'
     implementation 'com.google.android.material:material:1.0.0'
     implementation 'androidx.preference:preference:1.0.0'

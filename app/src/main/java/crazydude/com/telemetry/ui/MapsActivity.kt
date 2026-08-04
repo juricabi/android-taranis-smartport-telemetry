@@ -65,8 +65,6 @@ import crazydude.com.telemetry.protocol.pollers.LogPlayer
 import crazydude.com.telemetry.utils.LocalNetworks
 import crazydude.com.telemetry.utils.WifiNetworkBinder
 import crazydude.com.telemetry.service.DataService
-import kotlinx.android.synthetic.main.top_layout.*
-import kotlinx.android.synthetic.main.view_map.*
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.tileprovider.tilesource.XYTileSource
@@ -376,6 +374,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private lateinit var bottomList: FlowLayout
     private lateinit var rootLayout: CoordinatorLayout
     private lateinit var compassHeading: TextViewOutline
+    private lateinit var clock_text: TextViewOutline
     private lateinit var mapHolder: FrameLayout
     private lateinit var mapViewHolder: FrameLayout
     private lateinit var rc_widget: RCWidget
@@ -598,6 +597,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         mapTypeButton = findViewById(R.id.map_type_button)
         northUpButton = findViewById(R.id.north_up_button)
         compassHeading = findViewById(R.id.compass_heading)
+        clock_text = findViewById(R.id.clock_text)
         myLocationButton = findViewById(R.id.my_location_button)
         findQuadButton = findViewById(R.id.find_quad_button)
         settingsButton = findViewById(R.id.settings_button)
@@ -961,7 +961,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // an older recording, with no marks in it: spread evenly, as before
         val span = track.endedAt - track.startedAt
         if (span <= 0L) return Date(track.startedAt)
-        val total = seekbar.max
+        val total = seekBar.max
         if (total <= 0) return Date(track.startedAt)
         val at = (logPlayer?.currentPosition ?: 0).toFloat() / total
         val part = Math.max(0f, Math.min(1f, at))
@@ -1227,8 +1227,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             }
             .setNegativeButton("Copy") { _, _ ->
                 val clipboardManager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboardManager.primaryClip =
-                    ClipData.newPlainText("Location", plusCode + " (" + coords + ")")
+                clipboardManager.setPrimaryClip(
+                    ClipData.newPlainText("Location", plusCode + " (" + coords + ")"))
                 Toast.makeText(this, "Copied " + plusCode, Toast.LENGTH_LONG).show()
             }
             .create())
@@ -1359,18 +1359,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             progressDialog.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL)
             progressDialog.max = 100
 
-            progressDialog.getWindow().setFlags(
+            progressDialog.window?.setFlags(
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
             );
             progressDialog.show();
             if (!this.fullscreenWindow) {
-                progressDialog.getWindow().decorView.systemUiVisibility = 0
+                progressDialog.window?.decorView?.systemUiVisibility = 0
             } else {
-                progressDialog.getWindow().decorView.systemUiVisibility =
+                progressDialog.window?.decorView?.systemUiVisibility =
                     (View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE)
             }
-            progressDialog.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+            progressDialog.window?.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
 
             switchToReplayMode()
 
@@ -1444,7 +1444,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 override fun onPlaybackPositionChange(prevPosition: Int, nextPosition: Int) {
                     runOnUiThread {
                         if ( (logPlayer?.currentPosition ?:0) == prevPosition ) {
-                            seekbar.progress = nextPosition
+                            seekBar.progress = nextPosition
                         }
                     }
                 }
@@ -2783,6 +2783,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                         RequestWritePermissionSequenceType.RENAME -> showRenameLogDialog()
                         RequestWritePermissionSequenceType.EXPORT_GPX -> showExportGPXDialog()
                         RequestWritePermissionSequenceType.EXPORT_KML -> showExportKMLDialog1()
+                        // nothing was waiting on the permission
+                        RequestWritePermissionSequenceType.NONE -> {}
                     }
                     requestWritePermissionSequence = RequestWritePermissionSequenceType.NONE;
                 } else {
@@ -4572,18 +4574,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     private fun showDialog(dialog: AlertDialog) {
-        dialog.getWindow().setFlags(
+        dialog.window?.setFlags(
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
         );
         dialog.show();
         if (!this.fullscreenWindow) {
-            dialog.getWindow().decorView.systemUiVisibility = 0
+            dialog.window?.decorView?.systemUiVisibility = 0
         } else {
-            dialog.getWindow().decorView.systemUiVisibility =
+            dialog.window?.decorView?.systemUiVisibility =
                 (View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE)
         }
-        dialog.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+        dialog.window?.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
     }
 
     protected fun updateScreenOrientation() {
@@ -4702,9 +4704,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     override fun onTelemetryRate(rate: Int) {
         runOnUiThread {
             if (rate < 1000) {
-                this.tlm_rate.text = "${rate} b/s"
+                this.tlmRate.text = "${rate} b/s"
             } else {
-                this.tlm_rate.text = "${"%.1f".format(rate / 1000f)} kb/s"
+                this.tlmRate.text = "${"%.1f".format(rate / 1000f)} kb/s"
             }
         }
     }

@@ -13,9 +13,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # AGP 8 will not run on anything below 17, and 21 is what this is built
+      # with by hand, so a CI failure can be reproduced without guessing which
+      # JDK caused it.
       - uses: actions/setup-java@v4
         with:
-          java-version: '11'
+          java-version: '21'
           distribution: 'temurin'
 
       - name: Restore signing keystore
