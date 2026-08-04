@@ -9,6 +9,13 @@ class OsmLine(private val mapView: MapView) : MapLine() {
 
     private val line = Polyline(mapView)
 
+    override var width: Float
+        get() = line.outlinePaint.strokeWidth
+        set(value) {
+            line.outlinePaint.strokeWidth = value
+            mapView.invalidate()
+        }
+
     init {
         // Tapping the flight, or a flight plan, opened an empty white bubble:
         // osmdroid gives every line one whether or not it has anything to say,

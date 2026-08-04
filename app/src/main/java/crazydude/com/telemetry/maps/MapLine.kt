@@ -3,6 +3,10 @@ package crazydude.com.telemetry.maps
 import crazydude.com.telemetry.utils.GeoUtils
 
 abstract class MapLine {
+
+    /** How heavy the line is drawn, in pixels. */
+    abstract var width: Float
+
     abstract fun remove()
     abstract fun addPoints(points: List<Position>)
     abstract fun setPoint(index: Int, position: Position)

@@ -529,6 +529,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     /** The same arrow and accuracy ring the map draws, laid on the ground. */
     /** Where the phone is, as it changes. Keeps the arrow and its ring current. */
     fun setMyPosition(lat: Double, lon: Double, accuracy: Float) {
+        myShown = true
         myLat = lat
         myLon = lon
         myAccuracy = accuracy
@@ -722,7 +723,10 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // the model moves on every one of them, so its line was trailing half a
         // second behind it. Two vertices close the gap.
         // where it is heading, a kilometre of it
-        if (headingLineOn && model != null && hasAttitude) {
+        // Not only where an attitude is reported: without one the model is
+        // pointed along its course over the ground, which is what the map has
+        // always drawn its own heading line from.
+        if (headingLineOn && model != null) {
             val c = colorOf(headingLineColor)
             renderer.setHeadingLine(true, c[0], c[1], c[2], c[3])
         } else {
@@ -846,9 +850,11 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     /** Which way the phone is pointing, so the arrow means something. */
     /** Nothing known about where this phone is: draw neither arrow nor ring. */
     fun hideMyLocation() {
-        myLat = Double.NaN
-        myLon = Double.NaN
+        // The place is kept. Locate is about where to look, not about what is
+        // drawn, and forgetting where the phone was left that button refusing
+        // to work for as long as the arrow was switched off.
         myAccuracy = 0f
+        myShown = false
         // said outright: handing it a position of nothing left it visible at
         // coordinates that are not numbers, which draws nothing only because
         // nothing is what a NaN triangle comes to
@@ -883,7 +889,11 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         rebuildOverlays()
     }
 
+    /** Whether this phone has said which way it is facing. */
+    private var hasMyHeading = false
+
     fun setMyHeading(degrees: Float) {
+        hasMyHeading = !degrees.isNaN()
         myHeading = degrees
         placeMyArrow()
     }
@@ -896,10 +906,18 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
      * compass sample — so when the altitude reference settled and moved the
      * origin, the arrow followed and the ring was left hanging where it was.
      */
+    /** Whether the live arrow is wanted at all: the replay menu can say not. */
+    private var myShown = true
+
     private fun placeMyArrow() {
+        if (!myShown) {
+            renderer.hideMyLocation()
+            renderer.setAccuracyCircle(FloatArray(0))
+            return
+        }
         myGround = standArrow(
             myLat, myLon, myAccuracy, myHeading, myGround,
-            { x, y, z, heading -> renderer.setMyLocation(x, y, z, heading) },
+            { x, y, z, heading -> renderer.setMyLocation(x, y, z, heading, hasMyHeading) },
             { ring -> renderer.setAccuracyCircle(ring) }
         )
     }
@@ -941,7 +959,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
 
         // an unknown accuracy is not a small one: drop the ring rather than
         // leave the last one it had lying there
-        if (accuracy < 1f) {
+        if (accuracy.isNaN() || accuracy <= 0f) {
             circle(FloatArray(0))
             return ground
         }

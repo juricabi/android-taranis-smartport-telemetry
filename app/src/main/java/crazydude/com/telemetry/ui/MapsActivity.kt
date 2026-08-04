@@ -429,6 +429,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     // this matters most: a link that drops because the model went down is when
     // someone needs to be told where it was.
     private var lastKnownGPS: Position? = null
+
+    /** Where the course over the ground is measured from, for links with no heading. */
+    private var lastCourseFrom = Position(0.0, 0.0)
+
+    /** The bearing from one place to another, in compass degrees. */
+    private fun courseOverGround(fromLat: Double, fromLon: Double,
+                                 toLat: Double, toLon: Double): Float {
+        val east = (toLon - fromLon) * Math.cos(Math.toRadians((fromLat + toLat) / 2))
+        val north = toLat - fromLat
+        if (east == 0.0 && north == 0.0) return lastHeading
+        return ((Math.toDegrees(Math.atan2(east, north)).toFloat() % 360f) + 360f) % 360f
+    }
     private var lastKnownGPSAt: Long = 0L
     private var lastHeading = 0f
 
@@ -1066,7 +1078,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         map?.showRecordedLocation(null, 0f, 0f)
         terrain3D?.hideLoggedLocation()
         showMyLocation()
-        tellMapWhereIAm()
+        tellViewsWhereIAm()
         showTime()
     }
 
@@ -1098,6 +1110,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     private fun initHeadingLine() {
         polyLine?.let { it.color = preferenceManager.getRouteColor() }
+        marker?.setIcon(modelIcon(), preferenceManager.getPlaneColor())
         if (!isIdle()) {
             if (preferenceManager.isHeadingLineEnabled() && headingPolyline == null) {
                 headingPolyline = createHeadingPolyline()
@@ -3049,7 +3062,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             }
         }
         val found = best ?: return null
-        if (phoneAccuracy <= 0f && found.hasAccuracy()) phoneAccuracy = found.accuracy
         return Position(found.latitude, found.longitude)
     }
 
@@ -3131,7 +3143,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         view.start(
             flown,
             where?.lat ?: Double.NaN, where?.lon ?: Double.NaN,
-            mine?.lat ?: Double.NaN, mine?.lon ?: Double.NaN, phoneAccuracy
+            if (showLiveArrow()) mine?.lat ?: Double.NaN else Double.NaN,
+            if (showLiveArrow()) mine?.lon ?: Double.NaN else Double.NaN,
+            if (showLiveArrow()) phoneAccuracy else Float.NaN
         )
     }
 
@@ -4254,6 +4268,16 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 // nothing — and, worse, the ground was then fetched around
                 // wherever that stale fix said, for the rest of the flight.
                 if (hasGPSFix) {
+                    // Which way it is going, where nothing says which way it is
+                    // pointing. The ground view has always fallen back to this;
+                    // the map pointed its marker and its heading line due north
+                    // for the whole of a flight on a link with no attitude.
+                    if (!gotHeading && d > 1.0) {
+                        lastHeading = courseOverGround(
+                            lastCourseFrom.lat, lastCourseFrom.lon, latitude, longitude
+                        )
+                        lastCourseFrom = Position(latitude, longitude)
+                    }
                     rememberForProfile(latitude, longitude)
                     terrain3D?.onNewPoint()
                 }
@@ -4482,9 +4506,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             terrain3D?.setFollowing(true)
             applyHeadingUp()
         } else {
-            // back to north up, so the map is not left at a stale angle
+            // Left where the chase left it, in both views. The north-up
+            // button is the way back to north, and it is one tap; snapping the
+            // map round on its own was a second, unasked-for movement at the
+            // exact moment the user had asked for something else.
             setFollowMode(followMode)
-            if (terrain3D == null) map?.resetMapOrientation()
         }
     }
 

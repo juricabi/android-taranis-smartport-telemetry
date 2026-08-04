@@ -569,6 +569,16 @@ class TerrainRenderer : GLSurfaceView.Renderer {
      */
     private class Spot(val base: FloatArray, val ink: FloatArray) {
         @Volatile var visible = false
+
+        /**
+         * Whether the arrow itself is drawn, as opposed to the ring around it.
+         *
+         * A phone with no compass knows where it is and not which way it
+         * faces. The map draws the ring and nothing in it, rather than an arrow
+         * that would point north all session; this is how the ground view says
+         * the same thing.
+         */
+        @Volatile var pointing = true
         @Volatile var x = 0f
         @Volatile var y = 0f
         @Volatile var z = 0f
@@ -599,7 +609,9 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         me.visible = false
     }
 
-    fun setMyLocation(x: Float, y: Float, z: Float, headingDegrees: Float) {
+    fun setMyLocation(x: Float, y: Float, z: Float, headingDegrees: Float,
+                      pointing: Boolean = true) {
+        me.pointing = pointing
         place(me, x, y, z, headingDegrees)
     }
 
@@ -1453,7 +1465,9 @@ class TerrainRenderer : GLSurfaceView.Renderer {
 
     private fun drawArrow(spot: Spot) {
         val mine: FloatBuffer?
-        synchronized(this) { mine = if (spot.visible) arrowBuffer else null }
+        synchronized(this) {
+            mine = if (spot.visible && spot.pointing) arrowBuffer else null
+        }
         if (mine == null || modelProgram == 0) return
 
         // eased towards the compass rather than snapped to it, so it turns

@@ -268,7 +268,12 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
     override fun addPolyline(width: Float, color: Int, vararg points: Position): MapLine {
         val osmLine = OsmLine(mapView)
         osmLine.addPoints(points.toList())
-        osmLine.color = color;
+        osmLine.color = color
+        // The width was taken and thrown away, so the line home, the line ahead
+        // and the flight plans were all drawn at whatever osmdroid's default
+        // happened to be — while the ground view drew each at the width it was
+        // given, and the two views disagreed about which lines were heavier.
+        osmLine.width = width * context.resources.displayMetrics.density
         return osmLine
     }
 
