@@ -474,16 +474,16 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         val model = LiveFlightPath.latest()
 
         // the line home, which on a map goes to the phone
-        if (homeLineOn && model != null && !myLat.isNaN() && !myLon.isNaN()) {
-            val ground = scene.groundAt(myLat, myLon)
-            if (ground != null) {
-                val c = colorOf(homeLineColor)
-                sets.add(TerrainRenderer.LineSet(floatArrayOf(
-                    scene.east(model.lon), scene.aboveSeaLevel(model.altitudeMsl) - scene.originAltitude,
-                    -scene.north(model.lat),
-                    scene.east(myLon), ground - scene.originAltitude, -scene.north(myLat)),
-                    c[0], c[1], c[2], c[3], true, 3f, false))
-            }
+        // Both of these start at the model, so the renderer draws them from
+        // where it is drawing the model. Given as vertices here they jumped to
+        // each fix and then waited, while the model glided between them.
+        val home = if (myLat.isNaN() || myLon.isNaN()) null else scene.groundAt(myLat, myLon)
+        if (homeLineOn && model != null && home != null) {
+            val c = colorOf(homeLineColor)
+            renderer.setHomeLine(true, scene.east(myLon), home - scene.originAltitude,
+                -scene.north(myLat), c[0], c[1], c[2], c[3])
+        } else {
+            renderer.setHomeLine(false, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
         }
 
         // The last stretch, from where the track was last built to where the
@@ -493,46 +493,29 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         // doing that for every fix is what left no room for anything else — but
         // the model moves on every one of them, so its line was trailing half a
         // second behind it. Two vertices close the gap.
+        // Where the built flight ends. The stretch from there to the model is
+        // drawn by the renderer, from the eased position the model itself is
+        // drawn at — handed over as vertices here it snapped to each fix, out
+        // ahead of the model it was supposed to be joined to.
         val trail = scene.track
         val shade = scene.shadow
-        if (model != null && trail.size >= 3) {
+        if (model != null && trail.size >= 3 && shade.size == trail.size) {
             val n = trail.size
-            val ax = trail[n - 3]; val ay = trail[n - 2]; val az = trail[n - 1]
-            val bx = scene.east(model.lon)
-            val by = scene.aboveSeaLevel(model.altitudeMsl) - scene.originAltitude
-            val bz = -scene.north(model.lat)
-            val c = renderer.trackColor
-            sets.add(TerrainRenderer.LineSet(
-                floatArrayOf(ax, ay, az, bx, by, bz), c[0], c[1], c[2], 1f, true, 4f, false))
-
-            if (shade.size == n) {
-                val sx = shade[n - 3]; val sy = shade[n - 2]; val sz = shade[n - 1]
-                val under = (scene.groundAt(model.lat, model.lon) ?: scene.originAltitude) -
-                    scene.originAltitude
-                // its shadow, and the sheet hanging between the two
-                sets.add(TerrainRenderer.LineSet(
-                    floatArrayOf(sx, sy, sz, bx, under, bz),
-                    c[0] * 0.45f, c[1] * 0.45f, c[2] * 0.45f, 0.85f, true, 2f, false))
-                renderer.setTrackLeader(floatArrayOf(
-                    ax, ay, az, sx, sy, sz, bx, by, bz,
-                    bx, by, bz, sx, sy, sz, bx, under, bz))
-            }
+            renderer.setTrackLeader(
+                trail[n - 3], trail[n - 2], trail[n - 1],
+                shade[n - 3], shade[n - 2], shade[n - 1],
+                (scene.groundAt(model.lat, model.lon) ?: scene.originAltitude) -
+                    scene.originAltitude)
         } else {
-            renderer.setTrackLeader(null)
+            renderer.clearTrackLeader()
         }
 
         // where it is heading, a kilometre of it
         if (headingLineOn && model != null && hasAttitude) {
-            val radians = Math.toRadians(modelHeading.toDouble())
-            val x = scene.east(model.lon)
-            val y = scene.aboveSeaLevel(model.altitudeMsl) - scene.originAltitude
-            val z = -scene.north(model.lat)
             val c = colorOf(headingLineColor)
-            sets.add(TerrainRenderer.LineSet(floatArrayOf(
-                x, y, z,
-                x + (1000.0 * Math.sin(radians)).toFloat(), y,
-                z - (1000.0 * Math.cos(radians)).toFloat()),
-                c[0], c[1], c[2], c[3], true, 2f, false))
+            renderer.setHeadingLine(true, c[0], c[1], c[2], c[3])
+        } else {
+            renderer.setHeadingLine(false, 0f, 0f, 0f, 0f)
         }
 
         // Imported plans, draped over the ground they cross, each in its own

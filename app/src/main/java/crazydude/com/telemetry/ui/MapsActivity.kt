@@ -750,7 +750,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             map?.invalidate()
             return
         }
-        val drone = if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) lastGPS else return
+        // from where the model is drawn, not where the fix was, so the line
+        // stays joined to it as it moves
+        val drone = if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) shownPosition() else return
         val phone = map?.getMyLocation() ?: return
         if (line.size == 2) {
             line.setPoint(0, drone)

@@ -177,13 +177,43 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     private var dropBuffer: FloatBuffer? = null
 
     /**
-     * The last stretch of curtain, from where it was last built to the model.
+     * Where the flight was last drawn to, so the last stretch of it can be
+     * drawn from there to the model every frame.
      *
-     * The curtain is rebuilt with the track, twice a second, because it is the
-     * whole flight; the model moves on every fix. Without this the surface
-     * stopped short and trailed it.
+     * The track, its curtain and its shadow are rebuilt twice a second, since
+     * each is the whole flight, and the model moves on every fix — so all three
+     * stopped short of it. Drawing the last stretch here rather than handing it
+     * over per fix means it runs from the eased position the model is actually
+     * drawn at, so it moves with the model instead of snapping to each fix
+     * ahead of it.
      */
-    private var leaderBuffer: FloatBuffer? = null
+    @Volatile private var leaderSet = false
+    private var leadAx = 0f
+    private var leadAy = 0f
+    private var leadAz = 0f
+    private var leadSx = 0f
+    private var leadSy = 0f
+    private var leadSz = 0f
+    private var leadGroundY = 0f
+    private val leaderQuad = FloatArray(18)
+    private val leaderPair = FloatArray(6)
+    private val leaderQuadBuffer = floats(FloatArray(18))
+    private val leaderPairBuffer = floats(FloatArray(6))
+
+    @Volatile private var homeOn = false
+    private var homeX = 0f
+    private var homeY = 0f
+    private var homeZ = 0f
+    private var homeR = 1f
+    private var homeG = 1f
+    private var homeB = 1f
+    private var homeA = 1f
+
+    @Volatile private var headingOn = false
+    private var headR = 1f
+    private var headG = 1f
+    private var headB = 1f
+    private var headA = 1f
     private var dropCount = 0
 
     private var terrainProgram = 0
@@ -619,10 +649,50 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         }
     }
 
-    /** Six vertices closing the curtain up to where the model is now. */
+    /**
+     * Where the built flight ends: its last point, that point's shadow, and the
+     * ground under the model. The stretch from there to the model is drawn from
+     * these every frame.
+     */
     @Synchronized
-    fun setTrackLeader(quad: FloatArray?) {
-        leaderBuffer = if (quad == null || quad.size < 18) null else floats(quad)
+    fun setTrackLeader(ax: Float, ay: Float, az: Float,
+                       sx: Float, sy: Float, sz: Float, groundY: Float) {
+        leadAx = ax; leadAy = ay; leadAz = az
+        leadSx = sx; leadSy = sy; leadSz = sz
+        leadGroundY = groundY
+        leaderSet = true
+    }
+
+    @Synchronized
+    fun clearTrackLeader() {
+        leaderSet = false
+    }
+
+    /**
+     * The line home and the line ahead, drawn from where the model is drawn.
+     *
+     * Both start at the model, so both belong here rather than among the
+     * overlays: built there, out of the last fix, they jumped ahead of it and
+     * waited for the next one while the model glided between them.
+     */
+    @Synchronized
+    fun setHomeLine(on: Boolean, x: Float, y: Float, z: Float,
+                    r: Float, g: Float, b: Float, a: Float) {
+        homeOn = on
+        homeX = x; homeY = y; homeZ = z
+        homeR = r; homeG = g; homeB = b; homeA = a
+    }
+
+    @Synchronized
+    fun setHeadingLine(on: Boolean, r: Float, g: Float, b: Float, a: Float) {
+        headingOn = on
+        headR = r; headG = g; headB = b; headA = a
+    }
+
+    private fun fill(buffer: FloatBuffer, data: FloatArray) {
+        buffer.position(0)
+        buffer.put(data)
+        buffer.position(0)
     }
 
     @Synchronized
@@ -981,9 +1051,25 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                 trackColor[2] * 0.45f, 0.85f)
             GLES20.glDrawArrays(GLES20.GL_LINE_STRIP, 0, sCount)
         }
-        val lead: FloatBuffer?
-        synchronized(this) { lead = leaderBuffer }
-        if (drops != null && dCount > 2 || lead != null) {
+        // The stretch from the end of the built flight to where the model is
+        // being drawn — its own eased position, so this moves with it.
+        var lead = false
+        if (leaderSet && modelVisible) {
+            synchronized(this) {
+                val bx = shownX
+                val by = shownY
+                val bz = shownZ
+                leaderQuad[0] = leadAx; leaderQuad[1] = leadAy; leaderQuad[2] = leadAz
+                leaderQuad[3] = leadSx; leaderQuad[4] = leadSy; leaderQuad[5] = leadSz
+                leaderQuad[6] = bx; leaderQuad[7] = by; leaderQuad[8] = bz
+                leaderQuad[9] = bx; leaderQuad[10] = by; leaderQuad[11] = bz
+                leaderQuad[12] = leadSx; leaderQuad[13] = leadSy; leaderQuad[14] = leadSz
+                leaderQuad[15] = bx; leaderQuad[16] = leadGroundY; leaderQuad[17] = bz
+            }
+            fill(leaderQuadBuffer, leaderQuad)
+            lead = true
+        }
+        if (drops != null && dCount > 2 || lead) {
             GLES20.glUniform4f(uColor, trackColor[0], trackColor[1], trackColor[2], 0.18f)
             // translucent, so what is behind it must still be drawn
             // no depth writing: the curtain is see through, so what is behind it
@@ -996,13 +1082,65 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             }
             // and the piece of it between the last one built and the model,
             // which is where the whole curtain would otherwise stop
-            if (lead != null) {
-                lead.position(0)
-                GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, lead)
+            if (lead) {
+                GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12,
+                    leaderQuadBuffer)
                 GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 6)
             }
             GLES20.glDepthMask(true)
         }
+        if (lead) {
+            // the shadow's last stretch, along the ground
+            leaderPair[0] = leadSx; leaderPair[1] = leadSy; leaderPair[2] = leadSz
+            leaderPair[3] = leaderQuad[15]; leaderPair[4] = leaderQuad[16]
+            leaderPair[5] = leaderQuad[17]
+            fill(leaderPairBuffer, leaderPair)
+            GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12,
+                leaderPairBuffer)
+            GLES20.glUniform4f(uColor, trackColor[0] * 0.45f, trackColor[1] * 0.45f,
+                trackColor[2] * 0.45f, 0.85f)
+            GLES20.glLineWidth(2f)
+            GLES20.glDrawArrays(GLES20.GL_LINES, 0, 2)
+
+            // and the flight's own, up in the air
+            leaderPair[0] = leadAx; leaderPair[1] = leadAy; leaderPair[2] = leadAz
+            leaderPair[3] = leaderQuad[6]; leaderPair[4] = leaderQuad[7]
+            leaderPair[5] = leaderQuad[8]
+            fill(leaderPairBuffer, leaderPair)
+            GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12,
+                leaderPairBuffer)
+            GLES20.glUniform4f(uColor, trackColor[0], trackColor[1], trackColor[2], 1f)
+            GLES20.glLineWidth(4f)
+            GLES20.glDrawArrays(GLES20.GL_LINES, 0, 2)
+        }
+        if (modelVisible && homeOn) {
+            synchronized(this) {
+                leaderPair[0] = shownX; leaderPair[1] = shownY; leaderPair[2] = shownZ
+                leaderPair[3] = homeX; leaderPair[4] = homeY; leaderPair[5] = homeZ
+            }
+            fill(leaderPairBuffer, leaderPair)
+            GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12,
+                leaderPairBuffer)
+            GLES20.glUniform4f(uColor, homeR, homeG, homeB, homeA)
+            GLES20.glLineWidth(3f)
+            GLES20.glDrawArrays(GLES20.GL_LINES, 0, 2)
+        }
+        if (modelVisible && headingOn) {
+            synchronized(this) {
+                val radians = Math.toRadians(shownHeading.toDouble())
+                leaderPair[0] = shownX; leaderPair[1] = shownY; leaderPair[2] = shownZ
+                leaderPair[3] = shownX + (1000.0 * Math.sin(radians)).toFloat()
+                leaderPair[4] = shownY
+                leaderPair[5] = shownZ - (1000.0 * Math.cos(radians)).toFloat()
+            }
+            fill(leaderPairBuffer, leaderPair)
+            GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12,
+                leaderPairBuffer)
+            GLES20.glUniform4f(uColor, headR, headG, headB, headA)
+            GLES20.glLineWidth(2f)
+            GLES20.glDrawArrays(GLES20.GL_LINES, 0, 2)
+        }
+
         val marker: FloatBuffer?
         val mCount: Int
         synchronized(this) { marker = markerBuffer; mCount = markerCount }
