@@ -2849,9 +2849,20 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         if (gotHeading) view.setModelAttitude(lastHeading, lastPitch, lastRoll)
         view.onFollowingLost = { setFollowMode(false) }
         view.onBearingChanged = { updateCompassHeading(it) }
+        // The buttons say what they were saying before the switch.
+        //
+        // Tracking was turned on here whatever the map had been left doing, so
+        // panning away from the model in 2D and then looking at the ground
+        // snapped straight back onto it. The two views are two ways of watching
+        // one flight, not two decisions about how to watch it — and the state
+        // is kept on this screen, which outlives both of them.
+        //
+        // Following first: riding behind the model is a way of keeping up with
+        // it, so the view drops the chase when it is told to stop keeping up.
+        view.setFollowing(followMode)
         if (chaseMode) view.setChasing(true)
         updateCompassHeading(view.bearing())
-        setFollowMode(true)
+        setFollowMode(followMode)
         // Whatever flight there is. This used to be withheld unless a link
         // was up or a replay running, to stop a finished flight reappearing on
         // a map built afterwards — but a flight is now thrown away where one
