@@ -223,6 +223,11 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
             seenVersion = -1
             renderer.setTrack(scene.track, scene.shadow)
             pickUpNewPoints()
+            // Arrive at the model rather than travel to it. The camera is aimed
+            // at the middle of the scene until the ground is up and the flight
+            // can be placed, and easing from one to the other is a second or
+            // two of the whole world sliding past while the view opens.
+            renderer.snapToTarget()
             // and the plans and traffic in their own right: they are worth
             // seeing over bare ground, and with nothing flying the flight above
             // would never have drawn them at all
