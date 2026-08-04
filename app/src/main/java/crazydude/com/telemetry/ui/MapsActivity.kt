@@ -8,7 +8,6 @@ import android.bluetooth.BluetoothDevice
 import android.content.*
 import android.content.pm.ActivityInfo
 import android.location.Location
-import android.location.LocationListener
 import android.location.LocationManager
 import android.content.pm.PackageManager
 import android.content.res.Configuration
@@ -190,29 +189,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     @Volatile private var bestPhoneFix: Location? = null
 
     /**
-     * Both providers are listened to, because indoors the satellites never
-     * answer — but a mast puts you hundreds of metres from where they say, and
-     * one arriving between two good fixes threw the arrow across the field and
-     * back again.
-     *
-     * So: anything when nothing is known, anything once what is known is stale,
-     * and otherwise only a fix at least as accurate as the one in hand.
-     */
-    private fun worthBelieving(fix: Location): Boolean {
-        val held = bestPhoneFix ?: return true
-        // A provider with a skewed clock can stamp a fix in the future, and
-        // every honest one after it looks old by comparison. Age is measured
-        // against now as well, so nothing can lock this shut.
-        if (System.currentTimeMillis() - held.time > 20000L) return true
-        val newer = fix.time - held.time
-        if (newer > 20000L) return true
-        if (newer < -20000L) return false
-        if (!fix.hasAccuracy()) return !held.hasAccuracy()
-        if (!held.hasAccuracy()) return true
-        return fix.accuracy <= held.accuracy || fix.provider == held.provider
-    }
-
-    /**
      * Which way this phone is facing.
      *
      * Read here rather than borrowed from whichever view is open: the 3D view
@@ -333,29 +309,26 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         dataService?.setPhoneBearing(phoneHeading)
     }
 
-    private val phoneLocationListener = object : LocationListener {
-        override fun onLocationChanged(location: Location) {
-            if (!worthBelieving(location)) return
-            bestPhoneFix = location
-            recordWhereIAm()
-            // kept for the 3D view, which draws the same accuracy circle the map does
-            phoneAccuracy = if (location.hasAccuracy()) location.accuracy else 0f
-            runOnUiThread {
-                updateHomeLine()
-                // not over a replay, which is drawing where the phone was then
-                if (showLiveArrow()) {
-                    terrain3D?.setMyPosition(location.latitude, location.longitude, phoneAccuracy)
-                    // and the map's arrow, which used to listen to the
-                    // satellites itself and answer slightly differently
-                    tellMapWhereIAm()
-                } else {
-                    terrain3D?.hideMyLocation()
-                }
-            }
+    /**
+     * A fix, from the service, which is the only thing here listening for one.
+     *
+     * The service hears the satellites for the recording's sake and goes on
+     * doing it while this screen is away; a second listener here answered the
+     * same question a little differently, and drew the arrow somewhere the
+     * recording did not agree with.
+     */
+    private fun onPhoneFix(location: Location) {
+        bestPhoneFix = location
+        // kept for the 3D view, which draws the same accuracy circle the map does
+        phoneAccuracy = if (location.hasAccuracy()) location.accuracy else 0f
+        updateHomeLine()
+        // not over a replay, which is drawing where the phone was then
+        if (showLiveArrow()) {
+            terrain3D?.setMyPosition(location.latitude, location.longitude, phoneAccuracy)
+            tellMapWhereIAm()
+        } else {
+            terrain3D?.hideMyLocation()
         }
-        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
-        override fun onProviderEnabled(provider: String) {}
-        override fun onProviderDisabled(provider: String) {}
     }
 
     @Volatile private var phoneAccuracy = 0f
@@ -532,6 +505,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             dataService = (p1 as DataService.DataBinder).getService()
             dataService?.setDataListener(this@MapsActivity)
             dataService?.let {
+                it.watchPhone { fix -> onPhoneFix(fix) }
                 if (it.isConnected()) {
                     switchToConnectedState()
                     redrawFlightLine()
@@ -1868,22 +1842,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         clock_text.postDelayed(clockTicker, 1000)
         initHeadingLine()
         updateHomeLine()
-        if (checkCallingOrSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            val lm = getSystemService(LOCATION_SERVICE) as LocationManager
-            // both, because indoors the satellites never come in and the 3D
-            // view would be left without the arrow the map is showing
-            for (provider in arrayOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
-                try {
-                    // no distance filter: a phone lying still never moves the
-                    // metre that was being asked for, so after the first fix it
-                    // heard nothing more and the accuracy ring stayed the size
-                    // of whatever it started with
-                    lm.requestLocationUpdates(provider, 1000L, 0f, phoneLocationListener)
-                } catch (e: Exception) {
-                    // a phone without that provider; the other one still runs
-                }
-            }
-        }
+        dataService?.watchPhone { onPhoneFix(it) }
         val sensors = getSystemService(SENSOR_SERVICE) as SensorManager?
         sensors?.let {
             it.registerListener(
@@ -1907,8 +1866,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         this.logPlayer?.stop();
         stopFr24()
         updateFullscreenState()//check if user has brought system ui with swipe
-        val lm = getSystemService(LOCATION_SERVICE) as LocationManager
-        lm.removeUpdates(phoneLocationListener)
+        // The service goes on listening for as long as a link is up, and stops
+        // when neither it nor this screen has a reason to.
+        dataService?.watchPhone(null)
         (getSystemService(SENSOR_SERVICE) as SensorManager?)?.unregisterListener(phoneCompass)
         // The compass is not being read from here, so the recording stops
         // being given a bearing — the place keeps arriving, from the service.

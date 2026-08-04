@@ -183,6 +183,34 @@ class DataService : Service(), DataDecoder.Listener {
      */
     private var phoneFix: Location? = null
 
+    /**
+     * Who is listening, and why.
+     *
+     * The recording wants the phone's position for as long as a link is up,
+     * screen or no screen. The screen wants it for as long as it is drawing,
+     * link or no link — a map with nothing flying still shows where you are.
+     * Either is reason enough to listen and neither alone is reason to stop.
+     */
+    private var wantedByLink = false
+    private var wantedByScreen = false
+    private var listening = false
+
+    /** The screen, while it is drawing. Null when it goes away. */
+    private var phoneFixListener: ((Location) -> Unit)? = null
+
+    fun watchPhone(listener: ((Location) -> Unit)?) {
+        phoneFixListener = listener
+        wantedByScreen = listener != null
+        updatePhoneListening()
+        // whatever is known already, so a screen coming back does not wait for
+        // the next fix to draw an arrow
+        if (listener != null) phoneFix?.let { listener(it) }
+    }
+
+    private fun updatePhoneListening() {
+        if (wantedByLink || wantedByScreen) listenForPhone() else stopListeningForPhone()
+    }
+
     private val phoneLocationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
             if (!worthBelieving(location)) return
@@ -190,14 +218,18 @@ class DataService : Service(), DataDecoder.Listener {
             if (!preferenceManager.isMyPositionLoggingEnabled()) {
                 // Turned off while a flight is being recorded: the rows that
                 // follow say nothing, rather than repeating the last place they
-                // were told about for the rest of the flight.
+                // were told about for the rest of the flight. The screen is
+                // still told — the setting is about what is written down, not
+                // about what is drawn.
                 logListener?.setMyPosition(Double.NaN, Double.NaN, Float.NaN)
+                phoneFixListener?.invoke(location)
                 return
             }
             logListener?.setMyPosition(
                 location.latitude, location.longitude,
                 if (location.hasAccuracy()) location.accuracy else Float.NaN
             )
+            phoneFixListener?.invoke(location)
         }
 
         override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
@@ -222,11 +254,13 @@ class DataService : Service(), DataDecoder.Listener {
     }
 
     private fun listenForPhone() {
+        if (listening) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
             != PackageManager.PERMISSION_GRANTED
         ) {
             return
         }
+        listening = true
         val lm = getSystemService(LOCATION_SERVICE) as LocationManager
         for (provider in arrayOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
             try {
@@ -238,6 +272,8 @@ class DataService : Service(), DataDecoder.Listener {
     }
 
     private fun stopListeningForPhone() {
+        if (!listening) return
+        listening = false
         phoneFix = null
         try {
             (getSystemService(LOCATION_SERVICE) as LocationManager)
@@ -359,6 +395,9 @@ class DataService : Service(), DataDecoder.Listener {
 
     override fun onDestroy() {
         super.onDestroy()
+        wantedByLink = false
+        wantedByScreen = false
+        phoneFixListener = null
         stopListeningForPhone()
         dataPoller?.disconnect()
         dataPoller = null
@@ -376,9 +415,10 @@ class DataService : Service(), DataDecoder.Listener {
     }
 
     override fun onConnected() {
-        // From here the phone's own position is worth writing down, and this is
-        // what goes on hearing it while the screen is away.
-        listenForPhone()
+        // From here the phone's own position is worth writing down, and this
+        // goes on hearing it while the screen is away.
+        wantedByLink = true
+        updatePhoneListening()
         dataListener?.onConnected()
         logListener?.onConnected()
 
@@ -490,7 +530,8 @@ class DataService : Service(), DataDecoder.Listener {
     }
 
     override fun onDisconnected() {
-        stopListeningForPhone()
+        wantedByLink = false
+        updatePhoneListening()
         dataListener?.onDisconnected()
         logListener?.onDisconnected()
         dataPoller = null
@@ -604,7 +645,8 @@ class DataService : Service(), DataDecoder.Listener {
     }
 
     fun disconnect() {
-        stopListeningForPhone()
+        wantedByLink = false
+        updatePhoneListening()
         dataPoller?.disconnect()
         dataPoller = null
         satellites = 0
