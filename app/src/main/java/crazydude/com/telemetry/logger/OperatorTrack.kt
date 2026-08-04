@@ -32,6 +32,10 @@ class OperatorTrack private constructor(
     val startedAt: Long get() = times[0]
     val endedAt: Long get() = times[times.size - 1]
 
+    /** How long it ran, or nothing where there are no rows to say. */
+    val lengthMillis: Long
+        get() = if (times.size < 2) 0L else times[times.size - 1] - times[0]
+
     class Where(
         val lat: Double,
         val lon: Double,

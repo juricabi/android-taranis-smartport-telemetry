@@ -7,6 +7,32 @@ import crazydude.com.telemetry.maps.osm.OsmMapWrapper
 class PreferenceManager(context: Context) {
 
     private val sharedPreferences = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+
+    init {
+        // How long a replay takes was a list of choices, kept as text. It is a
+        // slider of seconds now, and a slider keeps a number — so an install
+        // that has the old text would throw the moment the settings screen
+        // read it, somewhere inside the framework where nothing here could
+        // catch it. Moved across once, before anything asks.
+        if (sharedPreferences.contains("playback_duration")) {
+            val was = try {
+                sharedPreferences.getString("playback_duration", null)?.toIntOrNull()
+            } catch (e: ClassCastException) {
+                null
+            }
+            val edit = sharedPreferences.edit().remove("playback_duration")
+            if (was != null && !sharedPreferences.contains("playback_seconds")) {
+                // nought was the sentinel while real time was one of the
+                // choices, and is now a switch of its own
+                if (was <= 0) {
+                    edit.putBoolean("playback_real_time", true)
+                } else {
+                    edit.putInt("playback_seconds", Math.max(15, Math.min(300, was)))
+                }
+            }
+            edit.apply()
+        }
+    }
     private val defaultHeadlineColor = context.resources.getColor(R.color.colorHeadline)
     private val defaultPlaneColor = context.resources.getColor(R.color.colorPlane)
     private val defaultRouteColor = context.resources.getColor(R.color.colorRoute)
@@ -248,11 +274,20 @@ class PreferenceManager(context: Context) {
     }
 
     fun getPlaybackDuration() : Int {
-        return sharedPreferences.getString("playback_duration", "30")?.toInt() ?: 30
+        return sharedPreferences.getInt("playback_seconds", 30)
     }
 
-    fun setPlaybackDuration( v : Int)  {
-        sharedPreferences.edit().putString("playback_duration", v.toString()).apply();
+    fun setPlaybackDuration(seconds: Int) {
+        sharedPreferences.edit().putInt("playback_seconds", seconds).apply()
+    }
+
+    /** Played at the speed it was flown, whatever the duration says. */
+    fun isPlaybackRealTime() : Boolean {
+        return sharedPreferences.getBoolean("playback_real_time", false)
+    }
+
+    fun setPlaybackRealTime(on: Boolean) {
+        sharedPreferences.edit().putBoolean("playback_real_time", on).apply()
     }
 
     fun getLastSelectedDataPooler() : String {

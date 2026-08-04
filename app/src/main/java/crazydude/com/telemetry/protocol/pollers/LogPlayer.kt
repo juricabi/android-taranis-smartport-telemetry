@@ -429,7 +429,13 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
 
             val ticks = Math.max(1, totalPlaybackDurationMS / TICK_MS.toInt())
             val most = (PACKETS_PER_SECOND_MAX * TICK_MS / 1000L).toInt()
-            val step = Math.max(1, Math.min(most, cachedData.size / ticks))
+            // Fractional, and carried from frame to frame. A recording played
+            // at the speed it happened moves on by a fraction of a packet per
+            // frame, and rounding that up to one is the difference between
+            // twenty minutes and three; the same rounding made every other
+            // length approximate, so a short log ran out before its time.
+            val perTick = Math.min(most.toDouble(), cachedData.size.toDouble() / ticks)
+            var carried = 0.0
 
             // schedule, not scheduleAtFixedRate: at a fixed rate a timer makes
             // up for runs it missed, and the first seconds of a replay are
@@ -445,6 +451,11 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
                     if ( currentPosition == cachedData.size ) {
                         stop();
                     } else {
+                        carried += perTick
+                        val step = carried.toInt()
+                        // a frame with no packet of the recording in it
+                        if (step < 1) return
+                        carried -= step
                         var nextPosition = Math.min(currentPosition + step, cachedData.size)
                         dataReadyListener?.onPlaybackPositionChange( prevPosition, nextPosition );
                     }

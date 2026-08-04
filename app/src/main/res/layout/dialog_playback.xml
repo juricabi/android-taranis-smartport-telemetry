@@ -1,0 +1,210 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Everything playback is asked for, in one place: how fast it runs, whether
+     this phone is drawn beside where it stood at the time, and the three things
+     that can be made out of the log. One tap, not a list that opens more lists —
+     and each control says what it will do, since "45 s" means nothing without
+     knowing the flight was eighteen minutes. -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingTop="20dp"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingLeft="24dp"
+            android:paddingRight="24dp"
+            android:paddingBottom="10dp"
+            android:text="Playback controls"
+            android:textAppearance="?android:attr/textAppearanceListItem"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textStyle="bold"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingLeft="24dp"
+            android:paddingRight="24dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:paddingRight="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Show where I am now"
+                    android:textColor="?android:attr/textColorPrimary"
+                    android:textSize="16sp"/>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="This phone, beside where it stood at the time"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="13sp"/>
+            </LinearLayout>
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/playback_live_arrow"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"/>
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="16dp"
+            android:background="?android:attr/listDivider"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingLeft="24dp"
+            android:paddingRight="24dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:paddingRight="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Real time"
+                    android:textColor="?android:attr/textColorPrimary"
+                    android:textSize="16sp"/>
+
+                <TextView
+                    android:id="@+id/playback_real_time_note"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="13sp"/>
+            </LinearLayout>
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/playback_real_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/playback_duration_row"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="18dp"
+            android:paddingLeft="24dp"
+            android:paddingRight="24dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Duration"
+                    android:textColor="?android:attr/textColorPrimary"
+                    android:textSize="16sp"/>
+
+                <TextView
+                    android:id="@+id/playback_seconds_value"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="?android:attr/textColorPrimary"
+                    android:textSize="16sp"/>
+            </LinearLayout>
+
+            <SeekBar
+                android:id="@+id/playback_seconds"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"/>
+
+            <TextView
+                android:id="@+id/playback_note"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="13sp"/>
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="16dp"
+            android:background="?android:attr/listDivider"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingLeft="24dp"
+            android:paddingRight="24dp"
+            android:paddingBottom="10dp"
+            android:text="Playback actions"
+            android:textAppearance="?android:attr/textAppearanceListItem"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textStyle="bold"/>
+
+        <TextView
+            android:id="@+id/playback_profile"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="52dp"
+            android:gravity="center_vertical"
+            android:paddingLeft="24dp"
+            android:paddingRight="24dp"
+            android:background="?android:attr/selectableItemBackground"
+            android:text="Altitude profile"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="16sp"/>
+
+        <TextView
+            android:id="@+id/playback_gpx"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="52dp"
+            android:gravity="center_vertical"
+            android:paddingLeft="24dp"
+            android:paddingRight="24dp"
+            android:background="?android:attr/selectableItemBackground"
+            android:text="Export GPX file…"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="16sp"/>
+
+        <TextView
+            android:id="@+id/playback_kml"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="52dp"
+            android:gravity="center_vertical"
+            android:paddingLeft="24dp"
+            android:paddingRight="24dp"
+            android:background="?android:attr/selectableItemBackground"
+            android:text="Export KML file…"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="16sp"/>
+    </LinearLayout>
+</ScrollView>

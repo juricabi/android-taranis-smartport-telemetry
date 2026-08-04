@@ -37,6 +37,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.widget.SwitchCompat
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -105,6 +106,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         private val GHST_RF_PROFILES = arrayOf(
             "Auto", "Norm", "Race", "Pure", "Long", "Unused", "Race2", "Pure2"
         )
+        /** What a replay may be asked to last, in seconds, and by what step. */
+        private const val SECONDS_LEAST = 15
+        private const val SECONDS_MOST = 300
+        private const val SECONDS_STEP = 5
         private const val REQUEST_ENABLE_BT: Int = 0
         private const val REQUEST_LOCATION_PERMISSION: Int = 1
         private const val REQUEST_WRITE_PERMISSION: Int = 2
@@ -744,48 +749,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // copying the model location all moved to where they belong: the first
         // two to the log picker, which is the only place that lists logs, and
         // the last to the Find my quad button.
-        menuButton.setOnClickListener {
-            val option4 = "Export GPX file...";
-            val option5 = "Export KML file...";
-            val option6 = "Set playback duration..."
-            val option7 = "Altitude profile...";
-            val option8 = if (preferenceManager.isLiveShownInReplay()) {
-                "Hide where I am now"
-            } else {
-                "Show where I am now"
-            }
-
-            val options = arrayOf(option7, option4, option5, option6, option8)
-
-            this.showDialog( AlertDialog.Builder(this)
-            .setTitle("Select an action")
-            .setItems(options) { dialog: DialogInterface, which: Int ->
-                val selectedOption = options[which]
-                when (selectedOption) {
-                    option4 -> {
-                        showExportGPXDialog()
-                    }
-                    option5 -> {
-                        showExportKMLDialog1()
-                    }
-                    option6 -> {
-                        showSetPlaybackDurationDialog()
-                    }
-                    option7 -> {
-                        showAltitudeProfile()
-                    }
-                    option8 -> {
-                        preferenceManager.setLiveShownInReplay(
-                            !preferenceManager.isLiveShownInReplay()
-                        )
-                        showMyLocation()
-                        if (!showLiveArrow()) terrain3D?.hideMyLocation()
-                        tellViewsWhereIAm()
-                    }
-                }
-                dialog.dismiss()
-            }.create())
-        }
+        menuButton.setOnClickListener { showPlaybackActions() }
 
         playButton.setOnClickListener {
             // asked for by hand: nothing is owed to it afterwards
@@ -1024,6 +988,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 operatorTrack = track
                 showTime()
                 showOperator()
+                // A replay set to run at the speed it happened, and started
+                // before this arrived, was running to the fallback length. Now
+                // that the recording's own clock is here, it runs to that.
+                if (preferenceManager.isPlaybackRealTime() &&
+                    logPlayer?.isPlaying() == true) {
+                    logPlayer?.stop()
+                    logPlayer?.startPlayback()
+                }
             }
         })
         worker.name = "operator-track"
@@ -1094,7 +1066,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // Where this phone is now. Over a replay that is worth seeing
             // beside where it stood at the time — it says how far away the
             // flight was, and where you are standing to watch it — so it is a
-            // toggle in the replay's own menu rather than simply off.
+            // setting rather than simply off.
             map?.isMyLocationEnabled = showLiveArrow()
         } else {
             ActivityCompat.requestPermissions(
@@ -1489,7 +1461,15 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
                 override fun getTotalPlaybackDurationSec() : Int
                 {
-                    return preferenceManager.getPlaybackDuration()
+                    val asked = preferenceManager.getPlaybackDuration()
+                    if (!preferenceManager.isPlaybackRealTime()) return asked
+                    // Real time: however long the flight itself took. Only the
+                    // CSV recorded beside it knows that — the recording is of
+                    // what came off the link, and nothing on a link carries the
+                    // date — so a log with no CSV beside it falls back to the
+                    // length a replay had before this was offered.
+                    val ran = operatorTrack?.lengthMillis ?: 0L
+                    return if (ran > 0L) (ran / 1000L).toInt() else asked
                 }
 
                 override fun getPlaybackAutostart() : Boolean
@@ -1868,6 +1848,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         clock_text.postDelayed(clockTicker, 1000)
         initHeadingLine()
         updateHomeLine()
+        // whether this phone is drawn over a replay is a setting, and this is
+        // the way back from it
+        showMyLocation()
+        if (!showLiveArrow()) terrain3D?.hideMyLocation()
+        tellViewsWhereIAm()
         dataService?.watchPhone { onPhoneFix(it) }
         val sensors = getSystemService(SENSOR_SERVICE) as SensorManager?
         sensors?.let {
@@ -4442,6 +4427,151 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         this.phoneBattery.text = "$lastPhoneBattery%"
     }
 
+    /**
+     * Everything a replay is asked for, in one dialog.
+     *
+     * How fast it runs and whether this phone is drawn beside where it stood
+     * used to be lines in a list of actions, each opening another list, and the
+     * duration was five fixed choices in the settings screen — three taps and a
+     * different screen away from the replay they change.
+     *
+     * They are answered by looking at the replay, so they are shown on top of
+     * it, and each says what it will do: a duration of forty-five seconds means
+     * nothing without knowing that the flight took eighteen minutes.
+     */
+    private fun showPlaybackActions() {
+        val view = layoutInflater.inflate(R.layout.dialog_playback, null)
+        val liveArrow = view.findViewById<SwitchCompat>(R.id.playback_live_arrow)
+        val realTime = view.findViewById<SwitchCompat>(R.id.playback_real_time)
+        val realTimeNote = view.findViewById<TextView>(R.id.playback_real_time_note)
+        val durationRow = view.findViewById<View>(R.id.playback_duration_row)
+        val bar = view.findViewById<SeekBar>(R.id.playback_seconds)
+        val secondsShown = view.findViewById<TextView>(R.id.playback_seconds_value)
+        val note = view.findViewById<TextView>(R.id.playback_note)
+
+        // How long the flight ran, where the CSV beside the log says so. Real
+        // time is not offered without it, and there is nothing to measure a
+        // duration against either.
+        val flightMs = operatorTrack?.lengthMillis ?: 0L
+
+        fun seconds() = SECONDS_LEAST + bar.progress * SECONDS_STEP
+
+        fun say() {
+            val secs = seconds()
+            secondsShown.text = "$secs s"
+            note.text = if (flightMs > 0L) {
+                "${spanOf(flightMs)} of flight in $secs s — ${timesFaster(flightMs, secs)}"
+            } else {
+                "How long this log takes to play"
+            }
+        }
+
+        fun fadeDuration() {
+            val on = realTime.isChecked
+            durationRow.alpha = if (on) 0.4f else 1f
+            bar.isEnabled = !on
+        }
+
+        liveArrow.isChecked = preferenceManager.isLiveShownInReplay()
+        liveArrow.setOnCheckedChangeListener { _, on ->
+            preferenceManager.setLiveShownInReplay(on)
+            showMyLocation()
+            if (!showLiveArrow()) terrain3D?.hideMyLocation()
+            tellViewsWhereIAm()
+        }
+
+        realTimeNote.text = if (flightMs > 0L) {
+            "This flight ran for ${spanOf(flightMs)}"
+        } else {
+            "No clock recorded beside this log"
+        }
+        realTime.isEnabled = flightMs > 0L
+        realTime.isChecked = preferenceManager.isPlaybackRealTime() && flightMs > 0L
+
+        bar.max = (SECONDS_MOST - SECONDS_LEAST) / SECONDS_STEP
+        bar.progress = Math.max(0, Math.min(bar.max,
+            (preferenceManager.getPlaybackDuration() - SECONDS_LEAST) / SECONDS_STEP))
+        bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            // as it moves, not once it is let go: a number that changes only
+            // afterwards is a number chosen blind
+            override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
+                say()
+            }
+            override fun onStartTrackingTouch(sb: SeekBar) {}
+            override fun onStopTrackingTouch(sb: SeekBar) {
+                preferenceManager.setPlaybackDuration(seconds())
+                restartPlayback()
+            }
+        })
+        realTime.setOnCheckedChangeListener { _, on ->
+            preferenceManager.setPlaybackRealTime(on)
+            fadeDuration()
+            restartPlayback()
+        }
+
+        say()
+        fadeDuration()
+
+        // No title of its own: the two headings inside say what this is, and a
+        // third word above them said it again.
+        val dialog = AlertDialog.Builder(this)
+            .setView(view)
+            .setPositiveButton("Done") { it: DialogInterface, _: Int -> it.dismiss() }
+            .create()
+        // The slider is kept when it is let go, which is every way it is
+        // moved by hand. A value changed some other way — a key, a tap that
+        // never became a drag — is kept here instead of being lost.
+        dialog.setOnDismissListener {
+            if (preferenceManager.getPlaybackDuration() != seconds()) {
+                preferenceManager.setPlaybackDuration(seconds())
+                restartPlayback()
+            }
+        }
+        view.findViewById<View>(R.id.playback_profile).setOnClickListener {
+            dialog.dismiss()
+            showAltitudeProfile()
+        }
+        view.findViewById<View>(R.id.playback_gpx).setOnClickListener {
+            dialog.dismiss()
+            showExportGPXDialog()
+        }
+        view.findViewById<View>(R.id.playback_kml).setOnClickListener {
+            dialog.dismiss()
+            showExportKMLDialog1()
+        }
+        showDialog(dialog)
+    }
+
+    /** A stretch of time as a clock reads it. */
+    private fun spanOf(millis: Long): String {
+        val all = millis / 1000L
+        val minutes = all / 60L
+        return if (minutes >= 60L) {
+            String.format("%d:%02d:%02d", minutes / 60L, minutes % 60L, all % 60L)
+        } else {
+            String.format("%d:%02d", minutes, all % 60L)
+        }
+    }
+
+    /** What a duration does to the flight it is playing. */
+    private fun timesFaster(flightMs: Long, seconds: Int): String {
+        val times = (flightMs / 1000.0) / seconds
+        return when {
+            times >= 10.0 -> "${Math.round(times)}× faster"
+            times > 1.05 -> String.format("%.1f× faster", times)
+            times < 0.95 -> String.format("%.1f× slower", 1.0 / times)
+            else -> "about the speed it was flown"
+        }
+    }
+
+    /** A change of speed reaches a replay that is already running. */
+    private fun restartPlayback() {
+        if (logPlayer?.isPlaying() == true) {
+            logPlayer?.stop()
+            logPlayer?.startPlayback()
+        }
+    }
+
     private fun showDialog(dialog: AlertDialog) {
         dialog.getWindow().setFlags(
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
@@ -5002,24 +5132,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }.create())
     }
 
-
-    fun showSetPlaybackDurationDialog() {
-        val options = resources.getStringArray(R.array.playback_durations)
-        val options_values = resources.getStringArray(R.array.playback_durations_values)
-
-        this.showDialog( AlertDialog.Builder(this)
-        .setTitle("Set playback duration:")
-        .setItems(options) { dialog: DialogInterface, which: Int ->
-            val v = options_values[which].toInt();
-            preferenceManager.setPlaybackDuration(v)
-            if ( this.logPlayer?.isPlaying() ?: false ) {
-                this.logPlayer?.stop();
-                this.logPlayer?.startPlayback();
-            }
-            Toast.makeText(this, "Duration changed", Toast.LENGTH_SHORT).show()
-            dialog.dismiss()
-        }.create())
-    }
 
     fun requestWritePermission(seq: RequestWritePermissionSequenceType): Boolean {
         if (ContextCompat.checkSelfPermission(

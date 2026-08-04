@@ -228,16 +228,6 @@
                 android:defaultValue="true"
                 android:key="playback_autostart"/>
 
-        <ListPreference
-            app:iconSpaceReserved="false"
-                android:title="Playback duration"
-                android:key="playback_duration"
-                android:summary="Total duration of log playback\n%s"
-                android:entries="@array/playback_durations"
-                android:entryValues="@array/playback_durations_values"
-                android:defaultValue="30"
-                />
-
     </PreferenceCategory>
 
 
