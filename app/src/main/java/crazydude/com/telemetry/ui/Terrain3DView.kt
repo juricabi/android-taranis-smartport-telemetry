@@ -247,8 +247,12 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
      */
     fun onFlightReset() {
         seenVersion = -1
+        appendedThrough = 0
         renderer.setTrack(FloatArray(0), FloatArray(0))
     }
+
+    /** How much of the flight has been handed to the renderer point by point. */
+    private var appendedThrough = 0
 
     /**
      * Told when a fix lands, so the model moves with the one on the map rather
@@ -268,12 +272,20 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         // The flight grows with the model rather than waiting for the tick, so
         // the line, its shadow and the curtain between them always end where
         // the model is.
-        LiveFlightPath.latest()?.let {
+        //
+        // Every point that has arrived, not just the newest: a replay hands
+        // over a batch at a time, and taking only the last of each drew one
+        // long straight piece of flight — and one long piece of curtain under
+        // it — across the whole batch, until the tick came round and replaced
+        // it with the real shape.
+        for (point in LiveFlightPath.since(appendedThrough)) {
             renderer.appendFlightPoint(
-                scene.east(it.lon),
-                scene.aboveSeaLevel(it.altitudeMsl) - scene.originAltitude,
-                -scene.north(it.lat),
-                (scene.groundAt(it.lat, it.lon) ?: scene.originAltitude) - scene.originAltitude)
+                scene.east(point.lon),
+                scene.aboveSeaLevel(point.altitudeMsl) - scene.originAltitude,
+                -scene.north(point.lat),
+                (scene.groundAt(point.lat, point.lon) ?: scene.originAltitude) -
+                    scene.originAltitude)
+            appendedThrough++
         }
     }
 
@@ -311,6 +323,8 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         val frameMoved = scene.resolveAltitudeIfNeeded(points)
         scene.buildTrack(points)
         renderer.setTrack(scene.track, scene.shadow)
+        // rebuilt from the whole flight, so everything is accounted for again
+        appendedThrough = points.size
 
         val last = points[points.size - 1]
         val before = points[Math.max(0, points.size - 4)]

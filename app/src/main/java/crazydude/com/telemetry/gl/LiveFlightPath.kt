@@ -31,6 +31,12 @@ object LiveFlightPath {
     @Synchronized
     fun size(): Int = points.size
 
+    /** Everything added after [index], for a watcher that has kept up to there. */
+    @Synchronized
+    fun since(index: Int): List<TerrainScene.TrackPoint> =
+        if (index >= points.size) emptyList()
+        else ArrayList(points.subList(Math.max(0, index), points.size))
+
     @Synchronized
     fun latest(): TerrainScene.TrackPoint? = if (points.isEmpty()) null else points[points.size - 1]
 
