@@ -302,6 +302,22 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         // tells a view that opened with nothing that a flight is under way.
         flightShown = true
         if (!started || !terrainReady) return
+
+        // Nothing to grow from: the flight has been thrown away and is on its
+        // way back, which is what a replay jumping somewhere else looks like.
+        // Growing an empty flight does nothing — the renderer has no last point
+        // to carry a curtain and a shadow on from — so the whole of it is built
+        // here instead of on the tick. Left to the tick there was up to half a
+        // second with the model in its new place and no flight drawn behind it,
+        // and jumping between two paused positions made that the whole picture
+        // until something else happened to move.
+        if (appendedThrough == 0) {
+            pickUpNewPoints()
+            // a jump, not a flight: the camera belongs where the model has
+            // landed rather than travelling there
+            renderer.snapToTarget()
+            return
+        }
         // The flight grows with the model rather than waiting for the tick, so
         // the line, its shadow and the curtain between them always end where
         // the model is.
