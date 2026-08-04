@@ -4033,6 +4033,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // one of those answers, and was being switched on while the replay was
         // still officially open, which left it off
         replayFileString = null
+        // A replay held back for ground it never got is owed nothing once it
+        // has been closed. Left set, the hold outlived the replay that asked
+        // for it: the next log to be opened was started — or, having played to
+        // its end, started again — by ground arriving for something else.
+        replayWaitingForGround = false
         forgetOperator()
         // The whole of it: a recording that has been closed leaves nothing
         // behind, neither the model nor the flight it was playing back, and in
