@@ -15,6 +15,32 @@ import kotlin.collections.HashMap
 
 class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listener {
 
+    companion object {
+        /**
+         * How often a running replay moves on: once per frame the screen draws.
+         *
+         * Everything that follows the flight — the marker, the model, the
+         * camera — glides toward wherever the replay has got to by a fixed
+         * fraction of the way there, on every frame. That is smooth when it is
+         * given somewhere new to go on every frame, and a visible pulse when it
+         * is given somewhere new twenty times a second: a lurch on the frame
+         * after each step, then a coast until the next.
+         *
+         * It cost nothing to move here. A step of the replay draws once,
+         * however few packets it carries, so three small steps and one large
+         * one are the same work — and the same number of packets a second,
+         * because the step is measured from this.
+         */
+        private const val TICK_MS = 16L
+
+        /**
+         * The fastest a replay may be wound on, in packets a second — a short
+         * playback time asked of a very long log. Kept where it was when a step
+         * was a twentieth of a second and at most a thousand packets.
+         */
+        private const val PACKETS_PER_SECOND_MAX = 20000
+    }
+
     private var cachedData = ArrayList<Protocol.Companion.TelemetryData>()
 
     /** How far into the recording each packet of [cachedData] finished. */
@@ -401,7 +427,9 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
 
             totalPlaybackDurationMS = dataReadyListener!!.getTotalPlaybackDurationSec() * 1000
 
-            val step = Math.max(1, Math.min( 1000, cachedData.size / (totalPlaybackDurationMS / 50)))
+            val ticks = Math.max(1, totalPlaybackDurationMS / TICK_MS.toInt())
+            val most = (PACKETS_PER_SECOND_MAX * TICK_MS / 1000L).toInt()
+            val step = Math.max(1, Math.min(most, cachedData.size / ticks))
 
             this.mTimer?.scheduleAtFixedRate(object : TimerTask() {
                 override fun run() {
@@ -414,7 +442,7 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
                         dataReadyListener?.onPlaybackPositionChange( prevPosition, nextPosition );
                     }
                 }
-            }, 100, 50)
+            }, 100, TICK_MS)
             this.dataReadyListener?.onPlaybackStateChange(true)
         }
 
