@@ -1002,14 +1002,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     private fun startReplay(file: File?) {
         GhstProtocol.forgetLaunchAltitude()
-        startFlightIn3D()
         detectedCells = 0
         highestPackVoltage = 0f
         cellsAsked = false
         cellsAnswered = false
-        crazydude.com.telemetry.gl.LiveFlightPath.clear()
-        lastGpsAltitudeMsl = Float.NaN
-        lastAnyAltitude = Float.NaN
+        forgetFlight()
+        startFlightIn3D()
         file?.also {
             val progressDialog = ProgressDialog(this)
             progressDialog.setCancelable(false)
@@ -2259,16 +2257,57 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     /** Called when a link is started by hand: none of the previous one carries over. */
+    /**
+     * A flight, and everything drawn from it, forgotten together.
+     *
+     * For wherever one ends and another begins: a link coming up, a replay
+     * starting, a replay jumping back to somewhere earlier, the decoder
+     * restarting at the end of one. These had drifted apart — each cleared a
+     * different handful of things, and whatever it missed was left drawn over
+     * the flight that followed. They are one thing to forget, so they are
+     * forgotten in one place.
+     */
+    private fun forgetFlight() {
+        crazydude.com.telemetry.gl.LiveFlightPath.clear()
+        // the copy kept for building a map from, or the old flight comes back
+        // the next time one is built
+        dataService?.points?.clear()
+        polyLine?.clear()
+        terrain3D?.onFlightReset()
+        lastTraveledDistance = 0.0
+        lastGpsAltitudeMsl = Float.NaN
+        lastAnyAltitude = Float.NaN
+        lastRememberedHeight = Float.NaN
+        forgetModel()
+    }
+
+    /**
+     * The model and the lines that start at it.
+     *
+     * Separate from the flight, because leaving a replay or losing a link ends
+     * the model without ending the flight — what was flown is worth looking at
+     * afterwards.
+     */
+    private fun forgetModel() {
+        lastGPS = Position(0.0, 0.0)
+        hasGPSFix = false
+        shownLat = Double.NaN
+        shownLon = Double.NaN
+        shownMarkerHeading = Float.NaN
+        headingPolyline?.clear()
+        homeLine?.clear()
+    }
+
     private fun clearCrsfSystem() {
         GhstProtocol.forgetLaunchAltitude()
-        startFlightIn3D()
         detectedCells = 0
         highestPackVoltage = 0f
         cellsAsked = false
         cellsAnswered = false
-        crazydude.com.telemetry.gl.LiveFlightPath.clear()
-        lastGpsAltitudeMsl = Float.NaN
-        lastAnyAltitude = Float.NaN
+        // forgotten before the ground is started again, or it is started on the
+        // flight that has just been thrown away
+        forgetFlight()
+        startFlightIn3D()
         crsfSystem = null
         // else the next link would redraw the old rate under its own table
         lastRfMode = null
@@ -3467,14 +3506,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         this.tlmRate.setAlpha(0.5f);
         lastGPS = Position(0.0, 0.0);
         hasGPSFix = false;
+        // The model and its lines, but not the flight: what was flown is
+        // worth looking at after a landing, and after a replay is closed.
+        forgetModel()
         marker?.remove()
         marker = null
         headingPolyline?.remove()
         headingPolyline = null
-        // The line home is drawn to the model, so it goes with it. The flight
-        // itself stays: it is worth looking at after a landing, and after a
-        // replay has been closed.
-        homeLine?.clear()
     }
 
     private fun switchToIdleState() {
@@ -3618,26 +3656,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     override fun onDecoderRestart() {
-        runOnUiThread {
-            this.lastGPS = Position(0.0, 0.0);
-            this.hasGPSFix = false;
-            this.lastTraveledDistance = 0.0
-            this.polyLine?.clear()
-            // The 3D flight as well, which was left holding the old one: this
-            // is where a replay run to the end and started again comes through,
-            // and the map has been cleared here since long before there was a
-            // second view to keep in step with it.
-            crazydude.com.telemetry.gl.LiveFlightPath.clear()
-            terrain3D?.onFlightReset()
-            lastRememberedHeight = Float.NaN
-            // the lines drawn from the model go with it, rather than hanging
-            // about until the next fix redraws them
-            this.headingPolyline?.clear()
-            this.homeLine?.clear()
-            shownLat = Double.NaN
-            shownLon = Double.NaN
-            shownMarkerHeading = Float.NaN
-        }
+        // where a replay run to the end and started again comes through
+        runOnUiThread { forgetFlight() }
     }
 
     /**
@@ -3696,12 +3716,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         runOnUiThread {
             if (!addToEnd) {
                 // rewound: the path is about to be replayed, so drop what it held
-                crazydude.com.telemetry.gl.LiveFlightPath.clear()
-                terrain3D?.onFlightReset()
-                polyLine?.clear()
-                lastRememberedHeight = Float.NaN
-                this.lastTraveledDistance = 0.0;
-                lastGPS = Position(0.0,0.0)
+                forgetFlight()
             }
             if (hasGPSFix && list.isNotEmpty()) {
                 //add all points except last one
