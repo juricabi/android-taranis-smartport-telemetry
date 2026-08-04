@@ -717,6 +717,17 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         homeLine = map?.addPolyline(2f, preferenceManager.getHomeLineColor())
         drawFlightPlans()
         showMyLocation()
+        // A map is built looking at the whole world, and it is a fix arriving
+        // that puts the model on screen. Where the model already is — coming
+        // back from the 3D view, or a replay standing paused — there may be no
+        // fix for a while, and there was nothing to see until there was one.
+        if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) {
+            tryCreateMarker()
+            marker?.let { it.position = shownPosition() }
+            map?.moveCamera(shownPosition(), LOCATE_ZOOM)
+            updateHeading()
+            updateHomeLine()
+        }
     }
 
     private fun updateCompassHeading(orientation: Float) {
