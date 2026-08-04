@@ -818,6 +818,13 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     }
 
     /** The route line colour, so the flight looks the same in both views. */
+    /** The two position arrows, in the colours chosen in the settings. */
+    fun setArrowColours(live: Int, logged: Int) {
+        renderer.setArrowColours(live, logged)
+        placeMyArrow()
+        placeLoggedArrow()
+    }
+
     fun setTrackColor(argb: Int) {
         val c = colorOf(argb)
         renderer.trackColor = floatArrayOf(c[0], c[1], c[2], 1f)

@@ -596,6 +596,31 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     )
 
     /**
+     * The colours of the two arrows and the rings around them.
+     *
+     * Brighter than the same colour on the map, deliberately: satellite imagery
+     * is dark greens and browns, and a colour that reads on a flat map sinks
+     * into it.
+     */
+    fun setArrowColours(live: Int, logged: Int) {
+        paint(me, live)
+        paint(this.logged, logged)
+    }
+
+    private fun paint(spot: Spot, argb: Int) {
+        val r = ((argb shr 16) and 0xFF) / 255f
+        val g = ((argb shr 8) and 0xFF) / 255f
+        val b = (argb and 0xFF) / 255f
+        spot.base[0] = Math.min(1f, r * 1.15f + 0.06f)
+        spot.base[1] = Math.min(1f, g * 1.15f + 0.06f)
+        spot.base[2] = Math.min(1f, b * 1.15f + 0.06f)
+        spot.ink[0] = r
+        spot.ink[1] = g
+        spot.ink[2] = b
+        spot.ink[3] = 0.9f
+    }
+
+    /**
      * Where you are standing and which way you face.
      *
      * Position only: the size is worked out per frame from how far the camera

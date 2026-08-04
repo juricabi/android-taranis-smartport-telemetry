@@ -86,6 +86,28 @@
                 android:defaultValue="true"
                 android:key="show_clock"/>
 
+        <com.jaredrummler.android.colorpicker.ColorPreferenceCompat
+            app:iconSpaceReserved="false"
+                android:defaultValue="@color/colorPosArrow"
+                android:key="pos_arrow_color"
+                app:cpv_showAlphaSlider="false"
+                app:cpv_allowPresets="false"
+                app:cpv_allowCustom="true"
+                app:cpv_dialogType="custom"
+                android:summary="Colour of the arrow showing where this phone is"
+                android:title="My position colour"/>
+
+        <com.jaredrummler.android.colorpicker.ColorPreferenceCompat
+            app:iconSpaceReserved="false"
+                android:defaultValue="@color/colorPosArrowLogged"
+                android:key="pos_arrow_logged_color"
+                app:cpv_showAlphaSlider="false"
+                app:cpv_allowPresets="false"
+                app:cpv_allowCustom="true"
+                app:cpv_dialogType="custom"
+                android:summary="Colour of the arrow showing where you stood while a replayed flight was recorded"
+                android:title="Recorded position colour"/>
+
         <SwitchPreference
             app:iconSpaceReserved="false"
                 android:title="Show heading line"

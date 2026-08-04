@@ -11,6 +11,9 @@ class PreferenceManager(context: Context) {
     private val defaultPlaneColor = context.resources.getColor(R.color.colorPlane)
     private val defaultRouteColor = context.resources.getColor(R.color.colorRoute)
     private val defaultHomeLineColor = context.resources.getColor(R.color.colorHomeLine)
+    private val defaultPosArrowColor = context.resources.getColor(R.color.colorPosArrow)
+    private val defaultPosArrowLoggedColor =
+        context.resources.getColor(R.color.colorPosArrowLogged)
 
     companion object {
         val sensors = setOf(
@@ -65,6 +68,14 @@ class PreferenceManager(context: Context) {
     fun setLoggingEnabled(enabled: Boolean) {
         sharedPreferences.edit().putBoolean("logging_enabled", enabled)
             .apply()
+    }
+
+    fun getLiveArrowColor(): Int {
+        return sharedPreferences.getInt("pos_arrow_color", defaultPosArrowColor)
+    }
+
+    fun getLoggedArrowColor(): Int {
+        return sharedPreferences.getInt("pos_arrow_logged_color", defaultPosArrowLoggedColor)
     }
 
     fun isLiveShownInReplay(): Boolean {

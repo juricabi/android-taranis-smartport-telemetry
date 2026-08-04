@@ -893,6 +893,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // The buttons put it back to the middle.
             leanOutOfFollowing()
         }
+        osmMap.setArrowColours(
+            preferenceManager.getLiveArrowColor(), preferenceManager.getLoggedArrowColor()
+        )
         osmMap.setOnOrientationChangedListener { orientation ->
             updateCompassHeading(orientation)
         }
@@ -1837,6 +1840,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         updateScreenOrientation()
         // reapplies the colours and the heading line, which is how a change made
         // in the settings reaches the map; it draws the flight plans too
+        map?.setArrowColours(
+            preferenceManager.getLiveArrowColor(), preferenceManager.getLoggedArrowColor()
+        )
         showTime()
         clock_text.removeCallbacks(clockTicker)
         clock_text.postDelayed(clockTicker, 1000)
@@ -3182,6 +3188,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private fun applyTerrainSettings(view: Terrain3DView) {
         view.setModelShape(preferenceManager.getModelType())
+        view.setArrowColours(
+            preferenceManager.getLiveArrowColor(), preferenceManager.getLoggedArrowColor()
+        )
         view.setTrackColor(preferenceManager.getRouteColor())
         view.setModelColor(preferenceManager.getPlaneColor())
         view.setOverlaySettings(

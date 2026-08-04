@@ -17,6 +17,9 @@ interface MapWrapper {
      */
     fun showRecordedLocation(position: Position?, accuracy: Float, heading: Float) {}
 
+    /** The colours of the two position arrows: where the phone is, and where it was. */
+    fun setArrowColours(live: Int, logged: Int) {}
+
     /** Which way this phone is facing, read once by the screen. */
     fun setPhoneBearing(degrees: Float) {}
 

@@ -77,6 +77,10 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
             mapView.overlayManager.add(tilesOverlay)
         }
         mapView.overlayManager.add(DeadbandRotationGestureOverlay(mapView))
+        setArrowColours(
+            context.resources.getColor(R.color.colorPosArrow),
+            context.resources.getColor(R.color.colorPosArrowLogged)
+        )
         // The arrow, and nothing where there is no arrow to draw.
         //
         // The map draws one of two things: the arrow when it knows which way
@@ -84,24 +88,63 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
         // moment at the start before the compass has read anything, and a
         // second thing to look at for no gain — the ring already says where the
         // phone is and how well it is known.
-        myLocationNewOverlay.setDirectionArrow(
-            Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888),
-            bitmapFrom(R.drawable.ic_pos_arrow, 26)
-        )
         mapView.overlayManager.add(myLocationNewOverlay)
         // The same arrow in orange, for the place a recording says the phone
         // stood. Under the live one, so where the two land on top of each other
         // — a replay of a flight watched from where it is being watched now —
         // the one that is true of this moment is the one on top.
-        loggedLocationOverlay.setDirectionArrow(
-            Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888),
-            bitmapFrom(R.drawable.ic_pos_arrow_logged, 26)
-        )
         loggedLocationOverlay.disableMyLocation()
         mapView.overlayManager.add(mapView.overlayManager.size - 1, loggedLocationOverlay)
         val mapController: IMapController = mapView.controller
         mapController.setZoom(4.toDouble())
         callback()
+    }
+
+    /**
+     * The two arrows, in whatever colours have been chosen.
+     *
+     * Drawn here rather than tinted from a drawable: the arrow is a bright
+     * shape with a dark edge, and a tint takes the edge with it — which is what
+     * keeps it legible against satellite imagery.
+     */
+    override fun setArrowColours(live: Int, logged: Int) {
+        myLocationNewOverlay.setDirectionArrow(nothing(), arrowBitmap(live, 26))
+        loggedLocationOverlay.setDirectionArrow(nothing(), arrowBitmap(logged, 26))
+        mapView.invalidate()
+    }
+
+    /** What is drawn where the phone's bearing is not known: nothing. */
+    private fun nothing(): Bitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+
+    private fun arrowBitmap(color: Int, dp: Int): Bitmap {
+        val px = (context.resources.displayMetrics.density * dp).toInt()
+        val bitmap = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val u = px / 24f
+        val path = android.graphics.Path()
+        path.moveTo(12f * u, 3f * u)
+        path.lineTo(18.5f * u, 20f * u)
+        path.lineTo(12f * u, 16.2f * u)
+        path.lineTo(5.5f * u, 20f * u)
+        path.close()
+        val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        fill.style = android.graphics.Paint.Style.FILL
+        fill.color = color
+        canvas.drawPath(path, fill)
+        val edge = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        edge.style = android.graphics.Paint.Style.STROKE
+        edge.strokeWidth = 1.6f * u
+        edge.strokeJoin = android.graphics.Paint.Join.ROUND
+        // a dark edge of the arrow's own colour, so a pale arrow keeps a pale
+        // outline and a deep one a deep outline, and both read on any ground
+        edge.color = android.graphics.Color.argb(
+            204,
+            android.graphics.Color.red(color) / 5,
+            android.graphics.Color.green(color) / 5,
+            android.graphics.Color.blue(color) / 5
+        )
+        canvas.drawPath(path, edge)
+        return bitmap
     }
 
     private fun bitmapFrom(resId: Int, dp: Int): Bitmap {

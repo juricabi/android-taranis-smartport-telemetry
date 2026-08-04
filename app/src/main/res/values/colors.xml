@@ -12,4 +12,6 @@
     <color name="settingsTextPrimary">#212121</color>
     <color name="settingsTextSecondary">#616161</color>
     <color name="settingsAccent">#0288D1</color>
+    <color name="colorPosArrow">#FF29B6F6</color>
+    <color name="colorPosArrowLogged">#FFFF9E22</color>
 </resources>
