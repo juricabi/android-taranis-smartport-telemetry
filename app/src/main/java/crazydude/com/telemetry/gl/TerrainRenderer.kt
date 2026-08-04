@@ -703,23 +703,29 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val sy = ground.get(previous + 1)
         val sz = ground.get(previous + 2)
 
-        air.position(trackCount * 3)
-        air.put(x); air.put(y); air.put(z)
-        air.position(0)
-        ground.position(shadowCount * 3)
-        ground.put(x); ground.put(groundY); ground.put(z)
-        ground.position(0)
+        // Written where they belong, rather than by walking the buffer there.
+        //
+        // The drawing thread hands these very buffers to the driver, which
+        // reads each from wherever its position happens to be standing. A fix
+        // landing in that moment — between the drawing thread setting the
+        // position to nought and the driver reading it — left the position in
+        // the middle of the flight, and the flight, its shadow or the curtain
+        // was drawn from the middle of itself: a line to nowhere, for a frame,
+        // for no reason anybody could see. Writing at an index leaves the
+        // position alone, so the drawing thread is the only one that moves it.
+        var at = trackCount * 3
+        air.put(at, x); air.put(at + 1, y); air.put(at + 2, z)
+        ground.put(at, x); ground.put(at + 1, groundY); ground.put(at + 2, z)
 
         val curtain = dropBuffer
         if (curtain != null && (dropCount + 6) * 3 <= curtain.capacity()) {
-            curtain.position(dropCount * 3)
-            curtain.put(ax); curtain.put(ay); curtain.put(az)
-            curtain.put(sx); curtain.put(sy); curtain.put(sz)
-            curtain.put(x); curtain.put(y); curtain.put(z)
-            curtain.put(x); curtain.put(y); curtain.put(z)
-            curtain.put(sx); curtain.put(sy); curtain.put(sz)
-            curtain.put(x); curtain.put(groundY); curtain.put(z)
-            curtain.position(0)
+            at = dropCount * 3
+            curtain.put(at, ax); curtain.put(at + 1, ay); curtain.put(at + 2, az)
+            curtain.put(at + 3, sx); curtain.put(at + 4, sy); curtain.put(at + 5, sz)
+            curtain.put(at + 6, x); curtain.put(at + 7, y); curtain.put(at + 8, z)
+            curtain.put(at + 9, x); curtain.put(at + 10, y); curtain.put(at + 11, z)
+            curtain.put(at + 12, sx); curtain.put(at + 13, sy); curtain.put(at + 14, sz)
+            curtain.put(at + 15, x); curtain.put(at + 16, groundY); curtain.put(at + 17, z)
             dropCount += 6
         }
 
