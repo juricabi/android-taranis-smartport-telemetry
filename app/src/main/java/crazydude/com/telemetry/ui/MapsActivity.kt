@@ -3471,6 +3471,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         marker = null
         headingPolyline?.remove()
         headingPolyline = null
+        // The line home is drawn to the model, so it goes with it. The flight
+        // itself stays: it is worth looking at after a landing, and after a
+        // replay has been closed.
+        homeLine?.clear()
     }
 
     private fun switchToIdleState() {
