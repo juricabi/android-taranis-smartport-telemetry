@@ -1451,15 +1451,20 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                         }
                     })
 
-                    //rewind to first gps data to zoom on plane
+                    // Open on the flight: one seek to its first fix, which
+                    // places the model and takes the camera there, and then back
+                    // to the beginning.
+                    //
+                    // This used to walk there a packet at a time, asking after
+                    // each one whether there was a position, a marker and a
+                    // heading yet. On a log whose heading arrives late it kept
+                    // walking, and every step drew its packet: tens of thousands
+                    // of single positions pushed through the line, the model and
+                    // the camera before the rewind threw them away — the flight
+                    // flown once, at speed, before the replay had begun.
                     lastGPS = Position(0.0, 0.0);
                     gotHeading = false;
-                    for (i in 0..seekBar.max - 1) {
-                        logPlayer?.seek(i)
-                        if (lastGPS.lat != 0.0 && lastGPS.lon != 0.0 && marker != null && gotHeading) {
-                            break;
-                        }
-                    }
+                    logPlayer?.let { it.seek(it.firstFixPosition()) }
 
                     logPlayer?.seek(0);
                 }
@@ -2676,6 +2681,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private fun forgetFlight() {
         crazydude.com.telemetry.gl.LiveFlightPath.clear()
+        // and anything gathered towards drawing it, wherever the forgetting
+        // came from: a rewind, a new link, or leaving the replay altogether
+        gatheredPoints.clear()
+        gatheredHeights.clear()
+        gatheredHeight = Float.NaN
         // a new flight is a new question about what its heights mean
         crazydude.com.telemetry.gl.AltitudeFrame.forget()
         polyLine?.clear()
@@ -4240,54 +4250,89 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     override fun commit() {
         runOnUiThread {
+            drawGathered()
             commitRouteLinePoints()
         }
+    }
+
+    /**
+     * What a seek has handed over so far, waiting for the end of it.
+     *
+     * A seek walks the log and gives up its positions in pieces, one piece per
+     * reading that arrived between them — and heights arrive with almost every
+     * position, so the pieces are a point long. Drawing each one as it came
+     * meant the line, the model, the camera and the ground view were moved once
+     * per point: eighty-four thousand times to open a log, which is the flight
+     * being flown across the screen before it starts, and a smaller one of the
+     * same every time the bar is dragged backwards.
+     *
+     * So they are gathered here and drawn together when the seek finishes. The
+     * history comes out in one pass and the model moves once, to where the seek
+     * left it.
+     */
+    private val gatheredPoints = ArrayList<Position>()
+    private val gatheredHeights = ArrayList<Float>()
+
+    /** The height the last gathered piece ended at, to climb from. */
+    private var gatheredHeight = Float.NaN
+
+    private fun drawGathered() {
+        if (gatheredPoints.isEmpty()) return
+        val points = ArrayList(gatheredPoints)
+        val heights = ArrayList(gatheredHeights)
+        gatheredPoints.clear()
+        gatheredHeights.clear()
+        gatheredHeight = Float.NaN
+
+        if (points.size >= 2) {
+            //all but the last one, which goes through the single-fix path below
+            polyLine?.submitPoints(points.dropLast(1))
+            for (i in 0..points.size - 2) {
+                rememberForProfile(points[i].lat, points[i].lon, heights[i])
+                if (lastGPS.lat != 0.0 && lastGPS.lon != 0.0) {
+                    lastTraveledDistance += GeoUtils.computeDistanceBetween(
+                        lastGPS.lat, lastGPS.lon, points[i].lat, points[i].lon
+                    )
+                }
+                lastGPS = Position(points[i].lat, points[i].lon)
+            }
+        }
+
+        val last = points[points.size - 1]
+        onGPSData(last.lat, last.lon)
     }
 
     override fun onGPSData(list: List<Position>, addToEnd: Boolean) {
         this.sensorTimeoutManager.onGPSData(list, addToEnd);
         runOnUiThread {
             if (!addToEnd) {
-                // rewound: the path is about to be replayed, so drop what it held
+                // rewound: the path is about to be replayed, so drop what it
+                // held — and with it whatever was gathered towards drawing it
                 forgetFlight()
             }
+            // Only with a fix, and asked here rather than when the seek ends:
+            // whether there was one changes as the log is walked, and these are
+            // the positions from the part of it that had one.
             if (hasGPSFix && list.isNotEmpty()) {
-                //add all points except last one
-                //last one will be fired in onGPSData()
-                if ( list.size>=2) {
-                    polyLine?.submitPoints(list.dropLast(1))
-                    commitRouteLinePoints()
-                    // The 3D path too, or it is left with one point per batch
-                    // — and a replay hands over whole batches at a time, so it
-                    // came out as a few straight legs across the flight.
-                    //
-                    // A batch carries one height: the log's altitude is decoded
-                    // between batches, not within them. Giving every point of a
-                    // batch that one height turns a climb into a staircase, so
-                    // the height is walked across the batch from the last one
-                    // remembered to this one. That is what a climb between two
-                    // readings actually looked like.
-                    val to = heightNow()
-                    val from = if (lastRememberedHeight.isNaN()) to else lastRememberedHeight
-                    for (i in 0..list.size - 2) {
-                        val part = (i + 1).toFloat() / list.size
-                        // nothing to walk across where no height was ever read:
-                        // the fixes are kept as they came, without one
-                        val walked = if (to.isNaN()) Float.NaN else from + (to - from) * part
-                        rememberForProfile(list[i].lat, list[i].lon, walked)
-                    }
+                // A piece carries one height: the log's altitude is decoded
+                // between pieces, not within them. Giving every position that
+                // one height turns a climb into a staircase, so it is walked
+                // across the piece from the height the last one ended at. That
+                // is what a climb between two readings actually looked like.
+                val to = heightNow()
+                val from = when {
+                    !gatheredHeight.isNaN() -> gatheredHeight
+                    !lastRememberedHeight.isNaN() -> lastRememberedHeight
+                    else -> to
                 }
-
-                for (i in 0..list.size - 2) {
-                    if (this.lastGPS.lat != 0.0 && this.lastGPS.lon != 0.0) {
-                        this.lastTraveledDistance += GeoUtils.computeDistanceBetween(
-                            this.lastGPS.lat, this.lastGPS.lon, list[i].lat, list[i].lon
-                        )
-                    }
-                    lastGPS = Position(list[i].lat, list[i].lon)
+                for (i in list.indices) {
+                    val part = (i + 1).toFloat() / list.size
+                    // nothing to walk across where no height was ever read:
+                    // the fixes are kept as they came, without one
+                    gatheredPoints.add(list[i])
+                    gatheredHeights.add(if (to.isNaN()) Float.NaN else from + (to - from) * part)
                 }
-
-                onGPSData(list[list.size - 1].lat, list[list.size - 1].lon)
+                if (!to.isNaN()) gatheredHeight = to
             }
         }
     }

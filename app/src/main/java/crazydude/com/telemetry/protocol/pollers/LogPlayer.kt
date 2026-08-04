@@ -348,6 +348,41 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
         originalListener?.commit();
     }
 
+    /**
+     * The packet by which the flight first has somewhere to be drawn.
+     *
+     * Decoded, not replayed: nothing is handed to the screen on the way there.
+     * Walking to it with seek() was what made opening a log look like the
+     * flight being flown once, at speed, before it began.
+     */
+    fun firstFixPosition(): Int {
+        if (cachedData.isEmpty()) return 0
+        val wasFiring = fireGPSState
+        fireGPSState = false
+        forget()
+        var found = 0
+        for (i in 0 until cachedData.size) {
+            if (!protocol.dataDecoder.isGPSOrImageData(cachedData[i].telemetryType)) continue
+            protocol.dataDecoder.decodeData(cachedData[i])
+            if (hasGPSFix && decodedCoordinates.isNotEmpty()) {
+                found = i + 1
+                break
+            }
+        }
+        // left as it was found: the seek that follows starts from the beginning
+        forget()
+        currentPosition = 0
+        fireGPSState = wasFiring
+        return found
+    }
+
+    private fun forget() {
+        protocol.dataDecoder.restart()
+        hasGPSFix = false
+        satellites = 0
+        decodedCoordinates.clear()
+    }
+
     fun stop() {
         if ( mTimer != null ) {
             this.mTimer?.cancel();
