@@ -328,6 +328,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private val timeOfDayFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
     private val flightDayFormat = SimpleDateFormat("d MMM yyyy HH:mm:ss", Locale.getDefault())
 
+    /**
+     * The clock of the day, for when nothing else is moving it.
+     *
+     * A replay drives the clock from the log itself, every time the position
+     * changes; this is the live one, and the seconds are all it has to show.
+     */
     private val clockTicker = object : Runnable {
         override fun run() {
             showTime()
@@ -1195,6 +1201,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                             fromUser: Boolean
                         ) {
                             logPlayer?.seek(position)
+                            // The clock keeps step with the log rather than
+                            // with the wall: the replay moves twenty times a
+                            // second, and sampling it once a second showed a
+                            // time that lurched and lagged. Dragging the bar
+                            // lands on it here too, so it is right the instant
+                            // the flight is somewhere else.
+                            showTime()
                         }
 
                         override fun onStartTrackingTouch(p0: SeekBar?) {
