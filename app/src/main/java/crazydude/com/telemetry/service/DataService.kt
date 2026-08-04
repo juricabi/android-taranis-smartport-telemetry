@@ -122,8 +122,20 @@ class DataService : Service(), DataDecoder.Listener {
         }
     }
 
+    /**
+     * The name this flight's files share, without an extension.
+     *
+     * The recording, the CSV beside it and the note of when it started are all
+     * matched to each other by name — that is how renaming or deleting one
+     * takes the others with it — so the name is made once, here, and they are
+     * all given it. Made twice it came out a second or two apart, and they were
+     * no longer the same flight as far as anything else was concerned.
+     */
+    private var logName: String? = null
+
     private fun createLogFile(): FileOutputStream? {
         var fileOutputStream: FileOutputStream? = null
+        logName = null
         if (preferenceManager.isLoggingEnabled()
             && ContextCompat.checkSelfPermission(
                 this,
@@ -132,6 +144,7 @@ class DataService : Service(), DataDecoder.Listener {
         ) {
             val started = Date()
             val name = SimpleDateFormat("yyyy-MM-dd HH-mm-ss").format(started)
+            logName = name
             val dir = Environment.getExternalStoragePublicDirectory("TelemetryLogs")
             dir.mkdirs()
             val file = File(dir, "$name.tlm")
@@ -239,7 +252,7 @@ class DataService : Service(), DataDecoder.Listener {
                 Manifest.permission.WRITE_EXTERNAL_STORAGE
             ) == PackageManager.PERMISSION_GRANTED
         ) {
-            OtxCsvLogger()
+            OtxCsvLogger(logName)
         } else {
             null
         }

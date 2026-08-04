@@ -9,7 +9,14 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 
-class OtxCsvLogger : DataDecoder.Listener {
+/**
+ * [name] is the name this flight's files share, without an extension — the
+ * recording, this, and the note of when it started. Given none, this makes its
+ * own from the time it was created, which is a second or two after the
+ * recording's and so a different name for the same flight: renaming or deleting
+ * one then left the other behind.
+ */
+class OtxCsvLogger(name: String? = null) : DataDecoder.Listener {
 
     private var fileWriter: FileWriter?
     private val file: File?
@@ -46,10 +53,10 @@ class OtxCsvLogger : DataDecoder.Listener {
     )
 
     init {
-        val name = SimpleDateFormat("yyyy-MM-dd HH-mm-ss").format(Date())
+        val stem = name ?: SimpleDateFormat("yyyy-MM-dd HH-mm-ss").format(Date())
         val dir = Environment.getExternalStoragePublicDirectory("TelemetryLogs")
         dir.mkdirs()
-        file = File(dir, "$name.csv")
+        file = File(dir, "$stem.csv")
         fileWriter = FileWriter(file)
         outputLine(header)
     }
