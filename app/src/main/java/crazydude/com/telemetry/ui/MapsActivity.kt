@@ -723,7 +723,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // fix for a while, and there was nothing to see until there was one.
         if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) {
             tryCreateMarker()
-            marker?.let { it.position = shownPosition() }
+            marker?.let {
+                it.position = shownPosition()
+                // and pointing the way it was pointing. A marker is made facing
+                // north and only ever turned by the frame loop, which needs new
+                // data — so a map built after the link dropped showed the model
+                // facing north wherever it had really been going.
+                it.rotation = if (shownMarkerHeading.isNaN()) lastHeading else shownMarkerHeading
+            }
             map?.moveCamera(shownPosition(), LOCATE_ZOOM)
             updateHeading()
             updateHomeLine()
