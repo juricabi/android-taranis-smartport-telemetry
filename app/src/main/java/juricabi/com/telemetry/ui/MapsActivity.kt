@@ -162,6 +162,17 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // zoom used when jumping to a position; 18 is the deepest real satellite level
         private const val LOCATE_ZOOM = 18f
 
+        /**
+         * How heavy the flight is drawn, and the plan for it with it.
+         *
+         * Said once. It was said nowhere before: the flight line asked for no
+         * width at all and took whatever the map it was drawn on happened to
+         * default to — near enough three and a half on osmdroid, four on
+         * MapLibre — so the two maps did not agree and neither agreed with the
+         * plan drawn beside them.
+         */
+        private const val FLIGHT_LINE_WIDTH = 4f
+
         private const val CONNTYPE_NONE = 0
         private const val CONNTYPE_BT = 1
         private const val CONNTYPE_BLE = 2
@@ -895,7 +906,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         map?.setOnOrientationChangedListener { orientation ->
             updateCompassHeading(orientation)
         }
-        polyLine = map?.addPolyline(preferenceManager.getRouteColor())
+        polyLine = map?.addPolyline(FLIGHT_LINE_WIDTH, preferenceManager.getRouteColor())
         // Only a flight that is still going, or one being replayed. The service
         // outlives this screen and keeps the points of whatever it last heard,
         // so an unconnected map opened afterwards drew the last flight as
@@ -1199,11 +1210,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val plans = FlightPlanManager(this).getPlans()
         for (plan in plans) {
             if (!plan.visible || plan.waypoints.size < 2) continue
-            // Level with the line home, and under the weight of the flight
-            // itself. A plan is what was meant to happen; it was being drawn
-            // heavier than the flight that did, and heavier than everything
-            // else on the map.
-            val line = map?.addPolyline(2f, plan.color, *plan.waypoints.toTypedArray())
+            // The same weight as the flight itself, so a plan and the flight
+            // flown against it read as the same kind of thing.
+            val line = map?.addPolyline(
+                FLIGHT_LINE_WIDTH, plan.color, *plan.waypoints.toTypedArray()
+            )
             if (line != null) {
                 flightPlanLines.add(line)
             }
