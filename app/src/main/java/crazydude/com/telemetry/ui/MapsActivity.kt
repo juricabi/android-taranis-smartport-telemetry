@@ -734,6 +734,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             map?.moveCamera(shownPosition(), LOCATE_ZOOM)
             updateHeading()
             updateHomeLine()
+        } else {
+            // Nothing flown yet: open on where this phone is, at the same
+            // height the locate button uses. A map is built looking at the
+            // whole world from zoom four, which is no use to anybody.
+            myLastKnownPlace()?.let { map?.moveCamera(it, LOCATE_ZOOM) }
         }
         // and the traffic, which is otherwise gone until the next poll comes
         // round — half a minute of empty sky after every switch of view
