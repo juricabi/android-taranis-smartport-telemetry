@@ -269,6 +269,12 @@ class TerrainRenderer : GLSurfaceView.Renderer {
      * would otherwise walk through it while the flight is already drawn to the
      * end of the batch, so the flight runs on past the model in front of it.
      */
+    /** Nothing to show until the next point arrives. */
+    @Synchronized
+    fun hideModel() {
+        modelVisible = false
+    }
+
     @Synchronized
     fun snapToTarget() {
         placed = false

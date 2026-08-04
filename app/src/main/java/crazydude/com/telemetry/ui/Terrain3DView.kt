@@ -249,6 +249,12 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         seenVersion = -1
         appendedThrough = 0
         renderer.setTrack(FloatArray(0), FloatArray(0))
+        // and everything drawn from where the model was. These are refreshed on
+        // the tick, so left alone they went on being drawn for up to half a
+        // second after the flight beneath them had gone.
+        renderer.hideModel()
+        renderer.setHomeLine(false, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
+        renderer.setHeadingLine(false, 0f, 0f, 0f, 0f)
     }
 
     /** How much of the flight has been handed to the renderer point by point. */

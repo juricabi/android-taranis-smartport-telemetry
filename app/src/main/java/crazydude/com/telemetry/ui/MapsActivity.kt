@@ -3599,6 +3599,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             crazydude.com.telemetry.gl.LiveFlightPath.clear()
             terrain3D?.onFlightReset()
             lastRememberedHeight = Float.NaN
+            // the lines drawn from the model go with it, rather than hanging
+            // about until the next fix redraws them
+            this.headingPolyline?.clear()
+            this.homeLine?.clear()
+            shownLat = Double.NaN
+            shownLon = Double.NaN
+            shownMarkerHeading = Float.NaN
         }
     }
 
