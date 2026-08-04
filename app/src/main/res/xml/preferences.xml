@@ -73,6 +73,13 @@
 
         <SwitchPreference
             app:iconSpaceReserved="false"
+                android:title="Show clock"
+                android:summary="The time of day while flying, and when the flight happened while replaying one"
+                android:defaultValue="true"
+                android:key="show_clock"/>
+
+        <SwitchPreference
+            app:iconSpaceReserved="false"
                 android:title="Show heading line"
                 android:summary="Shows heading line on the map"
                 android:defaultValue="true"

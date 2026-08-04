@@ -70,6 +70,7 @@ import org.osmdroid.util.MapTileIndex
 import uk.co.deanwild.materialshowcaseview.IShowcaseListener
 import uk.co.deanwild.materialshowcaseview.MaterialShowcaseView
 import java.io.File
+import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.collections.ArrayList
 import kotlin.math.ceil
@@ -307,6 +308,30 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var chaseMode = false
     private var hasGPSFix = false
     private var replayFileString: String? = null
+
+    /**
+     * When the flight being replayed happened.
+     *
+     * A log is a recording of the bytes off the link and carries no clock of
+     * its own — nothing here decodes a time or a date from any protocol — so
+     * the only record of when it was flown is its name, which is the moment the
+     * recording started, and, for a log since renamed, the file's own date.
+     * Where neither can be read the clock says nothing rather than guessing:
+     * the time of day would be a lie about a flight from last week.
+     */
+    private var replayStartedAt: Date? = null
+    private var replayTimeRead = false
+
+    private val logNameFormat = SimpleDateFormat("yyyy-MM-dd HH-mm-ss", Locale.US)
+    private val timeOfDayFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+    private val flightDayFormat = SimpleDateFormat("d MMM yyyy HH:mm", Locale.getDefault())
+
+    private val clockTicker = object : Runnable {
+        override fun run() {
+            showTime()
+            clock_text.postDelayed(this, 1000)
+        }
+    }
     private var dataService: DataService? = null
     private var lastPhoneBattery = 0
     private var lastTraveledDistance = 0.0
@@ -750,6 +775,48 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         commitRouteLinePoints()
     }
 
+    /**
+     * The clock over the map, which is over the 3D ground as well: both are
+     * drawn under the same overlay.
+     *
+     * The screen runs without the system's own bar most of the time, so there
+     * was otherwise nowhere on it that said what time it was — and a replay
+     * never said what day it was flown at all.
+     */
+    private fun showTime() {
+        if (!preferenceManager.isClockEnabled()) {
+            clock_text.visibility = View.GONE
+            return
+        }
+        val text = if (isInReplayMode()) {
+            replayHappenedAt()?.let { flightDayFormat.format(it) }
+        } else {
+            timeOfDayFormat.format(Date())
+        }
+        clock_text.text = text ?: ""
+        clock_text.visibility = if (text == null) View.GONE else View.VISIBLE
+    }
+
+    private fun replayHappenedAt(): Date? {
+        if (replayTimeRead) return replayStartedAt
+        replayTimeRead = true
+        val name = replayFileString ?: return null
+        replayStartedAt = try {
+            logNameFormat.parse(name.substringBeforeLast('.'))
+        } catch (e: Exception) {
+            null
+        } ?: File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), name)
+            .let { if (it.exists()) Date(it.lastModified()) else null }
+        return replayStartedAt
+    }
+
+    /** For a replay that has been closed, opened or renamed. */
+    private fun forgetReplayTime() {
+        replayStartedAt = null
+        replayTimeRead = false
+        showTime()
+    }
+
     private fun updateCompassHeading(orientation: Float) {
         val heading = (((-orientation % 360f) + 360f) % 360f).roundToInt() % 360
         compassHeading.text = "↑ %03d°".format(heading)
@@ -1053,6 +1120,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             switchToReplayMode()
 
             replayFileString = it.name
+            forgetReplayTime()
 
             if (ContextCompat.checkSelfPermission(
                     this,
@@ -1479,6 +1547,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         updateScreenOrientation()
         // reapplies the colours and the heading line, which is how a change made
         // in the settings reaches the map; it draws the flight plans too
+        showTime()
+        clock_text.removeCallbacks(clockTicker)
+        clock_text.postDelayed(clockTicker, 1000)
         initHeadingLine()
         updateHomeLine()
         if (checkCallingOrSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
@@ -1502,6 +1573,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     override fun onPause() {
         super.onPause()
+        clock_text.removeCallbacks(clockTicker)
         terrain3D?.onPause()
         map?.onPause()
         this.sensorTimeoutManager.pause();
@@ -3581,6 +3653,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private fun closeReplay() {
         replayFileString = null
+        forgetReplayTime()
         // The whole of it: a recording that has been closed leaves nothing
         // behind, neither the model nor the flight it was playing back, and in
         // the 3D view that includes the surface hanging under the flight.
@@ -4237,6 +4310,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
             if (currentFileName == replayFileString) {
                 replayFileString = newFileName;
+                forgetReplayTime()
             }
         } else {
             Toast.makeText(this, "Failed to rename log.", Toast.LENGTH_SHORT).show()

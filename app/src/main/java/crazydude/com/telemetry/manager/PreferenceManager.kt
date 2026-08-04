@@ -67,6 +67,10 @@ class PreferenceManager(context: Context) {
             .apply()
     }
 
+    fun isClockEnabled(): Boolean {
+        return sharedPreferences.getBoolean("show_clock", true)
+    }
+
     fun isHeadingLineEnabled(): Boolean {
         return sharedPreferences.getBoolean("show_heading_line", true)
     }
