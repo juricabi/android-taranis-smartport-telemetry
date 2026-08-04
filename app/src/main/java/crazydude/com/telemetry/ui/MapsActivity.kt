@@ -3346,6 +3346,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // straight onto each heading the model sent, undoing the easing
             // that was meant to carry it round smoothly.
             keepSmoothing()
+            // And the model in three dimensions, which is pointed along this
+            // heading but was only ever told of it when a pitch or a roll came
+            // along afterwards. In flight one always does, within a moment. A
+            // replay paused after a jump has nothing follow, so the model was
+            // left pointing whichever way it had been pointing before.
+            terrain3D?.setModelAttitude(lastHeading, lastPitch, lastRoll)
         }
     }
 
