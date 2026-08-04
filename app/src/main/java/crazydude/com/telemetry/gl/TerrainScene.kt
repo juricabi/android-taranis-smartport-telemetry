@@ -310,8 +310,15 @@ class TerrainScene {
         // Half a kilometre around the flight to begin with, so the first
         // picture arrives in seconds; more is fetched as the model approaches
         // the edge of what has been built.
-        val padLat = Math.max(0.0045, (maxLat - minLat) * 0.5)
-        val padLon = Math.max(0.0065, (maxLon - minLon) * 0.5)
+        // Half a kilometre of margin at least, a kilometre and a half at most.
+        //
+        // It used to be half the flight's own size on each side, which for a
+        // long one is most of the ground that gets loaded: fifteen kilometres
+        // out and back asked for thirty kilometres of square, and since nine
+        // tiles have to span whatever is asked for, the detail dropped a whole
+        // level to cover margin nothing was ever going to fly over.
+        val padLat = Math.min(0.0135, Math.max(0.0045, (maxLat - minLat) * 0.5))
+        val padLon = Math.min(0.0195, Math.max(0.0065, (maxLon - minLon) * 0.5))
         val southEdge = minLat - padLat
         val northEdge = maxLat + padLat
         val westEdge = minLon - padLon
