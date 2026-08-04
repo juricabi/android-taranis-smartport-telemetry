@@ -4,6 +4,22 @@ import kotlin.math.*
 
 object GeoUtils {
 
+    /**
+     * The turn from one bearing to another, the short way: between -180 and
+     * 180 degrees, negative to the left.
+     *
+     * It was written out in full in eight places, in two spellings — a modulo
+     * form and a pair of while loops — and one of them had had its sign the
+     * wrong way round at some point. There is only one way round a compass.
+     */
+    fun shortestTurn(from: Float, to: Float): Float =
+        ((to - from) % 360f + 540f) % 360f - 180f
+
+    /** [from] turned [part] of the way towards [to], the short way round. */
+    fun turnTowards(from: Float, to: Float, part: Float): Float =
+        ((from + shortestTurn(from, to) * part) % 360f + 360f) % 360f
+
+
     private const val EARTH_RADIUS = 6371009.0 // meters
 
     fun computeDistanceBetween(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {

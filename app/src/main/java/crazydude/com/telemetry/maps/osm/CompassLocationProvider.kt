@@ -48,7 +48,9 @@ class CompassLocationProvider : IMyLocationProvider {
     fun setBearing(degrees: Float) {
         if (degrees.isNaN()) return
         bearing = degrees
-        val turned = Math.abs(((degrees - drawnBearing + 540f) % 360f) - 180f)
+        val turned = Math.abs(
+            crazydude.com.telemetry.utils.GeoUtils.shortestTurn(drawnBearing, degrees)
+        )
         val now = System.currentTimeMillis()
         if (drawnBearing.isNaN() || (now - bearingDrawnAt > 60L && turned > 0.5f)) {
             bearingDrawnAt = now

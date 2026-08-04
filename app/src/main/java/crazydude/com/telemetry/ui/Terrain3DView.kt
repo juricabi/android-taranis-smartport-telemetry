@@ -171,8 +171,8 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         val flight = if (hasFlight) points else emptyList()
 
         renderer.groundUnderCamera = { x, z ->
-            val lat = scene.originLat - z / 111320.0
-            val lon = scene.originLon + x / (111320.0 * Math.cos(Math.toRadians(scene.originLat)))
+            val lat = scene.latAt(z)
+            val lon = scene.lonAt(x)
             val h = scene.groundAt(lat, lon)
             if (h == null) null else h - scene.originAltitude
         }
@@ -186,7 +186,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // Zooming out past the ground shows nothing but sky, so the limit
         // follows the flight: a couple of kilometres for an ordinary one, more
         // for a flight that covers more.
-        renderer.maxDistance = Math.max(2500f, scene.extent * 5f)
+        renderer.maxDistance = reachOfFlight()
         // no notice that it is loading: the empty screen says so already
 
         // the ground gathers around the model, or around here when nothing is
@@ -289,6 +289,12 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         }
         status.text = if (meshes.isEmpty()) "No terrain here" else ""
     }
+
+    /**
+     * How far back the camera may be pulled: far enough to see the whole
+     * flight, and never so close in that a small one cannot be looked at.
+     */
+    private fun reachOfFlight(): Float = Math.max(2500f, scene.extent * 5f)
 
     private fun heightOfTrack(): Float {
         var highest = 0f
@@ -460,7 +466,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         scene.buildTrack(points)
         renderer.setTrack(scene.track, scene.shadow)
         // as the flight grows, so does how far back the camera may be pulled
-        renderer.maxDistance = Math.max(2500f, scene.extent * 5f)
+        renderer.maxDistance = reachOfFlight()
         // rebuilt from the whole flight, so everything is accounted for again
         appendedThrough = points.size
 
@@ -507,7 +513,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
                         { post { groundArrived() } },
                         { post {
                             groundArrived(true)
-                            renderer.maxDistance = Math.max(2500f, scene.extent * 5f)
+                            renderer.maxDistance = reachOfFlight()
                             loadingTerrain = false
                         } })
                 } catch (e: Throwable) {
@@ -986,12 +992,12 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             circle(FloatArray(0))
             return ground
         }
-        val metresPerDegreeLon = 111320.0 * Math.cos(Math.toRadians(lat))
+        val metresPerDegreeLon = scene.metresAcross(lat)
         val ring = FloatArray(CIRCLE_SEGMENTS * 3)
         var i = 0
         for (step in 0 until CIRCLE_SEGMENTS) {
             val angle = 2.0 * Math.PI * step / CIRCLE_SEGMENTS
-            val pointLat = lat + accuracy * Math.cos(angle) / 111320.0
+            val pointLat = lat + accuracy * Math.cos(angle) / scene.metresUp()
             val pointLon = lon + accuracy * Math.sin(angle) / metresPerDegreeLon
             val h = scene.groundAt(pointLat, pointLon) ?: ground
             ring[i++] = scene.east(pointLon)

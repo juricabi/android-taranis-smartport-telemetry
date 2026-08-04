@@ -232,6 +232,17 @@ class TerrainScene {
     var minLon = 0.0; private set
     var maxLon = 0.0; private set
 
+    /** The place a point in the local frame stands for. */
+    fun latAt(z: Float): Double = originLat - z / METRES_PER_DEGREE_LAT
+
+    fun lonAt(x: Float): Double = originLon + x / metresPerDegreeLon(originLat)
+
+    /** How far a degree of longitude reaches at this latitude, in metres. */
+    fun metresAcross(lat: Double): Double = metresPerDegreeLon(lat)
+
+    /** And how far a degree of latitude reaches, which is the same everywhere. */
+    fun metresUp(): Double = METRES_PER_DEGREE_LAT
+
     private fun metresPerDegreeLon(lat: Double): Double =
         METRES_PER_DEGREE_LAT * Math.cos(Math.toRadians(lat))
 

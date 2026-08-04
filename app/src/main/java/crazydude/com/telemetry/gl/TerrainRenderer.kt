@@ -254,12 +254,8 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     private fun ease(from: Float, to: Float): Float = from + (to - from) * SMOOTHING
 
     /** The short way round, so a turn through north is not a lap of the compass. */
-    private fun easeAngle(from: Float, to: Float): Float {
-        var turn = to - from
-        while (turn > 180f) turn -= 360f
-        while (turn < -180f) turn += 360f
-        return ((from + turn * SMOOTHING) % 360f + 360f) % 360f
-    }
+    private fun easeAngle(from: Float, to: Float): Float =
+        crazydude.com.telemetry.utils.GeoUtils.turnTowards(from, to, SMOOTHING)
 
     /**
      * Follow where things have been put, unless they have been put somewhere
@@ -997,10 +993,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
 
         val wanted = azimuthWanted
         if (!wanted.isNaN()) {
-            var turn = wanted - azimuth
-            while (turn > 180f) turn -= 360f
-            while (turn < -180f) turn += 360f
-            azimuth = ((azimuth + turn * 0.15f) % 360f + 360f) % 360f
+            azimuth = crazydude.com.telemetry.utils.GeoUtils.turnTowards(azimuth, wanted, 0.15f)
         }
 
         val az = Math.toRadians(azimuth.toDouble())
@@ -1534,10 +1527,8 @@ class TerrainRenderer : GLSurfaceView.Renderer {
 
         // eased towards the compass rather than snapped to it, so it turns
         // like the needle on the map instead of twitching
-        var turn = spot.headingTarget - spot.heading
-        while (turn > 180f) turn -= 360f
-        while (turn < -180f) turn += 360f
-        spot.heading = (spot.heading + turn * 0.12f + 360f) % 360f
+        spot.heading = crazydude.com.telemetry.utils.GeoUtils.turnTowards(
+            spot.heading, spot.headingTarget, 0.12f)
 
         // A fraction of the distance out, so it is the same size on screen
         // however far the camera is — and a larger fraction than it reads as,

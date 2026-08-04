@@ -113,8 +113,7 @@ class OperatorTrack private constructor(
     private fun turn(from: Float, to: Float, part: Float): Float {
         if (from.isNaN()) return to
         if (to.isNaN()) return from
-        val by = ((to - from) % 360f + 540f) % 360f - 180f
-        return ((from + by * part) % 360f + 360f) % 360f
+        return crazydude.com.telemetry.utils.GeoUtils.turnTowards(from, to, part)
     }
 
     companion object {
