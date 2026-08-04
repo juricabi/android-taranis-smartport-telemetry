@@ -168,6 +168,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
 
     /** The tiles still wanted, once the scene has said. Null means all of them. */
     private var keep: HashSet<Long>? = null
+    private var keepChanged = false
 
     private var trackBuffer: FloatBuffer? = null
     private var trackCount = 0
@@ -592,10 +593,17 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         submitted.add(mesh)
     }
 
-    /** Which tiles are still wanted; anything else is thrown away next frame. */
+    /**
+     * Which tiles are still wanted; anything else is thrown away next frame.
+     *
+     * Handed an empty set, everything goes — which is what settling the
+     * altitude reference needs, since that moves the whole world and the same
+     * ground comes back with different heights under the same names.
+     */
     @Synchronized
     fun keepOnly(keys: Set<Long>) {
         keep = HashSet(keys)
+        keepChanged = true
         var i = 0
         while (i < submitted.size) {
             if (!keys.contains(submitted[i].key)) submitted.removeAt(i) else i++
@@ -765,7 +773,10 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     private fun uploadPending() {
         val meshes: List<TerrainScene.TileMesh>
         synchronized(this) {
-            if (pending.isEmpty()) return
+            // a change of mind about what to keep is reason enough to run,
+            // even with nothing new to put up
+            if (pending.isEmpty() && !keepChanged) return
+            keepChanged = false
             meshes = ArrayList(pending)
             pending.clear()
             // Whatever the scene no longer wants. It says so itself now, rather

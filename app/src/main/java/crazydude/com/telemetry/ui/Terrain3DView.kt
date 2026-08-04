@@ -269,6 +269,10 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         if (following) {
             renderer.target = floatArrayOf(x + panX, y, z + panZ)
         }
+        // With the model, not half a second behind it: the line home and the
+        // line ahead both start where it is, and the plans they are drawn
+        // beside are laid out once and kept, so this is a few vertices now.
+        rebuildOverlays()
     }
 
     private fun pickUpNewPoints() {
@@ -279,6 +283,9 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         val points = LiveFlightPath.snapshot()
         if (points.size < 2) return
 
+        // Before the track is built from them: this settles what their heights
+        // mean, and the track is laid out in that answer.
+        val frameMoved = scene.resolveAltitudeIfNeeded(points)
         scene.buildTrack(points)
         renderer.setTrack(scene.track, scene.shadow)
 
@@ -290,8 +297,11 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         if (!hasAttitude) lastModelHeading = courseBetween(before, last)
         placeModel()
 
-        rebuildOverlays()
-
+        // The ground does not move when this is settled — only the flight does —
+        // so no tile has to be built again. What does have to go is anything
+        // laid out at the old heights and kept: the plans were draped once and
+        // would otherwise be left hanging where the flight used to be.
+        if (frameMoved) drapedPlans.clear()
         extendTerrainIfNeeded(points, last.lat, last.lon)
     }
 
@@ -307,8 +317,8 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
      * for wherever it was pointed and evict the ones the flight is on.
      */
     private fun extendTerrainIfNeeded(points: List<TerrainScene.TrackPoint>,
-                                      lat: Double, lon: Double) {
-        if (!loadingTerrain && scene.nearEdge(lat, lon)) {
+                                      lat: Double, lon: Double, force: Boolean = false) {
+        if (!loadingTerrain && (force || scene.nearEdge(lat, lon))) {
             loadingTerrain = true
             status.text = ""
             val worker = Thread(Runnable {
@@ -344,7 +354,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         // gathers around that instead — it cannot follow both at once, and the
         // model is the one being watched.
         if (started && terrainReady && LiveFlightPath.size() < 2) {
-            extendTerrainIfNeeded(emptyList(), lat, lon)
+            extendTerrainIfNeeded(LiveFlightPath.snapshot(), lat, lon)
         }
     }
 

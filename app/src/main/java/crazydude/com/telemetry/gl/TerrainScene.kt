@@ -131,7 +131,21 @@ class TerrainScene {
         private set
     var originLon = 0.0
         private set
+    /**
+     * The height everything is drawn relative to.
+     *
+     * Taken from the ground under the origin as soon as the terrain knows it,
+     * and never changed after — which is what makes it a datum. It used to come
+     * from the reported altitudes, so settling what those meant moved the whole
+     * world: every tile had to be built again, the ground visibly dropped when
+     * the link came up, and anything already drawn in the old frame was left
+     * hanging in the new one.
+     *
+     * What the reported heights are measured from is a separate question, and
+     * only moves the flight within the world — see [launchGroundElevation].
+     */
     var originAltitude = 0f
+    private var datumFromGround = false
         private set
     private var originFixed = false
 
@@ -180,7 +194,7 @@ class TerrainScene {
     fun setOrigin(lat: Double, lon: Double, altitude: Float) {
         originLat = lat
         originLon = lon
-        originAltitude = altitude
+        if (!datumFromGround) originAltitude = altitude
         // Only claim the area when there is nothing else to go on. Calling this
         // to fix an origin already worked out from a flight must not throw that
         // flight's extent away, or the ground gets built around a point.
@@ -272,7 +286,8 @@ class TerrainScene {
         if (!originFixed) {
             originLat = (minLat + maxLat) / 2
             originLon = (minLon + maxLon) / 2
-            originAltitude = lowest
+            // a stand-in until the ground is loaded and says otherwise
+            if (!datumFromGround) originAltitude = lowest
             originFixed = true
         }
 
@@ -338,6 +353,15 @@ class TerrainScene {
         Elevation.prefetch(southEdge, westEdge, northEdge, eastEdge, z,
             { _, _ -> }, { _, _ -> })
         zoom = z
+        // The datum, once, from the ground itself rather than from anything the
+        // model has said about where it is.
+        if (!datumFromGround) {
+            val here = Elevation.elevationAt(originLat, originLon, z)
+            if (here != null) {
+                originAltitude = here
+                datumFromGround = true
+            }
+        }
         resolveAltitudeReference(points)
         buildShadow(points)
 
@@ -458,10 +482,31 @@ class TerrainScene {
      * measured from the launch and the ground under it is what they are
      * missing.
      */
+    /**
+     * Work out what the reported heights mean, if that is not settled already.
+     *
+     * Returns true when the answer moved the world, so ground built in the old
+     * frame has to be built again.
+     *
+     * This used to be asked only while loading ground, which was enough while
+     * the loaded area grew with the flight and so reloaded often. The ground
+     * now sits in a window a whole flight can happen inside, and a view opened
+     * before the link came up asks once, with no flight to look at, and never
+     * asks again — so heights above the launch were drawn as heights above the
+     * sea and the model spent the flight inside the hill.
+     */
+    fun resolveAltitudeIfNeeded(points: List<TrackPoint>): Boolean {
+        if (altitudeResolved && altitudeIsAboveLaunch) return false
+        if (points.isEmpty()) return false
+        val wasAbove = altitudeIsAboveLaunch
+        val wasResolved = altitudeResolved
+        resolveAltitudeReference(points)
+        return altitudeIsAboveLaunch != wasAbove || altitudeResolved != wasResolved
+    }
+
     private fun resolveAltitudeReference(points: List<TrackPoint>) {
         val found = referenceOf(points, zoom) ?: return
         val aboveLaunch = found.aboveLaunch
-        val newOrigin = if (aboveLaunch) found.lowest + found.lift else found.lowest
 
         // Only the answer matters, not the exact origin. The lowest point of a
         // flight keeps dropping as it descends, and following that would move
@@ -476,10 +521,9 @@ class TerrainScene {
         }
         altitudeResolved = true
         altitudeIsAboveLaunch = aboveLaunch
+        // Only this. The ground stays where it is: what changes is where the
+        // flight sits in it, which is the whole of what was in doubt.
         launchGroundElevation = found.lift
-        originAltitude = newOrigin
-        built.clear()
-        builtZoom = -1
     }
 
     /** Added to every reported altitude when they are measured from the launch. */
