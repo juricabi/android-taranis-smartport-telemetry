@@ -207,13 +207,92 @@ class MapLibreMapWrapper(
         if (zoom != null) moveCamera(target, zoom) else moveCamera(target)
     }
 
+    /**
+     * Where the camera is being taken, and the loop that takes it.
+     *
+     * The same shape the osmdroid map has had for a while, and it was the one
+     * thing missing here. The screen hands over a position that is already
+     * eased — a share of the way to the last fix, worked out for this frame —
+     * and the camera eases towards *that* again. Two filters rather than one:
+     * the model is drawn where the screen says and the ground under it moves at
+     * its own, slower pace, which is what stops a following map from
+     * shivering.
+     *
+     * Both the place and the angle are taken by the one loop and written in one
+     * camera update. Written separately they are two moves a frame, and in
+     * chase mode — where the angle changes as fast as the place — the second
+     * was undoing part of the first.
+     */
+    private var glideTo: Position? = null
+    private var glideBearing = Double.NaN
+    private var gliding = false
+
+    /** How much of what is left the camera takes each frame. */
+    private val GLIDE = 0.25
+
+    private val glide = object : Runnable {
+        override fun run() {
+            gliding = false
+            val ready = map ?: return
+            val at = ready.cameraPosition
+            var lat = at.target?.latitude ?: 0.0
+            var lon = at.target?.longitude ?: 0.0
+            var bearing = at.bearing
+            var again = false
+
+            val to = glideTo
+            if (to != null) {
+                val dLat = to.lat - lat
+                val dLon = to.lon - lon
+                if (Math.abs(dLat) < 1e-7 && Math.abs(dLon) < 1e-7) {
+                    lat = to.lat
+                    lon = to.lon
+                    glideTo = null
+                } else {
+                    lat += dLat * GLIDE
+                    lon += dLon * GLIDE
+                    again = true
+                }
+            }
+
+            val turnTo = glideBearing
+            if (!turnTo.isNaN()) {
+                // the short way round, or a turn through north is a lap
+                val turn = ((turnTo - bearing) % 360.0 + 540.0) % 360.0 - 180.0
+                if (Math.abs(turn) < 0.05) {
+                    bearing = turnTo
+                    glideBearing = Double.NaN
+                } else {
+                    bearing += turn * GLIDE
+                    again = true
+                }
+            }
+
+            ready.moveCamera(
+                CameraUpdateFactory.newCameraPosition(
+                    CameraPosition.Builder(at)
+                        .target(LatLng(lat, lon))
+                        .bearing(bearing)
+                        .build()
+                )
+            )
+            if (again) keepGliding()
+        }
+    }
+
+    private fun keepGliding() {
+        if (gliding) return
+        gliding = true
+        mapView.postOnAnimation(glide)
+    }
+
     override fun moveCamera(position: Position) {
-        val ready = map
-        if (ready == null) {
+        if (map == null) {
             pendingTarget = position
             return
         }
-        ready.moveCamera(CameraUpdateFactory.newLatLng(LatLng(position.lat, position.lon)))
+        glideTo = position
+        keepGliding()
     }
 
     override fun moveCamera(position: Position, zoom: Float) {
@@ -223,9 +302,11 @@ class MapLibreMapWrapper(
             pendingZoom = zoom
             return
         }
+        // asked for a place rather than followed to it, so it arrives
+        glideTo = null
         ready.moveCamera(
             CameraUpdateFactory.newCameraPosition(
-                CameraPosition.Builder()
+                CameraPosition.Builder(ready.cameraPosition)
                     .target(LatLng(position.lat, position.lon))
                     .zoom(cameraZoom(zoom))
                     .build()
@@ -294,18 +375,18 @@ class MapLibreMapWrapper(
     private var pendingOrientation: Float? = null
 
     override fun setMapOrientation(degrees: Float) {
-        val at = map?.cameraPosition ?: run {
+        if (map == null) {
             // Heading-up is applied as the map is built, and a map built
             // north-up stays north-up until the next heading arrives — which,
             // with a replay standing paused, is never.
             pendingOrientation = degrees
             return
         }
-        map?.moveCamera(
-            CameraUpdateFactory.newCameraPosition(
-                CameraPosition.Builder(at).bearing(-degrees.toDouble()).build()
-            )
-        )
+        // Eased by the same loop that carries the place, and in the same camera
+        // update. A heading arrives many times a second and wanders a degree or
+        // two on each; taken literally the map shakes.
+        glideBearing = -degrees.toDouble()
+        keepGliding()
     }
 
     override fun resetMapOrientation() = setMapOrientation(0f)
