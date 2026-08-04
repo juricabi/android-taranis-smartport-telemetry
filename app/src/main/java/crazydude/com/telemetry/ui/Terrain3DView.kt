@@ -295,9 +295,12 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
      */
     private fun extendTerrainIfNeeded(points: List<TerrainScene.TrackPoint>,
                                       lat: Double, lon: Double) {
-        val wanted = scene.nearEdge(lat, lon) ||
-            (!myLat.isNaN() && !myLon.isNaN() && scene.nearEdge(myLat, myLon))
+        val mineIsOff = !myLat.isNaN() && !myLon.isNaN() && scene.nearEdge(myLat, myLon)
+        val wanted = scene.nearEdge(lat, lon) || mineIsOff
         if (!loadingTerrain && wanted) {
+            // and say where, or the same square comes back: what to load is
+            // worked out from the flight, which is not where this phone is
+            if (mineIsOff) scene.include(myLat, myLon)
             loadingTerrain = true
             status.text = ""
             val worker = Thread(Runnable {

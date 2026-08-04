@@ -224,6 +224,25 @@ class TerrainScene {
     }
 
     /**
+     * Somewhere else that wants ground under it.
+     *
+     * The area to load is worked out from the flight and nothing else, so a
+     * phone that has moved away from it would have asked for more ground and
+     * been given the same square back. This widens the question.
+     */
+    fun include(lat: Double, lon: Double) {
+        if (lat.isNaN() || lon.isNaN()) return
+        if (minLat == 0.0 && maxLat == 0.0) {
+            minLat = lat; maxLat = lat; minLon = lon; maxLon = lon
+            return
+        }
+        if (lat < minLat) minLat = lat
+        if (lat > maxLat) maxLat = lat
+        if (lon < minLon) minLon = lon
+        if (lon > maxLon) maxLon = lon
+    }
+
+    /**
      * Each point drawn a quarter of the way towards each of its neighbours.
      *
      * A position is good to a few metres and the next one is wrong by a
