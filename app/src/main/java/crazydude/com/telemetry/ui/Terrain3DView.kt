@@ -259,6 +259,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         seenVersion = -1
         appendedThrough = 0
         lastAppendedPoint = null
+        placedOnce = false
         renderer.setTrack(FloatArray(0), FloatArray(0))
         // and everything drawn from where the model was. These are refreshed on
         // the tick, so left alone they went on being drawn for up to half a
@@ -273,6 +274,9 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
 
     /** The one before it, to tell which way the model is going without attitude. */
     private var lastAppendedPoint: TerrainScene.TrackPoint? = null
+
+    /** Whether the model has been put somewhere yet, for the camera to arrive at. */
+    private var placedOnce = false
 
     /**
      * Told when a fix lands, so the model moves with the one on the map rather
@@ -343,6 +347,15 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         if (following) {
             renderer.target = floatArrayOf(x + panX, y, z + panZ)
         }
+        // The first time the model is put anywhere, the camera arrives at it
+        // rather than easing to it from wherever it was aimed while the ground
+        // was still loading — which is a second or two of the world sliding
+        // past as the view opens. Tying this to the first tile of ground was
+        // not enough: there is often no flight to place yet when that lands.
+        if (!placedOnce) {
+            placedOnce = true
+            renderer.snapToTarget()
+        }
         // With the model, not half a second behind it: the line home and the
         // line ahead both start where it is, and the plans they are drawn
         // beside are laid out once and kept, so this is a few vertices now.
@@ -377,7 +390,12 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         // so no tile has to be built again. What does have to go is anything
         // laid out at the old heights and kept: the plans were draped once and
         // would otherwise be left hanging where the flight used to be.
-        if (frameMoved) drapedPlans.clear()
+        if (frameMoved) {
+            drapedPlans.clear()
+            // the flight has just been lifted onto its proper height, so the
+            // camera goes with it rather than drifting up after it
+            renderer.snapToTarget()
+        }
         extendTerrainIfNeeded(points, last.lat, last.lon)
     }
 
