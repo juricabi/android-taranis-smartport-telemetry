@@ -187,7 +187,13 @@ class DataService : Service(), DataDecoder.Listener {
         override fun onLocationChanged(location: Location) {
             if (!worthBelieving(location)) return
             phoneFix = location
-            if (!preferenceManager.isMyPositionLoggingEnabled()) return
+            if (!preferenceManager.isMyPositionLoggingEnabled()) {
+                // Turned off while a flight is being recorded: the rows that
+                // follow say nothing, rather than repeating the last place they
+                // were told about for the rest of the flight.
+                logListener?.setMyPosition(Double.NaN, Double.NaN, Float.NaN)
+                return
+            }
             logListener?.setMyPosition(
                 location.latitude, location.longitude,
                 if (location.hasAccuracy()) location.accuracy else Float.NaN
@@ -353,6 +359,7 @@ class DataService : Service(), DataDecoder.Listener {
 
     override fun onDestroy() {
         super.onDestroy()
+        stopListeningForPhone()
         dataPoller?.disconnect()
         dataPoller = null
     }

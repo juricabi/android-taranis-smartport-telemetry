@@ -200,7 +200,14 @@ class MAVLinkProtocol : Protocol {
             dataDecoder.decodeData( Protocol.Companion.TelemetryData( ASPEED, (airSpeed * 100).toInt()))
             dataDecoder.decodeData( Protocol.Companion.TelemetryData( VSPEED, (vspeed * 100).toInt()))
             dataDecoder.decodeData( Protocol.Companion.TelemetryData( THROTTLE, throttle.toInt()))
-            dataDecoder.decodeData(Protocol.Companion.TelemetryData(ALTITUDE, (alt * 100).toInt()))
+            // Not while the estimator's own frame is arriving. This one is
+            // height above the sea on ArduPilot and the other is height above
+            // the launch, and taking both made the readout — and the height the
+            // flight is drawn at — alternate between the two several times a
+            // second.
+            if (!gotGlobalPosition) {
+                dataDecoder.decodeData(Protocol.Companion.TelemetryData(ALTITUDE, (alt * 100).toInt()))
+            }
 
         } else if (messageId == MAV_PACKET_RADIO_STATUS_ID && packetLength == MAV_PACKET_RADIO_STATUS_LENGTH) {
             val rxErrors = byteBuffer.short
@@ -236,8 +243,6 @@ class MAVLinkProtocol : Protocol {
             // millimetres above the launch, and the readout counts centimetres
             dataDecoder.decodeData(
                 Protocol.Companion.TelemetryData(Protocol.ALTITUDE, relativeAltitude / 10))
-            // and the climb, which this frame measures downwards
-            dataDecoder.decodeData(Protocol.Companion.TelemetryData(Protocol.VSPEED, -vz.toInt()))
             // hundredths of a degree, and all ones for "no idea"
             if (heading != 0xFFFF) {
                 dataDecoder.decodeData(Protocol.Companion.TelemetryData(Protocol.HEADING, heading))

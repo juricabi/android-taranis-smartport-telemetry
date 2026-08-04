@@ -32,9 +32,6 @@ class OperatorTrack private constructor(
     val startedAt: Long get() = times[0]
     val endedAt: Long get() = times[times.size - 1]
 
-    /** Whether anything is known about where the operator stood. */
-    fun hasPlaces(): Boolean = stood.isNotEmpty()
-
     class Where(
         val lat: Double,
         val lon: Double,
