@@ -678,17 +678,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         */
 
         followButton.setOnClickListener {
-            // from behind the model, this is a step back to plain tracking
-            // rather than a step to nothing
             centreOnModel()
-            if (chaseMode) {
-                setChaseMode(false)
-                setFollowMode(true)
-            } else {
-                setFollowMode(!followMode)
-            }
-            terrain3D?.setFollowing(followMode)
-            if (followMode) {
+            // Plain tracking on or off, and nothing about the other button —
+            // asking for tracking lets go of the chase, which setFollowMode
+            // does. So from behind the model this is a step back to plain
+            // tracking rather than a step to nothing.
+            setFollowMode(!followMode)
+            terrain3D?.setFollowing(keepingUp())
+            if (keepingUp()) {
                 marker?.let {
                     if (map?.initialized() ?: false) {
                         map?.moveCamera(it.position)
@@ -3195,7 +3192,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         //
         // Following first: riding behind the model is a way of keeping up with
         // it, so the view drops the chase when it is told to stop keeping up.
-        view.setFollowing(followMode)
+        view.setFollowing(keepingUp())
         if (chaseMode) view.setChasing(true)
         // standing where the phone is standing and pointing where it points,
         // since the readers that know both are on this screen and have been
@@ -4436,7 +4433,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                         this.formatDistance(this.lastTraveledDistance.toFloat());
                 }
 
-                if (!followMode) {
+                if (!keepingUp()) {
                     this.map?.invalidate()
                 }
                 this.tryCreateMarker()
@@ -4773,11 +4770,23 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
+    /**
+     * Whether the camera keeps up with the model at all.
+     *
+     * Either button does that; they differ in where the camera is put, not in
+     * whether it follows. Riding behind the model is keeping up with it, so
+     * everything that asks "should the camera move to the flight" asks this
+     * rather than asking for plain tracking and getting no for an answer while
+     * the chase is on.
+     */
+    private fun keepingUp(): Boolean = followMode || chaseMode
+
     fun setFollowMode(mode: Boolean) {
-        followMode = mode;
-        // Lit for plain tracking only. Riding behind the model tracks it too,
-        // but that is the other button's business: one of the two is on.
-        this.followButton.imageAlpha = if (mode && !chaseMode) 255 else 128
+        followMode = mode
+        // One or the other, never both. Asking for plain tracking is asking to
+        // stop riding behind it.
+        if (mode && chaseMode) setChaseMode(false)
+        this.followButton.imageAlpha = if (followMode) 255 else 128
     }
 
     /**
@@ -4786,35 +4795,30 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      *
      * It keeps up with the model itself, so plain tracking gives way to it.
      */
-    /** Whether the model was being tracked before the chase took over. */
-    private var followBeforeChase = false
-
     private fun setChaseMode(on: Boolean) {
         if (chaseMode == on) return
         chaseMode = on
         chaseButton.imageAlpha = if (on) 255 else 128
-        terrain3D?.setChasing(on)
         if (on) {
-            // Riding behind the model is a way of keeping up with it, so the
-            // chase takes tracking with it — but it is borrowing it, not
-            // turning it on.
-            followBeforeChase = followMode
-            setFollowMode(true)
-            terrain3D?.setFollowing(true)
-            applyHeadingUp()
-        } else {
-            // Given back exactly as it was. Turning the chase off used to leave
-            // tracking on behind it, so switching the chase on and off again
-            // was a way of switching tracking on — which nobody asked for, and
-            // the button then lit itself.
-            //
-            // The angle is left where the chase left it, in both views: the
-            // north-up button is the way back to north and it is one tap, and
-            // swinging the map round unasked, at the moment somebody has asked
-            // for something else, is a movement nobody wanted.
-            setFollowMode(followBeforeChase)
-            terrain3D?.setFollowing(followBeforeChase)
+            // One or the other. The chase used to borrow tracking and give it
+            // back on the way out, so whether turning the chase off left the
+            // model being tracked depended on what had been on before it — and
+            // asking to stop riding behind the model turned plain tracking on
+            // instead of stopping. Two buttons, each answering for itself, and
+            // never both lit.
+            followMode = false
+            followButton.imageAlpha = 128
         }
+        // Following first: the ground view drops the chase when it is told to
+        // stop keeping up, so it has to be told to keep up before it is told to
+        // ride behind.
+        terrain3D?.setFollowing(keepingUp())
+        terrain3D?.setChasing(on)
+        if (on) applyHeadingUp()
+        // The angle is left where the chase left it, in both views: the
+        // north-up button is the way back to north and it is one tap, and
+        // swinging the map round unasked, at the moment somebody has asked for
+        // something else, is a movement nobody wanted.
     }
 
     /** How far the map has been dragged and turned away from the model. */
@@ -4885,7 +4889,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             }
             updateHeading()
             updateHomeLine()
-            if (followMode && map.initialized()) {
+            if (keepingUp() && map.initialized()) {
                 map.moveCamera(Position(shownLat + mapLeanLat, shownLon + mapLeanLon))
             } else {
                 map.invalidate()

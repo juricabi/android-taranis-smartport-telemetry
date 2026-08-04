@@ -127,10 +127,25 @@ class MapLibreMapWrapper(
             // A hand on the map gives up neither following nor the chase, here
             // as everywhere else — the screen is told, and decides.
             ready.addOnMapClickListener { at -> tapped(ready, at) }
-            ready.addOnCameraMoveStartedListener { reason ->
-                if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
-                    cameraMoveListener?.invoke()
-                }
+            // A hand on the map wins, exactly as it does on the other map.
+            //
+            // The camera is gliding towards wherever the flight has got to, on
+            // every frame, and left running it fights the finger: a drag
+            // springs back, and a pinch or a turn is cancelled the moment it
+            // starts, because a camera written programmatically ends whatever
+            // gesture is in progress. So the glide is dropped while the map is
+            // being touched — and picked up again by itself, since the frame
+            // loop asks for the flight again on the very next frame.
+            //
+            // A touch listener rather than the camera-move-started callback:
+            // that fires once when a gesture begins, and what is needed is for
+            // the glide to stay out of the way for as long as the finger is
+            // down. Returning false so the map still gets the gesture.
+            mapView.setOnTouchListener { _, _ ->
+                glideTo = null
+                glideBearing = Double.NaN
+                cameraMoveListener?.invoke()
+                false
             }
             ready.addOnCameraMoveListener {
                 // Only where the angle has really moved. This fires for any
