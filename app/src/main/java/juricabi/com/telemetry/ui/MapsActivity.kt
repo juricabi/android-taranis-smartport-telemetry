@@ -865,7 +865,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         mapView.onStart()
         mapView.onResume()
         mapHolder.addView(mapView)
-        map = MapLibreMapWrapper(applicationContext, mapView, mapType) { initHeadingLine() }
+        map = MapLibreMapWrapper(applicationContext, mapView, mapType) {
+            initHeadingLine()
+            // The style lands after the screen has finished with the map, and
+            // a marker cannot be made before it does. Again, now it can.
+            pointMapAtTheFlight()
+        }
         finishMapSetup()
     }
 
@@ -899,6 +904,23 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         homeLine = map?.addPolyline(2f, preferenceManager.getHomeLineColor())
         drawFlightPlans()
         showMyLocation()
+        pointMapAtTheFlight()
+        // and the traffic, which is otherwise gone until the next poll comes
+        // round — half a minute of empty sky after every switch of view
+        if (lastAirplanes.isNotEmpty()) onAirplanesUpdated(lastAirplanes)
+    }
+
+    /**
+     * Put the map on the flight, and run again once the map can draw.
+     *
+     * tryCreateMarker will not make a marker for a map that is not drawable
+     * yet, and a MapLibre map is not: its style arrives a few frames after the
+     * screen has finished setting it up. So the model got no marker at all
+     * until the next fix moved it — and with a replay standing paused, or a
+     * link that has dropped, there is no next fix and there never was one.
+     * osmdroid is drawable the moment it exists and this could not arise.
+     */
+    private fun pointMapAtTheFlight() {
         // A map is built looking at the whole world, and it is a fix arriving
         // that puts the model on screen. Where the model already is — coming
         // back from the 3D view, or a replay standing paused — there may be no
@@ -931,9 +953,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // whole world from zoom four, which is no use to anybody.
             myLastKnownPlace()?.let { map?.moveCamera(it, LOCATE_ZOOM) }
         }
-        // and the traffic, which is otherwise gone until the next poll comes
-        // round — half a minute of empty sky after every switch of view
-        if (lastAirplanes.isNotEmpty()) onAirplanesUpdated(lastAirplanes)
     }
 
     /**

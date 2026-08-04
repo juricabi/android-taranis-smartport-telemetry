@@ -10,6 +10,7 @@ import juricabi.com.telemetry.R
 import juricabi.com.telemetry.maps.MapMarker
 import juricabi.com.telemetry.maps.Position
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.SymbolLayer
@@ -65,7 +66,13 @@ class MapLibreMarker(
             val src = GeoJsonSource(sourceId, feature())
             val lyr = SymbolLayer(layerId, sourceId).withProperties(
                 PropertyFactory.iconImage(imageId),
-                PropertyFactory.iconRotate(heading),
+                // Read off the feature rather than set on the layer. The model
+                // is moved and turned on every frame the screen draws, and as
+                // two calls those are two separate updates: one of them lands
+                // first, so the model is drawn for a frame at its new place
+                // still pointing the old way. Carried on the feature they
+                // arrive together, and it is one call rather than two.
+                PropertyFactory.iconRotate(Expression.get("bearing")),
                 PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
                 // A marker is a position, not a label competing for room: it is
                 // drawn where it is even where two of them touch, which over a
@@ -80,7 +87,16 @@ class MapLibreMarker(
         }
     }
 
-    private fun feature() = Feature.fromGeometry(Point.fromLngLat(where.lon, where.lat))
+    private fun feature(): Feature {
+        val at = Feature.fromGeometry(Point.fromLngLat(where.lon, where.lat))
+        at.addNumberProperty("bearing", heading)
+        return at
+    }
+
+    /** Place and heading together, in one update, because they belong together. */
+    private fun push() {
+        source?.setGeoJson(feature())
+    }
 
     /** The same icon the map has always drawn, rendered once into a bitmap. */
     private fun bitmapFor(icon: Int, color: Int?): Bitmap {
@@ -112,14 +128,14 @@ class MapLibreMarker(
         get() = heading
         set(value) {
             heading = value
-            layer?.setProperties(PropertyFactory.iconRotate(value))
+            push()
         }
 
     override var position: Position
         get() = where
         set(value) {
             where = value
-            source?.setGeoJson(feature())
+            push()
         }
 
     override fun setIcon(icon: Int, color: Int) {

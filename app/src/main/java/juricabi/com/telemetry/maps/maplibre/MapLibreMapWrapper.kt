@@ -88,6 +88,14 @@ class MapLibreMapWrapper(
             // after the limits, so the opening zoom is clamped by them rather
             // than clamping them
             applyPendingCamera()
+            pendingPadding?.let {
+                ready.setPadding(it[0], it[1], it[2], it[3])
+                pendingPadding = null
+            }
+            pendingOrientation?.let {
+                setMapOrientation(it)
+                pendingOrientation = null
+            }
             ready.setStyle(MapLibreStyles.forType(type)) { loaded ->
                 style = loaded
                 val queued = ArrayList(pending)
@@ -277,8 +285,16 @@ class MapLibreMapWrapper(
      */
     override fun getMapOrientation(): Float = -(map?.cameraPosition?.bearing?.toFloat() ?: 0f)
 
+    private var pendingOrientation: Float? = null
+
     override fun setMapOrientation(degrees: Float) {
-        val at = map?.cameraPosition ?: return
+        val at = map?.cameraPosition ?: run {
+            // Heading-up is applied as the map is built, and a map built
+            // north-up stays north-up until the next heading arrives — which,
+            // with a replay standing paused, is never.
+            pendingOrientation = degrees
+            return
+        }
         map?.moveCamera(
             CameraUpdateFactory.newCameraPosition(
                 CameraPosition.Builder(at).bearing(-degrees.toDouble()).build()
@@ -288,16 +304,36 @@ class MapLibreMapWrapper(
 
     override fun resetMapOrientation() = setMapOrientation(0f)
 
+    /**
+     * Where the map is looking, and never a made-up answer.
+     *
+     * Nothing off the coast of Africa: this is subtracted from where the model
+     * is to work out how far the map has been dragged away from it, and a zero
+     * here is a lean of the whole width of the world — the camera would be sent
+     * somewhere it could never come back from. Before there is a camera, the
+     * honest answer is wherever it has been asked to look.
+     */
     override fun getCentre(): Position {
-        val at = map?.cameraPosition?.target ?: return Position(0.0, 0.0)
+        val at = map?.cameraPosition?.target
+            ?: return pendingTarget ?: Position(0.0, 0.0)
         return Position(at.latitude, at.longitude)
     }
 
     /** The renderer draws when it draws; there is nothing to invalidate. */
     override fun invalidate() {}
 
+    private var pendingPadding: IntArray? = null
+
     override fun setPadding(left: Int, top: Int, right: Int, bottom: Int) {
-        map?.setPadding(left, top, right, bottom)
+        val ready = map
+        if (ready == null) {
+            // Set once while the screen is laid out, which is before this map
+            // exists — dropped, the model sits under the readouts rather than
+            // in the space left for it.
+            pendingPadding = intArrayOf(left, top, right, bottom)
+            return
+        }
+        ready.setPadding(left, top, right, bottom)
     }
 
     override fun onCreate(bundle: Bundle?) = mapView.onCreate(bundle)
