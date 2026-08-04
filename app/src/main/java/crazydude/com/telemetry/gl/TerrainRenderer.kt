@@ -281,6 +281,13 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         placed = false
     }
 
+    /**
+     * Whether the camera has just been put somewhere rather than having glided
+     * there, in which case the ground under it is taken at once as well.
+     */
+    private var liftsSnap = false
+    private var targetLift = 0f
+
     private fun settle() {
         val t = target
         val far = Math.max(200f, distance * 0.5f)
@@ -289,6 +296,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val dz = t[2] - shownTarget[2]
         if (!placed || dx * dx + dy * dy + dz * dz > far * far) {
             placed = true
+            liftsSnap = true
             shownTarget[0] = t[0]; shownTarget[1] = t[1]; shownTarget[2] = t[2]
             shownX = modelX; shownY = modelY; shownZ = modelZ
             shownHeading = modelHeading; shownPitch = modelPitch; shownRoll = modelRoll
@@ -1002,13 +1010,24 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // live in that same stretched space. Placing it in unstretched metres
         // put it below hills it was supposed to clear — which is why it could
         // still end up inside them.
+        // Eased, like the lift under the eye below, and for a stronger
+        // reason: the ground under a point is not known until the tile holding
+        // it is in memory, so during a load every tile that lands turns a "no
+        // idea" into a height. Applied outright, the point the camera is
+        // looking at jumped to each of them in a single frame — which is the
+        // view lurching about over bare grey mesh while a log decodes.
         val targetFloorRaw = groundUnderCamera?.invoke(shownTarget[0], shownTarget[2])
-        val targetYRaw = if (targetFloorRaw != null && shownTarget[1] < targetFloorRaw + 5f) {
-            targetFloorRaw + 5f
+        val wantTargetLift = if (targetFloorRaw == null) {
+            0f
         } else {
-            shownTarget[1]
+            Math.max(0f, targetFloorRaw + 5f - shownTarget[1])
         }
-        val targetY = targetYRaw
+        targetLift = if (liftsSnap) {
+            wantTargetLift
+        } else {
+            targetLift + (wantTargetLift - targetLift) * 0.15f
+        }
+        val targetY = shownTarget[1] + targetLift
 
         val eyeX = shownTarget[0] + (distance * Math.cos(el) * Math.sin(az)).toFloat()
         var eyeY = targetY + (distance * Math.sin(el)).toFloat()
@@ -1023,7 +1042,10 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val wantLift = if (floorY == null) 0f else {
             Math.max(0f, floorY + 40f - eyeY)
         }
-        floorLift += (wantLift - floorLift) * 0.15f
+        // and the same, so that arriving at a model does not then climb
+        // slowly out of the hill it is standing behind
+        floorLift = if (liftsSnap) wantLift else floorLift + (wantLift - floorLift) * 0.15f
+        liftsSnap = false
         eyeY += floorLift
         Matrix.setLookAtM(view, 0, eyeX, eyeY, eyeZ,
             shownTarget[0], targetY, shownTarget[2], 0f, 1f, 0f)
