@@ -52,6 +52,7 @@ class MapLibreMapWrapper(
 
     private var cameraMoveListener: (() -> Unit)? = null
     private var orientationListener: ((Float) -> Unit)? = null
+    private var lastReportedOrientation = Float.NaN
 
     /**
      * Where this phone is, and where it stood while a replay was recorded.
@@ -125,7 +126,17 @@ class MapLibreMapWrapper(
                 }
             }
             ready.addOnCameraMoveListener {
-                orientationListener?.invoke(getMapOrientation())
+                // Only where the angle has really moved. This fires for any
+                // camera move at all, and following the model is a camera move
+                // on every frame — so the compass was being written sixty times
+                // a second to say the same number, laying the readout out again
+                // each time. osmdroid reports it when it changes and not
+                // otherwise.
+                val angle = getMapOrientation()
+                if (angle != lastReportedOrientation) {
+                    lastReportedOrientation = angle
+                    orientationListener?.invoke(angle)
+                }
             }
         }
     }
