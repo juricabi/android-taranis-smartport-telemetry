@@ -311,15 +311,14 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         // second with the model in its new place and no flight drawn behind it,
         // and jumping between two paused positions made that the whole picture
         // until something else happened to move.
-        if (appendedThrough == 0) {
+        // One point is no flight to build, and falls through: it is appended to
+        // nothing, and the model is placed at the end of it as always — which
+        // is what a replay opened at its beginning has, and all it needs.
+        if (appendedThrough == 0 && LiveFlightPath.size() > 1) {
+            // Placing the model and arriving at it, both of them, are the
+            // rebuild's own work — the camera snaps to the first place the
+            // model is put, and a flight thrown away has none.
             pickUpNewPoints()
-            // and the model in its own right: there is no flight to build from
-            // a single point, and that is exactly what a replay opened at its
-            // beginning has — which left it standing there with nothing drawn
-            placeModel()
-            // a jump, not a flight: the camera belongs where the model has
-            // landed rather than travelling there
-            renderer.snapToTarget()
             return
         }
         // The flight grows with the model rather than waiting for the tick, so
