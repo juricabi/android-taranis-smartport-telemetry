@@ -26,10 +26,46 @@ object LiveFlightPath {
      */
     @Synchronized
     fun add(lat: Double, lon: Double, altitudeMsl: Float) {
-        if (points.size >= LIMIT) return
+        if (points.size >= LIMIT) thin()
         points.add(TerrainScene.TrackPoint(lat, lon, altitudeMsl))
         version++
     }
+
+    /**
+     * Every second point, when the limit is reached, so a long session goes on
+     * flying at half the detail rather than stopping.
+     *
+     * It used to refuse the point instead. Nothing was said and nothing looked
+     * broken: the map's own line kept growing, while everything drawn from this
+     * — the model in three dimensions, its camera, the lines that start at it,
+     * the altitude profile — stood still where the flight had been half an hour
+     * earlier. An hour of ten-a-second fixes is all it takes.
+     */
+    private fun thin() {
+        val kept = ArrayList<TerrainScene.TrackPoint>(points.size / 2 + 2)
+        var i = 0
+        while (i < points.size) {
+            kept.add(points[i])
+            i += 2
+        }
+        // the newest is where the model is, and is worth more than its place in
+        // the sequence
+        val last = points[points.size - 1]
+        if (kept[kept.size - 1] !== last) kept.add(last)
+        points.clear()
+        points.addAll(kept)
+        // Everything that has been following this by index has to start again:
+        // the point that was tenth is now somewhere else entirely.
+        generation++
+    }
+
+    /**
+     * Bumped when the path is thinned, which moves every point that was being
+     * counted from. A watcher keeping its place by index has to rebuild.
+     */
+    @Volatile
+    var generation = 0
+        private set
 
     @Synchronized
     fun snapshot(): List<TerrainScene.TrackPoint> = ArrayList(points)
@@ -50,5 +86,6 @@ object LiveFlightPath {
     fun clear() {
         points.clear()
         version++
+        generation++
     }
 }

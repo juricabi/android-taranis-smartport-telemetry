@@ -4911,6 +4911,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         fr24Manager = null
         airplaneMarkers.values.forEach { it.remove() }
         airplaneMarkers.clear()
+        // The ground view's posts and the list they are rebuilt from. Without
+        // this a replay opened from the 3D view kept this afternoon's airliners
+        // standing over last month's flight — the map had cleared its own, and
+        // a view built later put them back from the list.
+        lastAirplanes = emptyList()
+        terrain3D?.setTraffic(emptyList())
         map?.invalidate()
     }
 

@@ -268,6 +268,12 @@ class TerrainScene {
             if (p.lon > maxLon) maxLon = p.lon
         }
         track = smoothed(raw)
+        // How far the flight reaches, which decides how far the camera may be
+        // pulled back. It was worked out once, when the view opened — and a
+        // replay opens with an empty flight, so it stayed at its smallest for
+        // the whole of one: a twenty-kilometre flight could not be zoomed out
+        // past two and a half.
+        measure()
         buildShadow(points)
     }
 
@@ -342,9 +348,7 @@ class TerrainScene {
         }
         track = out
 
-        val halfWidth = Math.abs(east(maxLon) - east(minLon)) / 2
-        val halfHeight = Math.abs(north(maxLat) - north(minLat)) / 2
-        extent = Math.max(200f, Math.max(halfWidth, halfHeight))
+        measure()
         return true
     }
 
@@ -714,6 +718,13 @@ class TerrainScene {
     }
 
     fun groundAt(lat: Double, lon: Double): Float? = Elevation.elevationAt(lat, lon, zoom)
+
+    /** The half-width of everything flown, from the bounds gathered so far. */
+    private fun measure() {
+        val halfWidth = Math.abs(east(maxLon) - east(minLon)) / 2
+        val halfHeight = Math.abs(north(maxLat) - north(minLat)) / 2
+        extent = Math.max(200f, Math.max(halfWidth, halfHeight))
+    }
 
     fun buildShadow(points: List<TrackPoint>) {
         val out = FloatArray(points.size * 3)

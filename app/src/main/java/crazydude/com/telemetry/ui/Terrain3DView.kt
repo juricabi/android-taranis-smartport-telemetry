@@ -325,6 +325,9 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     /** How much of the flight has been handed to the renderer point by point. */
     private var appendedThrough = 0
 
+    /** Which shape of the path those counts belong to. */
+    private var seenGeneration = 0
+
     /** The one before it, to tell which way the model is going without attitude. */
     private var lastAppendedPoint: TerrainScene.TrackPoint? = null
 
@@ -345,6 +348,15 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // tells a view that opened with nothing that a flight is under way.
         flightShown = true
         if (!started || !terrainReady) return
+
+        // The path has been thinned under us, so every index kept here means a
+        // different point now: start again rather than append from the middle
+        // of somewhere else.
+        if (LiveFlightPath.generation != seenGeneration) {
+            seenGeneration = LiveFlightPath.generation
+            appendedThrough = 0
+            seenVersion = -1
+        }
 
         // Nothing to grow from: the flight has been thrown away and is on its
         // way back, which is what a replay jumping somewhere else looks like.
@@ -447,6 +459,8 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         val frameMoved = scene.resolveAltitudeIfNeeded(points)
         scene.buildTrack(points)
         renderer.setTrack(scene.track, scene.shadow)
+        // as the flight grows, so does how far back the camera may be pulled
+        renderer.maxDistance = Math.max(2500f, scene.extent * 5f)
         // rebuilt from the whole flight, so everything is accounted for again
         appendedThrough = points.size
 
@@ -522,6 +536,10 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         myLon = lon
         myAccuracy = accuracy
         showMyLocation()
+        // and the line drawn to it: it was rebuilt only when the model moved,
+        // so with a replay paused or a link dropped it stayed pinned where the
+        // phone had been while the arrow walked away from the end of it
+        rebuildOverlays()
         // With nothing flying, this is the only thing that can walk off the
         // edge of the loaded ground. While something is flying, the ground
         // gathers around that instead — it cannot follow both at once, and the
@@ -681,15 +699,26 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         val sets = ArrayList<TerrainRenderer.LineSet>()
         val model = LiveFlightPath.latest()
 
-        // the line home, which on a map goes to the phone
+        // The line home, which goes to where the phone was standing while the
+        // flight happened — the recorded place while a replay has one, and
+        // where the phone is now otherwise. Drawn to where the phone is now
+        // over a flight recorded elsewhere, it ran off across the county, which
+        // is the whole reason the operator is recorded at all.
+        //
         // Both of these start at the model, so the renderer draws them from
         // where it is drawing the model. Given as vertices here they jumped to
         // each fix and then waited, while the model glided between them.
-        val home = if (myLat.isNaN() || myLon.isNaN()) null else scene.groundAt(myLat, myLon)
+        val homeLat = if (!loggedLat.isNaN()) loggedLat else myLat
+        val homeLon = if (!loggedLon.isNaN()) loggedLon else myLon
+        val home = if (homeLat.isNaN() || homeLon.isNaN()) {
+            null
+        } else {
+            scene.groundAt(homeLat, homeLon)
+        }
         if (homeLineOn && model != null && home != null) {
             val c = colorOf(homeLineColor)
-            renderer.setHomeLine(true, scene.east(myLon), home - scene.originAltitude,
-                -scene.north(myLat), c[0], c[1], c[2], c[3])
+            renderer.setHomeLine(true, scene.east(homeLon), home - scene.originAltitude,
+                -scene.north(homeLat), c[0], c[1], c[2], c[3])
         } else {
             renderer.setHomeLine(false, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
         }
@@ -849,6 +878,8 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         loggedAccuracy = if (accuracy.isNaN()) 0f else accuracy
         if (!heading.isNaN()) loggedHeading = heading
         placeLoggedArrow()
+        // the line home is drawn to this one while a replay has it
+        rebuildOverlays()
     }
 
     fun hideLoggedLocation() {
@@ -857,6 +888,8 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         loggedAccuracy = 0f
         renderer.hideLoggedLocation()
         renderer.setLoggedCircle(FloatArray(0))
+        // back to the live phone for the line home
+        rebuildOverlays()
     }
 
     fun setMyHeading(degrees: Float) {
