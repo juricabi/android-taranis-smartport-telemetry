@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.graphics.RectF
 import android.os.Bundle
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.ViewGroup
 import android.widget.PopupWindow
 import android.widget.TextView
@@ -141,7 +142,17 @@ class MapLibreMapWrapper(
             // that fires once when a gesture begins, and what is needed is for
             // the glide to stay out of the way for as long as the finger is
             // down. Returning false so the map still gets the gesture.
-            mapView.setOnTouchListener { _, _ ->
+            mapView.setOnTouchListener { _, event ->
+                // Down for as long as any finger is: a pointer going up while
+                // another is still down is the end of a pinch, not the end of
+                // the touch.
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN,
+                    MotionEvent.ACTION_POINTER_DOWN,
+                    MotionEvent.ACTION_MOVE -> handOnMap = true
+                    MotionEvent.ACTION_UP,
+                    MotionEvent.ACTION_CANCEL -> handOnMap = false
+                }
                 glideTo = null
                 glideBearing = Double.NaN
                 cameraMoveListener?.invoke()
@@ -268,6 +279,9 @@ class MapLibreMapWrapper(
     private var glideBearing = Double.NaN
     private var gliding = false
 
+    /** Whether a finger is on the map, in which case nothing else moves it. */
+    private var handOnMap = false
+
     /** How much of what is left the camera takes each frame. */
     private val GLIDE = 0.25
 
@@ -275,6 +289,15 @@ class MapLibreMapWrapper(
         override fun run() {
             gliding = false
             val ready = map ?: return
+            // Nothing is written to the camera while the map is being held.
+            //
+            // Dropping the targets on touch is not enough on its own: in chase
+            // the map is turned to the model's heading on every frame, so the
+            // glide is re-armed between one touch event and the next, and on a
+            // replay wound on fast that is often enough to land inside a pinch
+            // and end it. It comes back on its own — the frame loop asks for
+            // the flight again as soon as the hand is off.
+            if (handOnMap) return
             val at = ready.cameraPosition
             var lat = at.target?.latitude ?: 0.0
             var lon = at.target?.longitude ?: 0.0
