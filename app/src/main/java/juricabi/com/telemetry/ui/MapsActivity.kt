@@ -54,6 +54,7 @@ import juricabi.com.telemetry.manager.PreferenceManager
 import juricabi.com.telemetry.manager.SensorTimeoutManager
 import juricabi.com.telemetry.maps.MapLine
 import juricabi.com.telemetry.maps.MapMarker
+import juricabi.com.telemetry.maps.LineWeights
 import juricabi.com.telemetry.maps.MapWrapper
 import juricabi.com.telemetry.maps.Position
 import juricabi.com.telemetry.maps.maplibre.MapLibreMapWrapper
@@ -161,17 +162,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
         // zoom used when jumping to a position; 18 is the deepest real satellite level
         private const val LOCATE_ZOOM = 18f
-
-        /**
-         * How heavy the flight is drawn, and the plan for it with it.
-         *
-         * Said once. It was said nowhere before: the flight line asked for no
-         * width at all and took whatever the map it was drawn on happened to
-         * default to — near enough three and a half on osmdroid, four on
-         * MapLibre — so the two maps did not agree and neither agreed with the
-         * plan drawn beside them.
-         */
-        private const val FLIGHT_LINE_WIDTH = 4f
 
         private const val CONNTYPE_NONE = 0
         private const val CONNTYPE_BT = 1
@@ -906,13 +896,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         map?.setOnOrientationChangedListener { orientation ->
             updateCompassHeading(orientation)
         }
-        polyLine = map?.addPolyline(FLIGHT_LINE_WIDTH, preferenceManager.getRouteColor())
+        polyLine = map?.addPolyline(LineWeights.FLIGHT, preferenceManager.getRouteColor())
         // Only a flight that is still going, or one being replayed. The service
         // outlives this screen and keeps the points of whatever it last heard,
         // so an unconnected map opened afterwards drew the last flight as
         // though it were happening — which the 3D ground never did.
         redrawFlightLine()
-        homeLine = map?.addPolyline(2f, preferenceManager.getHomeLineColor())
+        homeLine = map?.addPolyline(LineWeights.HOME, preferenceManager.getHomeLineColor())
         drawFlightPlans()
         showMyLocation()
         pointMapAtTheFlight()
@@ -1213,7 +1203,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // The same weight as the flight itself, so a plan and the flight
             // flown against it read as the same kind of thing.
             val line = map?.addPolyline(
-                FLIGHT_LINE_WIDTH, plan.color, *plan.waypoints.toTypedArray()
+                LineWeights.PLAN, plan.color, *plan.waypoints.toTypedArray()
             )
             if (line != null) {
                 flightPlanLines.add(line)
@@ -3386,7 +3376,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     private fun createHeadingPolyline(): MapLine? {
-        return map?.addPolyline(3f, preferenceManager.getHeadLineColor(), lastGPS, lastGPS)
+        return map?.addPolyline(LineWeights.HEADING, preferenceManager.getHeadLineColor(), lastGPS, lastGPS)
     }
 
     private fun setRSSIIcon(rssi: Int) {
