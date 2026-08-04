@@ -1136,12 +1136,41 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // the flight ends at the newest fix and the model is easing towards it.
         val joined = track != null && shadow != null && modelVisible &&
             tCount >= 2 && sCount == tCount
-        val airCount = if (joined) tCount - 1 else tCount
-        val groundCount = if (joined) sCount - 1 else sCount
-        val curtainCount = if (joined && dCount >= 6) dCount - 6 else dCount
+
+        // How far along the flight the model has actually got.
+        //
+        // Live it is always within the last stretch, since one point arrives at
+        // a time. A replay hands over a batch at once, so the flight can run
+        // several points past where the model is — and drawn to its end, it
+        // stands in front of the model instead of behind it. Walking back to
+        // the stretch the model is really on holds for both.
+        var reached = tCount - 1
+        if (joined) {
+            while (reached >= 1) {
+                val a = (reached - 1) * 3
+                val b = reached * 3
+                val abx = track!!.get(b) - track.get(a)
+                val aby = track.get(b + 1) - track.get(a + 1)
+                val abz = track.get(b + 2) - track.get(a + 2)
+                val amx = shownX - track.get(a)
+                val amy = shownY - track.get(a + 1)
+                val amz = shownZ - track.get(a + 2)
+                if (abx * amx + aby * amy + abz * amz >= 0f) break
+                reached--
+            }
+            if (reached < 1) reached = 1
+        }
+        val skipped = if (joined) tCount - reached else 0
+        val airCount = if (joined) reached else tCount
+        val groundCount = if (joined) reached else sCount
+        val curtainCount = if (joined && dCount >= 6) {
+            dCount - Math.min(skipped, dCount / 6) * 6
+        } else {
+            dCount
+        }
 
         if (joined) {
-            val previous = (tCount - 2) * 3
+            val previous = (reached - 1) * 3
             val ax = track!!.get(previous)
             val ay = track.get(previous + 1)
             val az = track.get(previous + 2)

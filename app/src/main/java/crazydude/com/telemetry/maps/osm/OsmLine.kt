@@ -10,6 +10,11 @@ class OsmLine(private val mapView: MapView) : MapLine() {
     private val line = Polyline(mapView)
 
     init {
+        // Tapping the flight, or a flight plan, opened an empty white bubble:
+        // osmdroid gives every line one whether or not it has anything to say,
+        // exactly as it does with markers. Only the aircraft from FlightRadar
+        // have anything to put in one.
+        line.infoWindow = null
         mapView.overlayManager.add(line)
     }
 
