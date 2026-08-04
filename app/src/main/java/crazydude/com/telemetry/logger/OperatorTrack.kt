@@ -21,6 +21,7 @@ import java.util.Locale
  */
 class OperatorTrack private constructor(
     private val times: LongArray,
+    private val marks: LongArray,
     private val lats: DoubleArray,
     private val lons: DoubleArray,
     private val accuracies: FloatArray,
@@ -68,6 +69,39 @@ class OperatorTrack private constructor(
 
     private fun row(i: Int) = Where(lats[i], lons[i], accuracies[i], headings[i])
 
+    /**
+     * The time at which the recording had reached that many bytes.
+     *
+     * This is what makes a replay tell the truth about a link that went quiet:
+     * rows go on being written every fifth of a second through the silence, all
+     * of them marked with the same place in the recording — so a replay sitting
+     * at that place is somewhere in that stretch of rows, and the clock stands
+     * still there exactly as it did on the day.
+     *
+     * The stretch is answered at its end, so the clock reads the moment the
+     * link came back rather than the moment it went away: the packet being
+     * drawn is the first one after the silence, and that is when it arrived.
+     *
+     * NaN of a kind: no marks in this CSV at all, and there is nothing to
+     * answer with.
+     */
+    fun timeAtMark(mark: Long): Long? {
+        if (marks.isEmpty() || marks[marks.size - 1] < 0L) return null
+        if (mark <= marks[0]) return times[0]
+        val last = marks.size - 1
+        if (mark >= marks[last]) return times[last]
+
+        var low = 0
+        var high = last
+        while (low + 1 < high) {
+            val middle = (low + high) / 2
+            if (marks[middle] <= mark) low = middle else high = middle
+        }
+        // the last row that had got no further than here
+        while (low + 1 <= last && marks[low + 1] <= mark) low++
+        return times[low]
+    }
+
     private fun between(from: Float, to: Float, part: Float): Float {
         if (from.isNaN()) return to
         if (to.isNaN()) return from
@@ -90,6 +124,7 @@ class OperatorTrack private constructor(
         private const val LON = "MyLon"
         private const val ACCURACY = "MyAcc(m)"
         private const val HEADING = "MyHdg(deg)"
+        private const val MARK = "LogBytes"
 
         /**
          * Null where there is nothing to read: no CSV beside the log, or one
@@ -108,8 +143,10 @@ class OperatorTrack private constructor(
             var lon = -1
             var accuracy = -1
             var heading = -1
+            var mark = -1
 
             val times = ArrayList<Long>()
+            val marks = ArrayList<Long>()
             val lats = ArrayList<Double>()
             val lons = ArrayList<Double>()
             val accuracies = ArrayList<Float>()
@@ -132,6 +169,7 @@ class OperatorTrack private constructor(
                             LON -> lon = i
                             ACCURACY -> accuracy = i
                             HEADING -> heading = i
+                            MARK -> mark = i
                         }
                     }
                     if (time < 0 || lat < 0 || lon < 0) usable = false
@@ -146,6 +184,7 @@ class OperatorTrack private constructor(
                     val east = cell[lon].trim().toDoubleOrNull()
                     if (whenAt != null && north != null && east != null) {
                         times.add(whenAt)
+                        marks.add(cellLong(cell, mark))
                         lats.add(north)
                         lons.add(east)
                         accuracies.add(cellFloat(cell, accuracy))
@@ -159,11 +198,17 @@ class OperatorTrack private constructor(
             if (times.size < 2) return null
             return OperatorTrack(
                 LongArray(times.size) { times[it] },
+                LongArray(marks.size) { marks[it] },
                 DoubleArray(lats.size) { lats[it] },
                 DoubleArray(lons.size) { lons[it] },
                 FloatArray(accuracies.size) { accuracies[it] },
                 FloatArray(headings.size) { headings[it] }
             )
+        }
+
+        private fun cellLong(cell: List<String>, at: Int): Long {
+            if (at < 0 || at >= cell.size) return -1L
+            return cell[at].trim().toLongOrNull() ?: -1L
         }
 
         private fun cellFloat(cell: List<String>, at: Int): Float {

@@ -962,6 +962,15 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private fun replayTimeNow(): Date? {
         val track = operatorTrack ?: return null
+        // Where the replay has got to in the recording, looked up in the CSV,
+        // which was written on a clock. Packets counted would do only if the
+        // link talked at a steady rate — and the whole point of asking is the
+        // minute where it said nothing at all.
+        val player = logPlayer
+        if (player != null) {
+            track.timeAtMark(player.bytesAt(player.currentPosition))?.let { return Date(it) }
+        }
+        // an older recording, with no marks in it: spread evenly, as before
         val span = track.endedAt - track.startedAt
         if (span <= 0L) return Date(track.startedAt)
         val total = seekbar.max

@@ -16,6 +16,23 @@ import kotlin.collections.HashMap
 class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listener {
 
     private var cachedData = ArrayList<Protocol.Companion.TelemetryData>()
+
+    /** How far into the recording each packet of [cachedData] finished. */
+    private var offsets = ArrayList<Long>()
+    private var decoded = ArrayList<Long>()
+
+    /**
+     * Where in the recording the replay has got to.
+     *
+     * Packets counted say nothing about time passing — a link that went quiet
+     * for a minute wrote nothing at all — but bytes written line up with the
+     * CSV, which was written on a clock.
+     */
+    fun bytesAt(position: Int): Long {
+        if (offsets.isEmpty()) return 0L
+        val at = Math.max(0, Math.min(position, offsets.size - 1))
+        return offsets[at]
+    }
     private var decodedCoordinates = ArrayList<Position>()
     private var hasGPSFix = false
     private var satellites = 0;
@@ -46,11 +63,21 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
         override fun doInBackground(vararg file: File): ArrayList<Protocol.Companion.TelemetryData> {
             var logFile = FileInputStream(file[0])
             val arrayList = ArrayList<Protocol.Companion.TelemetryData>()
+            val collected = ArrayList<Long>()
+            decoded = collected
             var tempProtocol: Protocol? = null
+
+            // Where in the file each packet finished, so a position in the
+            // replay can be turned into a place in the recording — and from
+            // there, through the CSV, into the time it actually happened.
+            // Counted through the decoding pass, which starts again from the
+            // beginning of the file once the protocol has been detected.
+            var consumed = 0L
 
             val tempDecoder = object : DataDecoder(this@LogPlayer) {
                 override fun decodeData(data: Protocol.Companion.TelemetryData) {
                     arrayList.add(data)
+                    collected.add(consumed)
                 }
             }
 
@@ -159,6 +186,7 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
                 var allBytes = bytesRead
                 while (bytesRead == size) {
                     for (i in 0 until bytesRead) {
+                        consumed++
                         tempProtocol?.process(bytes[i].toUByte().toInt())
                     }
                     publishProgress(((allBytes / file[0].length().toFloat()) * 100).toLong())
@@ -176,6 +204,7 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
 
         override fun onPostExecute(result: ArrayList<Protocol.Companion.TelemetryData>) {
             cachedData = result
+            offsets = decoded
             dataReadyListener?.onDataReady(result.size)
 
             if (dataReadyListener?.getPlaybackAutostart() == true ){

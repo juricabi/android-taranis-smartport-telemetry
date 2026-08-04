@@ -16,7 +16,10 @@ import java.util.*
  * recording's and so a different name for the same flight: renaming or deleting
  * one then left the other behind.
  */
-class OtxCsvLogger(name: String? = null) : DataDecoder.Listener {
+class OtxCsvLogger(
+    name: String? = null,
+    private val bytesRecorded: () -> Long = { 0L }
+) : DataDecoder.Listener {
 
     private var fileWriter: FileWriter?
     private val file: File?
@@ -57,7 +60,13 @@ class OtxCsvLogger(name: String? = null) : DataDecoder.Listener {
         "MyLat",
         "MyLon",
         "MyAcc(m)",
-        "MyHdg(deg)"
+        "MyHdg(deg)",
+        // How far through the recording beside this one the link had got when
+        // this row was written. A row is written every fifth of a second
+        // whether or not anything is arriving, so where this stops climbing the
+        // link had gone quiet — and a replay can put that silence back where it
+        // happened instead of spreading it across the flight.
+        "LogBytes"
     )
 
     @Volatile private var myLat = Double.NaN
@@ -191,7 +200,8 @@ class OtxCsvLogger(name: String? = null) : DataDecoder.Listener {
             place(myLat),
             place(myLon),
             measure(myAccuracy),
-            measure(myHeading)
+            measure(myHeading),
+            bytesRecorded().toString()
         )
         outputLine(data)
     }

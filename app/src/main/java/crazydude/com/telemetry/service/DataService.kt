@@ -26,6 +26,7 @@ import crazydude.com.telemetry.protocol.pollers.UsbDataPoller
 import crazydude.com.telemetry.utils.WifiNetworkBinder
 import crazydude.com.telemetry.ui.MapsActivity
 import java.io.File
+import crazydude.com.telemetry.logger.CountingLog
 import java.io.FileOutputStream
 import java.io.IOException
 import java.lang.NullPointerException
@@ -133,6 +134,13 @@ class DataService : Service(), DataDecoder.Listener {
      */
     private var logName: String? = null
 
+    /**
+     * The recording being written, for the CSV to say how far through it each
+     * of its rows was written — which is the only thing that lines the two up
+     * when the link goes quiet.
+     */
+    private var recording: CountingLog? = null
+
     private fun createLogFile(): FileOutputStream? {
         var fileOutputStream: FileOutputStream? = null
         logName = null
@@ -147,7 +155,9 @@ class DataService : Service(), DataDecoder.Listener {
             val dir = Environment.getExternalStoragePublicDirectory("TelemetryLogs")
             dir.mkdirs()
             val file = File(dir, "$name.tlm")
-            fileOutputStream = FileOutputStream(file)
+            val counted = CountingLog(file)
+            recording = counted
+            fileOutputStream = counted
         }
 
         return fileOutputStream
@@ -238,7 +248,7 @@ class DataService : Service(), DataDecoder.Listener {
                 Manifest.permission.WRITE_EXTERNAL_STORAGE
             ) == PackageManager.PERMISSION_GRANTED
         ) {
-            OtxCsvLogger(logName)
+            OtxCsvLogger(logName) { recording?.bytesWritten ?: 0L }
         } else {
             null
         }
