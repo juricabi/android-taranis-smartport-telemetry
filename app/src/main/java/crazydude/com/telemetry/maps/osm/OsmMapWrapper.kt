@@ -22,6 +22,7 @@ import android.view.animation.DecelerateInterpolator
 import org.osmdroid.views.overlay.gestures.RotationGestureOverlay
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
+import android.location.Location
 
 
 class OsmMapWrapper(private val context: Context, private val mapView: MapView, tileSource: OnlineTileSourceBase, private val callback: () -> Unit, private val overlayTileSources: List<OnlineTileSourceBase> = emptyList()) : MapWrapper {
@@ -94,6 +95,22 @@ class OsmMapWrapper(private val context: Context, private val mapView: MapView, 
 
     override fun initialized() : Boolean {
         return true;
+    }
+
+    override fun showRecordedLocation(position: Position?, accuracy: Float, heading: Float) {
+        if (position == null) {
+            compassLocationProvider.feed(null)
+            return
+        }
+        val stood = Location("replay")
+        stood.latitude = position.lat
+        stood.longitude = position.lon
+        if (!accuracy.isNaN() && accuracy > 0f) stood.accuracy = accuracy
+        // a bearing at all is what makes the map draw the arrow rather than the
+        // plain dot, so an unknown one is left unset
+        if (!heading.isNaN()) stood.bearing = heading
+        myLocationNewOverlay.enableMyLocation()
+        compassLocationProvider.feed(stood)
     }
 
     override fun getMyLocation(): Position? {

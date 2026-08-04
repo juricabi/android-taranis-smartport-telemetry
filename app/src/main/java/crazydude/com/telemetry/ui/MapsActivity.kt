@@ -397,8 +397,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private var operatorTrack: OperatorTrack? = null
     private var recordedMe: Position? = null
-    private var meMarker: MapMarker? = null
-    private var meRing: MapLine? = null
 
     private val timeOfDayFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
     private val flightDayFormat = SimpleDateFormat("d MMM yyyy HH:mm:ss", Locale.getDefault())
@@ -409,10 +407,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * A replay drives the clock from the log itself, every time the position
      * changes; this is the live one, and the seconds are all it has to show.
      */
-    /** The ring drawn round a recorded fix, and how round it is. */
-    private val RING_COLOUR = android.graphics.Color.argb(140, 90, 160, 255)
-    private val RING_POINTS = 36
-
     private val clockTicker = object : Runnable {
         override fun run() {
             showTime()
@@ -834,6 +828,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 // facing north wherever it had really been going.
                 it.rotation = if (shownMarkerHeading.isNaN()) lastHeading else shownMarkerHeading
             }
+            // Straight at it, and not still leaning wherever the last map was
+            // dragged to. The lean outlives the map it was made on, so a map
+            // built after a change of view put the model off to one side — and
+            // turning the map to a heading swung it round the empty middle
+            // instead of round the model.
+            centreOnModel()
             map?.moveCamera(shownPosition(), LOCATE_ZOOM)
             updateHeading()
             updateHomeLine()
@@ -944,61 +944,36 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val track = operatorTrack
         val now = replayTimeNow()
         if (track == null || now == null) {
+            // nothing recorded, so nothing drawn: not the live arrow either,
+            // which is this phone now and not where anybody stood then
+            map?.showRecordedLocation(null, 0f, 0f)
             map?.isMyLocationEnabled = false
-            meMarker?.remove(); meMarker = null
-            meRing?.remove(); meRing = null
             terrain3D?.hideMyLocation()
             updateHomeLine()
             return
         }
         val where = track.at(now.time)
-        recordedMe = Position(where.lat, where.lon)
+        val here = Position(where.lat, where.lon)
+        recordedMe = here
 
-        // the map's own arrow is the live one, and this is not it
-        map?.isMyLocationEnabled = false
-        val here = recordedMe ?: return
-        val marker = meMarker ?: map?.addMarker(R.drawable.ic_pos_arrow, here)?.also {
-            meMarker = it
-        }
-        marker?.position = here
-        if (!where.heading.isNaN()) marker?.rotation = where.heading
-        drawAccuracyRing(here, where.accuracy)
+        // Through the map's own arrow rather than beside it: fed where the
+        // phone was, it draws the dot, the arrow and the accuracy ring exactly
+        // as it draws them live, because it is the same overlay.
+        map?.showRecordedLocation(here, where.accuracy, where.heading)
         terrain3D?.useRecordedHeading(true)
         terrain3D?.setMyPosition(where.lat, where.lon, if (where.accuracy.isNaN()) 0f else where.accuracy)
         if (!where.heading.isNaN()) terrain3D?.setMyHeading(where.heading)
         updateHomeLine()
     }
 
-    /** The same circle the map draws around a live fix, around a recorded one. */
-    private fun drawAccuracyRing(centre: Position, accuracy: Float) {
-        if (accuracy.isNaN() || accuracy < 1f) {
-            meRing?.remove()
-            meRing = null
-            return
-        }
-        val ring = meRing ?: map?.addPolyline(2f, RING_COLOUR)?.also { meRing = it }
-        val metresPerDegreeLon = 111320.0 * Math.cos(Math.toRadians(centre.lat))
-        val points = ArrayList<Position>(RING_POINTS + 1)
-        for (step in 0..RING_POINTS) {
-            val angle = 2.0 * Math.PI * step / RING_POINTS
-            points.add(
-                Position(
-                    centre.lat + accuracy * Math.cos(angle) / 111320.0,
-                    centre.lon + accuracy * Math.sin(angle) / metresPerDegreeLon
-                )
-            )
-        }
-        ring?.clear()
-        ring?.addPoints(points)
-    }
-
     /** For a replay that has been closed, opened or renamed. */
     private fun forgetOperator() {
         operatorTrack = null
         recordedMe = null
-        meMarker?.remove(); meMarker = null
-        meRing?.remove(); meRing = null
+        // back to the live arrow, wherever this phone actually is
+        map?.showRecordedLocation(null, 0f, 0f)
         terrain3D?.useRecordedHeading(false)
+        showMyLocation()
         showTime()
     }
 
@@ -3888,6 +3863,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * there is nothing there.
      */
     private fun closeReplay() {
+        // first, so that everything asking whether this is a replay is answered
+        // truthfully by the time it is asked — the live arrow is switched on by
+        // one of those answers, and was being switched on while the replay was
+        // still officially open, which left it off
         replayFileString = null
         forgetOperator()
         // The whole of it: a recording that has been closed leaves nothing

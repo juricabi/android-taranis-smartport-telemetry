@@ -26,6 +26,26 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
     private var pushedBearing = -999f
     private var hasBearing = false
 
+    /**
+     * A replay handing back where the phone was, instead of where it is.
+     *
+     * Fed through the same provider the live arrow comes from, so the map draws
+     * it with the same dot, the same arrow and the same ring — a hand-drawn
+     * imitation beside the real one is exactly the kind of thing that looks
+     * wrong without anybody being able to say why.
+     */
+    private var fed = false
+
+    fun feed(location: Location?) {
+        if (location == null) {
+            fed = false
+            return
+        }
+        fed = true
+        accepted = location
+        consumer?.onLocationChanged(location, this)
+    }
+
     override fun startLocationProvider(myLocationConsumer: IMyLocationConsumer?): Boolean {
         consumer = myLocationConsumer
         sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
@@ -41,12 +61,14 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
             // osmdroid's provider already ignores network fixes for a while
             // after a gps one, so take what it gives us; filtering on accuracy
             // here could latch onto one good fix and freeze the position.
+            if (fed) return@startLocationProvider
             accepted = location
             myLocationConsumer?.onLocationChanged(injectBearing(location), source)
         }
     }
 
     override fun stopLocationProvider() {
+        fed = false
         accepted = null
         hasGravity = false
         hasGeomagnetic = false
@@ -129,6 +151,7 @@ class CompassLocationProvider(private val context: Context) : IMyLocationProvide
                 // every frame. Half a degree, sixteen times a second, is smooth
                 // to the eye and still a fraction of what the map draws while
                 // following a model.
+                if (fed) return
                 if (now - lastBearingPush > 60 && moved > 0.5f) {
                     // redrawing the map on every sample would run all day with
                     // the phone lying still, so only do it when it has turned

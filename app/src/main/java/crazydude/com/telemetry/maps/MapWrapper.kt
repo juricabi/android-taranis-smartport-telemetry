@@ -9,6 +9,14 @@ interface MapWrapper {
     fun initialized() : Boolean
     fun getMyLocation(): Position?
 
+    /**
+     * Draw the phone where it was, from a recording, rather than where it is.
+     *
+     * Null hands it back to the live one. Anything that cannot do this draws
+     * the live arrow as it always did.
+     */
+    fun showRecordedLocation(position: Position?, accuracy: Float, heading: Float) {}
+
     fun moveCamera(position: Position)
     fun moveCamera(position: Position, zoom: Float)
     fun addMarker(icon: Int, color: Int, position: Position): MapMarker
