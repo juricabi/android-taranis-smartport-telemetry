@@ -248,6 +248,7 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
     fun onFlightReset() {
         seenVersion = -1
         appendedThrough = 0
+        lastAppendedPoint = null
         renderer.setTrack(FloatArray(0), FloatArray(0))
         // and everything drawn from where the model was. These are refreshed on
         // the tick, so left alone they went on being drawn for up to half a
@@ -259,6 +260,9 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
 
     /** How much of the flight has been handed to the renderer point by point. */
     private var appendedThrough = 0
+
+    /** The one before it, to tell which way the model is going without attitude. */
+    private var lastAppendedPoint: TerrainScene.TrackPoint? = null
 
     /**
      * Told when a fix lands, so the model moves with the one on the map rather
@@ -286,6 +290,15 @@ class Terrain3DView(context: Context) : FrameLayout(context), android.hardware.S
         // it with the real shape.
         var arrived = 0
         for (point in LiveFlightPath.since(appendedThrough)) {
+            // Which way it is pointing, from one point to the next, for links
+            // that carry no attitude. It was worked out on the tick, and the
+            // tick does nothing when no new points are arriving — so a replay
+            // paused just after a jump left the model facing whichever way it
+            // had been facing before the jump.
+            if (!hasAttitude) {
+                lastAppendedPoint?.let { lastModelHeading = courseBetween(it, point) }
+            }
+            lastAppendedPoint = point
             renderer.appendFlightPoint(
                 scene.east(point.lon),
                 scene.aboveSeaLevel(point.altitudeMsl) - scene.originAltitude,
