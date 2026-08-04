@@ -1537,8 +1537,22 @@ class TerrainRenderer : GLSurfaceView.Renderer {
      * and with its own edges inked in, so the two read as one family.
      */
     private fun drawMyArrow() {
-        drawArrow(me)
         drawArrow(logged)
+        // and this phone pulled a hair in front of it, the way the model is
+        // pulled in front of the track it ends inside.
+        //
+        // Replaying a flight from the field it was flown at stands the two
+        // arrows on the same spot. At equal depth nothing decides between them,
+        // so which one survived came down to a metre of GPS error and changed
+        // from one replay to the next — and it was as often the place you stood
+        // last week as the place you are standing now. A bias rather than a
+        // lift: the arrow does not move, so it cannot be seen to float, and the
+        // shift is a few of the depth buffer's own steps — far too little to
+        // show through the hill in front of it.
+        GLES20.glEnable(GLES20.GL_POLYGON_OFFSET_FILL)
+        GLES20.glPolygonOffset(-2f, -4f)
+        drawArrow(me)
+        GLES20.glDisable(GLES20.GL_POLYGON_OFFSET_FILL)
     }
 
     private fun drawArrow(spot: Spot) {
