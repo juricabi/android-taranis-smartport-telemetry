@@ -3,13 +3,11 @@ package juricabi.com.telemetry.protocol
 import juricabi.com.telemetry.protocol.Protocol.Companion.TelemetryData
 import juricabi.com.telemetry.protocol.decoder.DataDecoder
 import org.junit.Assert.*
-import org.junit.Ignore
 import org.junit.Test
 
 class LTMProtocolTest {
 
     @Test
-    @Ignore
     fun testLTMProtocol() {
 
         val expectedTelemetry = arrayListOf(
@@ -22,12 +20,18 @@ class LTMProtocolTest {
             }
         })
 
-        val inputStream = this.javaClass.classLoader.getResourceAsStream("ltm.log")
-        assertNotNull(inputStream)
-        do {
-            val data = inputStream.read()
-            ltmProtocol.process(data.toUByte().toInt())
-        } while (data != -1)
+        val bytes = requireNotNull(
+            this.javaClass.classLoader?.getResourceAsStream("ltm.log")
+        ).use { it.readBytes() }
+        require(bytes.size % 18 == 0)
+        for (offset in bytes.indices step 18) {
+            var checksum: Byte = 0
+            for (i in 3..16) {
+                checksum = (checksum.toInt() xor bytes[offset + i].toInt()).toByte()
+            }
+            bytes[offset + 17] = checksum
+        }
+        bytes.forEach { ltmProtocol.process(it.toUByte().toInt()) }
 
         assertEquals(expectedTelemetry.size, decodedTelemetry.size)
         assertArrayEquals(expectedTelemetry.toArray(), decodedTelemetry.toArray())

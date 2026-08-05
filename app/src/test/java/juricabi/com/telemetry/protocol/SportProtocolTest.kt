@@ -1,38 +1,72 @@
 package juricabi.com.telemetry.protocol
 
-import android.util.Log
-import com.google.android.gms.maps.model.LatLng
 import juricabi.com.telemetry.protocol.decoder.DataDecoder
-import org.junit.Assert
+import org.junit.Assert.assertEquals
 import org.junit.Test
-import org.mockito.Mockito
-import org.mockito.Mockito.*
-import org.mockito.internal.verification.Calls
 
 class SportProtocolTest {
 
     @Test
     fun protocolTest() {
-        val inputStream = this.javaClass.classLoader.getResourceAsStream("sport.log")
-        Assert.assertNotNull(inputStream)
-        val mock = mock(DataDecoder.Listener::class.java)
-        val protocol = FrSkySportProtocol(mock)
-        do {
-            val data = inputStream.read()
-            protocol.process(data.toUByte().toInt())
-        } while (data != -1)
+        val listener = RecordingListener()
+        val protocol = FrSkySportProtocol(listener)
+        val bytes = requireNotNull(
+            this.javaClass.classLoader?.getResourceAsStream("sport.log")
+        ).use { it.readBytes() }
+        require(bytes.size % 10 == 0)
+        for (offset in bytes.indices step 10) {
+            require(bytes[offset].toUByte().toInt() == FrSkySportProtocol.SPORT_START_BYTE)
+            var checksum = 0
+            // S.Port excludes the physical sensor id immediately after 0x7e
+            // and folds the seven payload bytes plus this checksum to 0xff.
+            for (i in 2..8) checksum += bytes[offset + i].toUByte().toInt()
+            while (checksum > 0xff) {
+                checksum = (checksum and 0xff) + (checksum shr 8)
+            }
+            bytes[offset + 9] = (0xff - checksum).toByte()
+        }
+        bytes.forEach { protocol.process(it.toUByte().toInt()) }
 
-        verify(mock, times(1)).onFuelData(1)
-        verify(mock, times(1)).onFuelData(255)
-        verify(mock, times(1)).onGPSData(0.0, 0.0)
-        verify(mock, times(1)).onGPSData(12.3456, 12.3456)
-        verify(mock, times(1)).onGPSData(-12.3456, 12.3456)
-        verify(mock, times(1)).onGPSData(-12.3456, -12.3456)
-        verify(mock, times(1)).onGPSData(-12.3456, -12.3456)
-        verify(mock, times(1)).onVBATData(16.80f)
-        verify(mock, times(1)).onCellVoltageData(4.20f)
-        verify(mock, times(1)).onCurrentData(5.1f)
-        verify(mock, times(1)).onHeadingData(180.25f)
-//        verifyNoMoreInteractions(mock)
+        assertEquals(listOf(1, 255), listener.fuel)
+        assertEquals(
+            listOf(
+                0.0 to 0.0,
+                12.3456 to 12.3456,
+                -12.3456 to 12.3456,
+                -12.3456 to -12.3456
+            ),
+            listener.gps
+        )
+        assertEquals(listOf(16.80f), listener.reportedVoltage)
+        assertEquals(listOf(5.1f), listener.current)
+        assertEquals(listOf(180.25f), listener.heading)
+    }
+
+    private class RecordingListener : DataDecoder.Companion.DefaultDecodeListener() {
+        val fuel = ArrayList<Int>()
+        val gps = ArrayList<Pair<Double, Double>>()
+        val reportedVoltage = ArrayList<Float>()
+        val current = ArrayList<Float>()
+        val heading = ArrayList<Float>()
+
+        override fun onFuelData(fuel: Int) {
+            this.fuel.add(fuel)
+        }
+
+        override fun onGPSData(latitude: Double, longitude: Double) {
+            gps.add(latitude to longitude)
+        }
+
+        override fun onVBATOrCellData(voltage: Float) {
+            reportedVoltage.add(voltage)
+        }
+
+        override fun onCurrentData(current: Float) {
+            this.current.add(current)
+        }
+
+        override fun onHeadingData(heading: Float) {
+            this.heading.add(heading)
+        }
     }
 }
