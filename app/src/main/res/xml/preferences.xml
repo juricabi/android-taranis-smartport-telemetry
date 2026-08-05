@@ -280,13 +280,6 @@
                 android:defaultValue="true"
                 android:key="show_artificial_horizon"/>
 
-        <SwitchPreference
-            app:iconSpaceReserved="false"
-                android:title="Draw the map with MapLibre"
-                android:summary="Experimental. The same four maps, drawn by the GPU, so a long flight line costs nothing to draw. Reopen the map after changing this."
-                android:defaultValue="false"
-                android:key="use_maplibre"/>
-
     </PreferenceCategory>
 
     <PreferenceCategory

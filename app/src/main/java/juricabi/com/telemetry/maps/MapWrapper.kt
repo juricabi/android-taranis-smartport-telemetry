@@ -3,7 +3,6 @@ package juricabi.com.telemetry.maps
 import android.os.Bundle
 
 interface MapWrapper {
-    var mapType: Int
     var isMyLocationEnabled: Boolean
 
     fun initialized() : Boolean

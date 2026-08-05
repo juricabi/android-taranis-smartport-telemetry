@@ -237,15 +237,21 @@ with the PR allowing a direct connection to an ExpressLRS TX module:*
 
 ## Map types
 
-| Map | Source | Offline cache |
-|-----|--------|---------------|
-| OpenStreetMap | OSM | Yes |
-| OpenTopoMap | OSM | Yes |
-| Satellite | ESRI ArcGIS World Imagery | Yes |
-| Satellite + Streets | ESRI ArcGIS World Imagery + Transportation + Places overlays | Yes |
-| 3D terrain | elevation + satellite imagery | Yes |
+| Map | Source | Cached |
+|-----|--------|--------|
+| OpenStreetMap | OSM | as you go |
+| OpenTopoMap | OSM | as you go |
+| Satellite | ESRI ArcGIS World Imagery | as you go |
+| Satellite + Streets | ESRI ArcGIS World Imagery + Transportation + Places overlays | as you go |
+| 3D terrain | elevation + satellite imagery | as you go |
 
 No API keys required for any map type.
+
+The flat maps are drawn by **MapLibre**, on the GPU, so a flight line costs the
+same to draw however many points are in it — which is why the track keeps every
+fix rather than being thinned. Tiles are kept as they are fetched, so a field
+you have flown before works without a signal; there is no download-this-area
+button yet.
 
 ## Flight plan overlay
 

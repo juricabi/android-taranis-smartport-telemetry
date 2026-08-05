@@ -23,17 +23,16 @@ import org.maplibre.android.maps.Style
 /**
  * The map, drawn by MapLibre.
  *
- * Beside OsmMapWrapper rather than instead of it, behind a setting, so the two
- * can be flown against each other on one flight before either is trusted.
+ * The only map there is. It replaced osmdroid, which drew one for this app for
+ * years and was archived in November 2024 — 6.1.20 is the last release it will
+ * ever have.
  *
- * What it is for: osmdroid reprojects every point of every line on the UI
+ * What it bought: osmdroid reprojected every point of every line on the UI
  * thread on every frame, and the marker's easing invalidates the map on every
- * frame, so a long flight costs milliseconds a frame before anything is drawn.
- * Here the geometry lives in the renderer and the cost stops depending on how
- * much of it there is.
- *
- * osmdroid was archived in November 2024 and 6.1.20 is the last release it will
- * ever have, so this has to happen eventually whatever the frame rate does.
+ * frame, so a long flight cost milliseconds a frame before anything else was
+ * drawn. Here the geometry lives in the renderer and what it costs to draw
+ * stopped depending on how much of it there is — which is what paid for the
+ * flight line keeping every fix rather than being thinned.
  */
 class MapLibreMapWrapper(
     private val context: Context,
@@ -62,22 +61,15 @@ class MapLibreMapWrapper(
     private var lastReportedOrientation = Float.NaN
 
     /**
-     * Where this phone is, and where it stood while a replay was recorded.
-     *
-     * Built before the style so the queue takes them first: everything is
-     * layered above whatever went in before it, and these two belong under the
-     * flight and its markers rather than over them.
-     */
-    /**
      * Where the phone stood first, where it is now second — and the order is
      * the point of it.
      *
      * Layers are stacked in the order they are made, so the second of these is
      * drawn over the first. Replaying a flight from the field it was flown at
      * stands the two on the same spot, and the one that is true of this moment
-     * is the one worth seeing. The map has always settled it this way, by the
-     * order of its two overlays; the ground view needed a depth bias to say the
-     * same thing.
+     * is the one worth seeing. Built before the style, too, so both are under
+     * the flight and its markers rather than over them. The ground view needed
+     * a depth bias to say the same thing.
      */
     private val logged = MapLibreSpot(context, "logged", ::whenReady)
     private val me = MapLibreSpot(context, "me", ::whenReady)
@@ -201,12 +193,6 @@ class MapLibreMapWrapper(
     }
 
     override fun initialized(): Boolean = style != null
-
-    override var mapType: Int
-        get() = type
-        // The screen rebuilds the whole map for a change of type, which is how
-        // osmdroid did it too: a style is chosen when it is built.
-        set(value) {}
 
     override var isMyLocationEnabled: Boolean = true
         set(value) {

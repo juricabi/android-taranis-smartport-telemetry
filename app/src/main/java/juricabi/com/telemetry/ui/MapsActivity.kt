@@ -58,7 +58,7 @@ import juricabi.com.telemetry.maps.LineWeights
 import juricabi.com.telemetry.maps.MapWrapper
 import juricabi.com.telemetry.maps.Position
 import juricabi.com.telemetry.maps.maplibre.MapLibreMapWrapper
-import juricabi.com.telemetry.maps.osm.OsmMapWrapper
+import juricabi.com.telemetry.maps.maplibre.MapLibreStyles
 import org.maplibre.android.MapLibre
 import juricabi.com.telemetry.utils.GeoUtils
 import juricabi.com.telemetry.utils.PlusCode
@@ -68,10 +68,6 @@ import juricabi.com.telemetry.protocol.pollers.LogPlayer
 import juricabi.com.telemetry.utils.LocalNetworks
 import juricabi.com.telemetry.utils.WifiNetworkBinder
 import juricabi.com.telemetry.service.DataService
-import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
-import org.osmdroid.tileprovider.tilesource.XYTileSource
-import org.osmdroid.util.MapTileIndex
 import uk.co.deanwild.materialshowcaseview.IShowcaseListener
 import uk.co.deanwild.materialshowcaseview.MaterialShowcaseView
 import juricabi.com.telemetry.logger.OperatorTrack
@@ -127,38 +123,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         /** The entry that opens the 3D screen instead of changing the map. */
         private const val ITEM_3D = 4
 
-        private val ESRI_SATELLITE_TILE_SOURCE = object : OnlineTileSourceBase(
-            "ESRISatellite", 0, 18, 256, "",
-            arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/")
-        ) {
-            override fun getTileURLString(pMapTileIndex: Long): String {
-                return baseUrl + MapTileIndex.getZoom(pMapTileIndex) +
-                    "/" + MapTileIndex.getY(pMapTileIndex) +
-                    "/" + MapTileIndex.getX(pMapTileIndex)
-            }
-        }
 
-        private val ESRI_TRANSPORTATION_OVERLAY_TILE_SOURCE = object : OnlineTileSourceBase(
-            "ESRITransportation", 0, 18, 256, "",
-            arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/")
-        ) {
-            override fun getTileURLString(pMapTileIndex: Long): String {
-                return baseUrl + MapTileIndex.getZoom(pMapTileIndex) +
-                    "/" + MapTileIndex.getY(pMapTileIndex) +
-                    "/" + MapTileIndex.getX(pMapTileIndex)
-            }
-        }
 
-        private val ESRI_BOUNDARIES_PLACES_OVERLAY_TILE_SOURCE = object : OnlineTileSourceBase(
-            "ESRIBoundariesPlaces", 0, 18, 256, "",
-            arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/")
-        ) {
-            override fun getTileURLString(pMapTileIndex: Long): String {
-                return baseUrl + MapTileIndex.getZoom(pMapTileIndex) +
-                    "/" + MapTileIndex.getY(pMapTileIndex) +
-                    "/" + MapTileIndex.getX(pMapTileIndex)
-            }
-        }
 
         // zoom used when jumping to a position; 18 is the deepest real satellite level
         private const val LOCATE_ZOOM = 18f
@@ -400,7 +366,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     private lateinit var preferenceManager: PreferenceManager
 
-    private var mapType = OsmMapWrapper.MAP_TYPE_DEFAULT
+    private var mapType = MapLibreStyles.MAP_TYPE_DEFAULT
 
     private var lastGPS = Position(0.0, 0.0)
 
@@ -558,9 +524,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // choice keeps its own setting now, and anything unknown here is the
         // ordinary map again.
         mapType = preferenceManager.getMapType()
-        if (mapType < OsmMapWrapper.MAP_TYPE_DEFAULT ||
-            mapType > OsmMapWrapper.MAP_TYPE_SATELLITE_HYBRID) {
-            mapType = OsmMapWrapper.MAP_TYPE_DEFAULT
+        if (mapType < MapLibreStyles.MAP_TYPE_DEFAULT ||
+            mapType > MapLibreStyles.MAP_TYPE_SATELLITE_HYBRID) {
+            mapType = MapLibreStyles.MAP_TYPE_DEFAULT
             preferenceManager.setMapType(mapType)
         }
         followMode = savedInstanceState?.getBoolean("follow_mode", true) ?: true
@@ -822,34 +788,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         airplaneMarkers.values.forEach { it.remove() }
         airplaneMarkers.clear()
 
-        if (preferenceManager.useMapLibre()) {
-            initMapLibreMap()
-            return
-        }
-
-        if (mapType == OsmMapWrapper.MAP_TYPE_DEFAULT) {
-            initOSMMap(TileSourceFactory.DEFAULT_TILE_SOURCE)
-        } else if (mapType == OsmMapWrapper.MAP_TYPE_SATELLITE) {
-            initOSMMap(ESRI_SATELLITE_TILE_SOURCE)
-        } else if (mapType == OsmMapWrapper.MAP_TYPE_SATELLITE_HYBRID) {
-            initOSMMap(ESRI_SATELLITE_TILE_SOURCE, listOf(ESRI_TRANSPORTATION_OVERLAY_TILE_SOURCE, ESRI_BOUNDARIES_PLACES_OVERLAY_TILE_SOURCE))
-        } else {
-            initOSMMap(TileSourceFactory.OpenTopo)
-        }
-    }
-
-    private fun initOSMMap(tileSource: OnlineTileSourceBase, overlayTileSources: List<OnlineTileSourceBase> = emptyList()) {
-        val mapView = org.osmdroid.views.MapView(this)
-        mapHolder.addView(mapView)
-        map = OsmMapWrapper(applicationContext, mapView, tileSource, { initHeadingLine() }, overlayTileSources)
-        finishMapSetup()
+        initMapLibreMap()
     }
 
     /**
-     * The same map, drawn by MapLibre. Off unless it has been asked for.
-     *
-     * The map types are the same four, built as a style out of the same tile
-     * URLs, so nothing about what is drawn changes — only what draws it.
+     * The map. Which of the four it is, is a style built from the tile URLs.
      */
     private fun initMapLibreMap() {
         MapLibre.getInstance(applicationContext)
@@ -857,8 +800,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // A MapLibre view renders nothing until it has been through these, and
         // a map built here has already missed the screen's own — the type can
         // be changed, or the view switched back from the ground, long after
-        // onCreate. osmdroid did not care because its lifecycle calls do
-        // nothing at all.
+        // onCreate, and neither goes through the screen's again.
         mapView.onCreate(null)
         mapView.onStart()
         mapView.onResume()
@@ -916,7 +858,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * screen has finished setting it up. So the model got no marker at all
      * until the next fix moved it — and with a replay standing paused, or a
      * link that has dropped, there is no next fix and there never was one.
-     * osmdroid is drawable the moment it exists and this could not arise.
+     * A map that could draw the moment it was made would not need this.
      */
     private fun pointMapAtTheFlight() {
         // A map is built looking at the whole world, and it is a fix arriving
@@ -3152,9 +3094,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         map?.onDestroy()
         mapHolder.removeAllViews()
         map = null
-        // Taking the map view away detaches every overlay on it, and osmdroid
-        // empties them as it goes — so the lines and the marker held here are
-        // now hollow, and touching one throws. They belong to the map, and the
+        // Taking the map view away takes its style with it, and every line
+        // and marker held here draws out of that style — so they are now
+        // hollow, and writing to one throws. They belong to the map, and the
         // map has gone.
         forgetMapOverlays()
 
@@ -3691,7 +3633,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val checkItem = if (terrain3D != null) {
             ITEM_3D
         } else {
-            mapType - OsmMapWrapper.MAP_TYPE_DEFAULT
+            mapType - MapLibreStyles.MAP_TYPE_DEFAULT
         }
 
         builder.setSingleChoiceItems(
@@ -3711,7 +3653,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             mapHolder.removeAllViews()
             map = null
             forgetMapOverlays()
-            mapType = item + OsmMapWrapper.MAP_TYPE_DEFAULT
+            mapType = item + MapLibreStyles.MAP_TYPE_DEFAULT
             preferenceManager.setMapType(mapType)
             initMap(true)
         }

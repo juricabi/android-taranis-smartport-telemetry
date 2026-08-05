@@ -12,20 +12,16 @@ import org.maplibre.geojson.Point
 /**
  * A flight, drawn by the GPU.
  *
- * This is the whole reason for MapLibre. osmdroid reprojects every point of
- * every line on every frame, on the UI thread — and the map is invalidated on
+ * This was the whole reason for MapLibre. osmdroid reprojected every point of
+ * every line on every frame, on the UI thread — and the map was invalidated on
  * every frame, because the marker is eased there. A few thousand points cost a
- * couple of milliseconds a frame before anything else is drawn, which is why
+ * couple of milliseconds a frame before anything else was drawn, which is why
  * the ground view had come to be smoother than the map.
  *
  * Here the points are handed over once and live in a source; the renderer draws
- * them from its own buffers and the cost per frame stops depending on how many
- * there are.
- *
- * [MapLine.commitPoints] still thins the track before it arrives, exactly as it
- * does for osmdroid. That thinning is no longer needed for this map and is kept
- * anyway, so the two draw the same flight from the same points and can be
- * compared. It is what to delete first once this map is the only one.
+ * them from its own buffers and the cost per frame stopped depending on how
+ * many there are. That is what paid for [MapLine.commitPoints] no longer
+ * thinning the track: the flight is drawn from every fix that was recorded.
  */
 class MapLibreLine(
     private val id: String,
@@ -36,6 +32,9 @@ class MapLibreLine(
     private val layerId = "line-lyr-$id"
 
     private val points = ArrayList<Position>()
+
+    /** The same points, kept in the form the renderer is handed. */
+    private val drawn = ArrayList<Point>()
 
     private var source: GeoJsonSource? = null
     private var layer: LineLayer? = null
@@ -90,18 +89,21 @@ class MapLibreLine(
     override fun addPoints(points: List<Position>) {
         if (points.isEmpty()) return
         this.points.addAll(points)
+        for (at in points) drawn.add(Point.fromLngLat(at.lon, at.lat))
         push()
     }
 
     override fun setPoint(index: Int, position: Position) {
         if (index < 0 || index >= points.size) return
         points[index] = position
+        drawn[index] = Point.fromLngLat(position.lon, position.lat)
         push()
     }
 
     override fun clear() {
         spoints.clear()
         points.clear()
+        drawn.clear()
         push()
     }
 
@@ -114,6 +116,7 @@ class MapLibreLine(
         layer = null
         source = null
         points.clear()
+        drawn.clear()
     }
 
     /**
@@ -123,15 +126,20 @@ class MapLibreLine(
      * one. That is a copy of the track per batch, which is why the batching
      * upstream matters: a replay gathers a whole seek and commits it once, so
      * this runs once for a jump rather than once per fix in it.
+     *
+     * The points are kept converted rather than converted again on every push.
+     * Rebuilding the whole list each time meant one allocation per point per
+     * batch, which was tolerable while the track was thinned to a few thousand
+     * and is not now it keeps every fix of a long flight.
      */
     private fun push() {
         val src = source ?: return
-        if (points.size < 2) {
+        if (drawn.size < 2) {
             // A line of one point is not a line, and MapLibre draws nothing for
             // it — but it also warns about it on every frame it is asked.
             src.setGeoJson(LineString.fromLngLats(emptyList<Point>()))
             return
         }
-        src.setGeoJson(LineString.fromLngLats(points.map { Point.fromLngLat(it.lon, it.lat) }))
+        src.setGeoJson(LineString.fromLngLats(drawn))
     }
 }

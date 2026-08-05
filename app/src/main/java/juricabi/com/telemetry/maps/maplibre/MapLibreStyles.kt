@@ -20,7 +20,12 @@ import org.maplibre.android.style.sources.TileSet
  */
 object MapLibreStyles {
 
-    /** Matching OsmMapWrapper's constants, which the settings already store. */
+    /**
+     * Which of the four maps. These numbers are stored in the settings and in
+     * the saved state, so they are what they have always been rather than
+     * starting at zero — an install that has chosen satellite has a 7 written
+     * down and expects it to still mean satellite.
+     */
     const val MAP_TYPE_DEFAULT = 5
     const val MAP_TYPE_TOPO = 6
     const val MAP_TYPE_SATELLITE = 7
