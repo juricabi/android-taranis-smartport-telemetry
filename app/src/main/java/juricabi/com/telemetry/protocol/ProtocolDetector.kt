@@ -5,6 +5,7 @@ import juricabi.com.telemetry.protocol.decoder.DataDecoder
 class ProtocolDetector(private val callback: Callback) {
 
     private val hits = arrayOf(0, 0, 0, 0, 0, 0, 0)
+    private var detected = false
     private val sportProtocol =
         FrSkySportProtocol(object : DataDecoder.Companion.DefaultDecodeListener() {
             override fun onSuccessDecode() {
@@ -51,6 +52,7 @@ class ProtocolDetector(private val callback: Callback) {
         })
 
     fun feedData(data: Int) {
+        if (detected) return
         sportProtocol.process(data)
         crsfProtocol.process(data)
         ltmProtocol.process(data)
@@ -59,19 +61,21 @@ class ProtocolDetector(private val callback: Callback) {
         linkTestProtocol.process(data)
         ghstProtocol.process(data)
 
-
-        hits.forEachIndexed { index, i ->
-            if (i >= 2) {
+        for (index in hits.indices) {
+            if (hits[index] < 2) continue
+            detected = true
+            callback.onProtocolDetected(
                 when (index) {
-                    0 -> callback.onProtocolDetected(sportProtocol)
-                    1 -> callback.onProtocolDetected(crsfProtocol)
-                    2 -> callback.onProtocolDetected(ltmProtocol)
-                    3 -> callback.onProtocolDetected(mavLinkProtocol)
-                    4 -> callback.onProtocolDetected(mavLink2Protocol)
-                    5 -> callback.onProtocolDetected(linkTestProtocol)
-                    6 -> callback.onProtocolDetected(ghstProtocol)
+                    0 -> sportProtocol
+                    1 -> crsfProtocol
+                    2 -> ltmProtocol
+                    3 -> mavLinkProtocol
+                    4 -> mavLink2Protocol
+                    5 -> linkTestProtocol
+                    else -> ghstProtocol
                 }
-            }
+            )
+            return
         }
     }
 
