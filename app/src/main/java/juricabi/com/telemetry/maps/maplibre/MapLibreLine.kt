@@ -122,11 +122,23 @@ class MapLibreLine(
             PropertyFactory.lineCap("round"),
             PropertyFactory.lineJoin("round")
         )
+        val above = if (piece > 0) layerOf(piece - 1) else null
         val under = below()
-        if (under != null && style.getLayer(under) != null) {
-            style.addLayerBelow(lyr, under)
-        } else {
-            style.addLayer(lyr)
+        when {
+            // A piece after the first goes directly above the one before it, so
+            // the whole line stays one band in the stack and a growing flight
+            // keeps the depth it was given. Sent to the top, or to just under
+            // the model, instead: every piece added as the flight went on
+            // jumped over the lines home and ahead, which were made before the
+            // model and are therefore below it.
+            above != null && style.getLayer(above) != null ->
+                style.addLayerAbove(lyr, above)
+            // The first piece keeps out from under whatever has been named —
+            // the model, for a line made after it, like the heading line put
+            // back when it is switched on in the settings.
+            under != null && style.getLayer(under) != null ->
+                style.addLayerBelow(lyr, under)
+            else -> style.addLayer(lyr)
         }
         if (piece > created) created = piece
         return src
