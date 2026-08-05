@@ -1359,6 +1359,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     private fun startReplay(file: File?) {
+        logPlayer?.dispose()
         GhstProtocol.forgetLaunchAltitude()
         juricabi.com.telemetry.gl.AltitudeFrame.forget()
         detectedCells = 0
@@ -2762,6 +2763,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     override fun onDestroy() {
         super.onDestroy()
+        logPlayer?.dispose()
+        logPlayer = null
         // A 3D scene owns terrain workers and the largest bitmaps in the app.
         // The normal 3D -> 2D switch releases it, but destroying the screen
         // while 3D was still open did not: the abandoned Activity then stayed
@@ -4041,7 +4044,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     private fun switchToIdleState() {
-        this.logPlayer?.stop();
+        this.logPlayer?.dispose();
         this.logPlayer = null;
         // out of the replay, so the sky is worth watching again
         startFr24()
@@ -4122,7 +4125,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // live telemetry, the clock reading a time from last week, and nearby
         // aircraft left switched off.
         if (isInReplayMode()) {
-            logPlayer?.stop()
+            logPlayer?.dispose()
             logPlayer = null
             seekBar.visibility = View.GONE
             playButton.visibility = View.GONE

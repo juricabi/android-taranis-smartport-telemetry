@@ -186,8 +186,9 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
             //tempProtocol and protocol are assigned correct protocol decoder
             FileInputStream(file[0]).use { logFile ->
                 var bytesRead = logFile.read(buffer)
-                while (bytesRead != -1 && tempProtocol == null) {
+                while (bytesRead != -1 && tempProtocol == null && !isCancelled) {
                     for (i in 0 until bytesRead) {
+                        if (isCancelled) break
                         if (tempProtocol == null) {
                             protocolDetector.feedData(buffer[i].toUByte().toInt())
                         } else {
@@ -217,11 +218,13 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
                 FileInputStream(file[0]).use { input ->
                     var allBytes = 0L
                     var bytesRead = input.read(bytes)
-                    while (bytesRead != -1) {
+                    while (bytesRead != -1 && !isCancelled) {
                         for (i in 0 until bytesRead) {
+                            if (isCancelled) break
                             consumed++
                             tempProtocol?.process(bytes[i].toUByte().toInt())
                         }
+                        if (isCancelled) break
                         allBytes += bytesRead
                         if (length > 0L) {
                             publishProgress(
@@ -428,6 +431,13 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
             this.mTimer = null;
             this.dataReadyListener?.onPlaybackStateChange(false)
         }
+    }
+
+    /** Permanently abandon this replay, including a log that is still loading. */
+    fun dispose() {
+        dataReadyListener = null
+        stop()
+        task.cancel(true)
     }
 
     fun startPlayback() {
