@@ -48,6 +48,7 @@ class BluetoothLeDataPoller(
     private var discoveryRequested = false
     private var servicesConfigured = false
     private var timeoutArmed = false
+    private var physicallyConnected = false
     private var ready = false
     private var selectedCharacteristic: BluetoothGattCharacteristic? = null
     private var selectedProtocol: Protocol? = null
@@ -67,6 +68,7 @@ class BluetoothLeDataPoller(
                         finish(connectionFailed = true)
                         return
                     }
+                    synchronized(stateLock) { physicallyConnected = true }
                     armSetupTimeout()
                     val mtuStarted = try {
                         gatt.requestMtu(CRSF_MTU)
@@ -77,7 +79,10 @@ class BluetoothLeDataPoller(
                 }
 
                 BluetoothProfile.STATE_DISCONNECTED -> {
-                    finish(connectionFailed = !isReady(), disconnectGatt = false)
+                    finish(
+                        connectionFailed = !isPhysicallyConnected(),
+                        disconnectGatt = false
+                    )
                 }
             }
         }
@@ -313,6 +318,7 @@ class BluetoothLeDataPoller(
             protocolDetectors.clear()
             descriptorQueue.clear()
             descriptorInFlight = null
+            physicallyConnected = false
             true
         }
         if (!claimed) return
@@ -345,6 +351,9 @@ class BluetoothLeDataPoller(
     }
 
     override fun disconnect() {
-        finish(connectionFailed = !isReady())
+        finish(connectionFailed = !isPhysicallyConnected())
     }
+
+    private fun isPhysicallyConnected(): Boolean =
+        synchronized(stateLock) { physicallyConnected }
 }
