@@ -21,12 +21,8 @@ class OtxCsvLogger(
     private val bytesRecorded: () -> Long = { 0L }
 ) : DataDecoder.Listener {
 
-    // Written by the thread that ends the connection, read and used by the
-    // timer that writes the rows.
-    @Volatile
-    private var fileWriter: FileWriter?
-    private val file: File?
     private val timer = Timer()
+    private val output: BestEffortCsvWriter
 
     private val header = listOf(
         "Date",
@@ -107,9 +103,9 @@ class OtxCsvLogger(
         val stem = name ?: SimpleDateFormat("yyyy-MM-dd HH-mm-ss").format(Date())
         val dir = Environment.getExternalStoragePublicDirectory("TelemetryLogs")
         dir.mkdirs()
-        file = File(dir, "$stem.csv")
-        fileWriter = FileWriter(file)
-        outputLine(header)
+        val file = File(dir, "$stem.csv")
+        output = BestEffortCsvWriter(FileWriter(file))
+        if (!outputLine(header)) timer.cancel()
     }
 
     private var fuel: Int = 0
@@ -146,10 +142,9 @@ class OtxCsvLogger(
     private var rssiDbmd: Int = 0
     private var flightMode: String = ""
 
-    private fun outputLine(line: List<String>) {
+    private fun outputLine(line: List<String>): Boolean {
         val csv = line.joinToString(",")
-        fileWriter?.append(csv)
-        fileWriter?.append("\n")
+        return output.writeLine(csv)
     }
 
     /*
@@ -180,7 +175,7 @@ class OtxCsvLogger(
       "VFAS(V)"   voltage vbat or cell 16.4
 
     * */
-    private fun outputData() {
+    private fun outputData(): Boolean {
         val date = SimpleDateFormat("yyyy-MM-dd").format(Date())
         val time = SimpleDateFormat("HH:mm:ss.SSS").format(Date())
 
@@ -217,7 +212,13 @@ class OtxCsvLogger(
             measure(myHeading),
             bytesRecorded().toString()
         )
-        outputLine(data)
+        return outputLine(data)
+    }
+
+    private fun closeLog() {
+        timer.cancel()
+        output.close()
+        timer.purge()
     }
 
     override fun onConnectionFailed() {
@@ -228,10 +229,7 @@ class OtxCsvLogger(
         // The timer thread is not a daemon either, so a failed attempt would
         // otherwise leave one parked for the life of the process, and a
         // reconnect loop leaves many.
-        timer.cancel()
-        fileWriter?.close()
-        fileWriter = null
-        timer.purge()
+        closeLog()
     }
 
     override fun onFuelData(fuel: Int) {
@@ -240,11 +238,10 @@ class OtxCsvLogger(
     }
 
     override fun onConnected() {
+        if (!output.isOpen()) return
         timer.scheduleAtFixedRate(object : TimerTask() {
             override fun run() {
-                if ( fileWriter != null) {
-                    outputData()
-                }
+                if (!outputData()) timer.cancel()
             }
         },1000,200)
     }
@@ -296,10 +293,7 @@ class OtxCsvLogger(
 //        sendIntent.putExtra(Intent.EXTRA_STREAM, Uri.fromFile(file))
 //        sendIntent.type = "text/csv"
 //        startActivity(Intent.createChooser(sendIntent, "SHARE"))
-        timer.cancel()
-        timer.purge()
-        fileWriter?.close()
-        fileWriter = null;
+        closeLog()
     }
 
     override fun onGPSState(satellites: Int, gpsFix: Boolean) {
