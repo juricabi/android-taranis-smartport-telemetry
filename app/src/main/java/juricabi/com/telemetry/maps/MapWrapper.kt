@@ -3,7 +3,6 @@ package juricabi.com.telemetry.maps
 import android.os.Bundle
 
 interface MapWrapper {
-    var mapType: Int
     var isMyLocationEnabled: Boolean
 
     fun initialized() : Boolean
@@ -32,6 +31,15 @@ interface MapWrapper {
     fun addMarker(icon: Int, position: Position): MapMarker
     fun addPolyline(width: Float, color: Int, vararg points: Position): MapLine
     fun setOnCameraMoveStartedListener(function: () -> Unit)
+
+    /**
+     * The angle the map has been turned to, as it changes, for the compass.
+     *
+     * On the interface rather than on each map, so the screen can set one up
+     * without knowing which of them it was handed.
+     */
+    fun setOnOrientationChangedListener(listener: (Float) -> Unit) {}
+
     fun addPolyline(color: Int): MapLine
 
     fun getMapOrientation(): Float

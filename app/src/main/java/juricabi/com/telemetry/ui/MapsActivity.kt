@@ -54,9 +54,12 @@ import juricabi.com.telemetry.manager.PreferenceManager
 import juricabi.com.telemetry.manager.SensorTimeoutManager
 import juricabi.com.telemetry.maps.MapLine
 import juricabi.com.telemetry.maps.MapMarker
+import juricabi.com.telemetry.maps.LineWeights
 import juricabi.com.telemetry.maps.MapWrapper
 import juricabi.com.telemetry.maps.Position
-import juricabi.com.telemetry.maps.osm.OsmMapWrapper
+import juricabi.com.telemetry.maps.maplibre.MapLibreMapWrapper
+import juricabi.com.telemetry.maps.maplibre.MapLibreStyles
+import org.maplibre.android.MapLibre
 import juricabi.com.telemetry.utils.GeoUtils
 import juricabi.com.telemetry.utils.PlusCode
 import juricabi.com.telemetry.protocol.decoder.DataDecoder
@@ -65,10 +68,6 @@ import juricabi.com.telemetry.protocol.pollers.LogPlayer
 import juricabi.com.telemetry.utils.LocalNetworks
 import juricabi.com.telemetry.utils.WifiNetworkBinder
 import juricabi.com.telemetry.service.DataService
-import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
-import org.osmdroid.tileprovider.tilesource.XYTileSource
-import org.osmdroid.util.MapTileIndex
 import uk.co.deanwild.materialshowcaseview.IShowcaseListener
 import uk.co.deanwild.materialshowcaseview.MaterialShowcaseView
 import juricabi.com.telemetry.logger.OperatorTrack
@@ -124,38 +123,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         /** The entry that opens the 3D screen instead of changing the map. */
         private const val ITEM_3D = 4
 
-        private val ESRI_SATELLITE_TILE_SOURCE = object : OnlineTileSourceBase(
-            "ESRISatellite", 0, 18, 256, "",
-            arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/")
-        ) {
-            override fun getTileURLString(pMapTileIndex: Long): String {
-                return baseUrl + MapTileIndex.getZoom(pMapTileIndex) +
-                    "/" + MapTileIndex.getY(pMapTileIndex) +
-                    "/" + MapTileIndex.getX(pMapTileIndex)
-            }
-        }
 
-        private val ESRI_TRANSPORTATION_OVERLAY_TILE_SOURCE = object : OnlineTileSourceBase(
-            "ESRITransportation", 0, 18, 256, "",
-            arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/")
-        ) {
-            override fun getTileURLString(pMapTileIndex: Long): String {
-                return baseUrl + MapTileIndex.getZoom(pMapTileIndex) +
-                    "/" + MapTileIndex.getY(pMapTileIndex) +
-                    "/" + MapTileIndex.getX(pMapTileIndex)
-            }
-        }
 
-        private val ESRI_BOUNDARIES_PLACES_OVERLAY_TILE_SOURCE = object : OnlineTileSourceBase(
-            "ESRIBoundariesPlaces", 0, 18, 256, "",
-            arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/")
-        ) {
-            override fun getTileURLString(pMapTileIndex: Long): String {
-                return baseUrl + MapTileIndex.getZoom(pMapTileIndex) +
-                    "/" + MapTileIndex.getY(pMapTileIndex) +
-                    "/" + MapTileIndex.getX(pMapTileIndex)
-            }
-        }
 
         // zoom used when jumping to a position; 18 is the deepest real satellite level
         private const val LOCATE_ZOOM = 18f
@@ -397,7 +366,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     private lateinit var preferenceManager: PreferenceManager
 
-    private var mapType = OsmMapWrapper.MAP_TYPE_DEFAULT
+    private var mapType = MapLibreStyles.MAP_TYPE_DEFAULT
 
     private var lastGPS = Position(0.0, 0.0)
 
@@ -555,9 +524,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // choice keeps its own setting now, and anything unknown here is the
         // ordinary map again.
         mapType = preferenceManager.getMapType()
-        if (mapType < OsmMapWrapper.MAP_TYPE_DEFAULT ||
-            mapType > OsmMapWrapper.MAP_TYPE_SATELLITE_HYBRID) {
-            mapType = OsmMapWrapper.MAP_TYPE_DEFAULT
+        if (mapType < MapLibreStyles.MAP_TYPE_DEFAULT ||
+            mapType > MapLibreStyles.MAP_TYPE_SATELLITE_HYBRID) {
+            mapType = MapLibreStyles.MAP_TYPE_DEFAULT
             preferenceManager.setMapType(mapType)
         }
         followMode = savedInstanceState?.getBoolean("follow_mode", true) ?: true
@@ -675,17 +644,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         */
 
         followButton.setOnClickListener {
-            // from behind the model, this is a step back to plain tracking
-            // rather than a step to nothing
             centreOnModel()
-            if (chaseMode) {
-                setChaseMode(false)
-                setFollowMode(true)
-            } else {
-                setFollowMode(!followMode)
-            }
-            terrain3D?.setFollowing(followMode)
-            if (followMode) {
+            // Plain tracking on or off, and nothing about the other button —
+            // asking for tracking lets go of the chase, which setFollowMode
+            // does. So from behind the model this is a step back to plain
+            // tracking rather than a step to nothing.
+            setFollowMode(!followMode)
+            terrain3D?.setFollowing(keepingUp())
+            if (keepingUp()) {
                 marker?.let {
                     if (map?.initialized() ?: false) {
                         map?.moveCamera(it.position)
@@ -822,22 +788,39 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         airplaneMarkers.values.forEach { it.remove() }
         airplaneMarkers.clear()
 
-        if (mapType == OsmMapWrapper.MAP_TYPE_DEFAULT) {
-            initOSMMap(TileSourceFactory.DEFAULT_TILE_SOURCE)
-        } else if (mapType == OsmMapWrapper.MAP_TYPE_SATELLITE) {
-            initOSMMap(ESRI_SATELLITE_TILE_SOURCE)
-        } else if (mapType == OsmMapWrapper.MAP_TYPE_SATELLITE_HYBRID) {
-            initOSMMap(ESRI_SATELLITE_TILE_SOURCE, listOf(ESRI_TRANSPORTATION_OVERLAY_TILE_SOURCE, ESRI_BOUNDARIES_PLACES_OVERLAY_TILE_SOURCE))
-        } else {
-            initOSMMap(TileSourceFactory.OpenTopo)
-        }
+        initMapLibreMap()
     }
 
-    private fun initOSMMap(tileSource: OnlineTileSourceBase, overlayTileSources: List<OnlineTileSourceBase> = emptyList()) {
-        val mapView = org.osmdroid.views.MapView(this)
+    /**
+     * The map. Which of the four it is, is a style built from the tile URLs.
+     */
+    private fun initMapLibreMap() {
+        MapLibre.getInstance(applicationContext)
+        val mapView = org.maplibre.android.maps.MapView(this)
+        // A MapLibre view renders nothing until it has been through these, and
+        // a map built here has already missed the screen's own — the type can
+        // be changed, or the view switched back from the ground, long after
+        // onCreate, and neither goes through the screen's again.
+        mapView.onCreate(null)
+        mapView.onStart()
+        mapView.onResume()
         mapHolder.addView(mapView)
-        val osmMap = OsmMapWrapper(applicationContext, mapView, tileSource, { initHeadingLine() }, overlayTileSources)
-        map = osmMap
+        map = MapLibreMapWrapper(applicationContext, mapView, mapType) {
+            initHeadingLine()
+            // The style lands after the screen has finished with the map, and
+            // a marker cannot be made before it does. Again, now it can.
+            pointMapAtTheFlight()
+        }
+        finishMapSetup()
+    }
+
+    /**
+     * Everything a map needs once it exists, whichever one it is.
+     *
+     * Was the tail of initOSMMap, and is the whole reason a second map is
+     * tractable at all: only the few lines that build the view differ.
+     */
+    private fun finishMapSetup() {
         map?.setOnCameraMoveStartedListener {
             // No gesture gives up following or the chase, here as in three
             // dimensions. What the hand does is kept — the map goes on keeping
@@ -846,21 +829,38 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // The buttons put it back to the middle.
             leanOutOfFollowing()
         }
-        osmMap.setArrowColours(
+        map?.setArrowColours(
             preferenceManager.getLiveArrowColor(), preferenceManager.getLoggedArrowColor()
         )
-        osmMap.setOnOrientationChangedListener { orientation ->
+        map?.setOnOrientationChangedListener { orientation ->
             updateCompassHeading(orientation)
         }
-        polyLine = map?.addPolyline(preferenceManager.getRouteColor())
+        polyLine = map?.addPolyline(LineWeights.FLIGHT, preferenceManager.getRouteColor())
         // Only a flight that is still going, or one being replayed. The service
         // outlives this screen and keeps the points of whatever it last heard,
         // so an unconnected map opened afterwards drew the last flight as
         // though it were happening — which the 3D ground never did.
         redrawFlightLine()
-        homeLine = map?.addPolyline(2f, preferenceManager.getHomeLineColor())
+        homeLine = map?.addPolyline(LineWeights.HOME, preferenceManager.getHomeLineColor())
         drawFlightPlans()
         showMyLocation()
+        pointMapAtTheFlight()
+        // and the traffic, which is otherwise gone until the next poll comes
+        // round — half a minute of empty sky after every switch of view
+        if (lastAirplanes.isNotEmpty()) onAirplanesUpdated(lastAirplanes)
+    }
+
+    /**
+     * Put the map on the flight, and run again once the map can draw.
+     *
+     * tryCreateMarker will not make a marker for a map that is not drawable
+     * yet, and a MapLibre map is not: its style arrives a few frames after the
+     * screen has finished setting it up. So the model got no marker at all
+     * until the next fix moved it — and with a replay standing paused, or a
+     * link that has dropped, there is no next fix and there never was one.
+     * A map that could draw the moment it was made would not need this.
+     */
+    private fun pointMapAtTheFlight() {
         // A map is built looking at the whole world, and it is a fix arriving
         // that puts the model on screen. Where the model already is — coming
         // back from the 3D view, or a replay standing paused — there may be no
@@ -893,9 +893,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // whole world from zoom four, which is no use to anybody.
             myLastKnownPlace()?.let { map?.moveCamera(it, LOCATE_ZOOM) }
         }
-        // and the traffic, which is otherwise gone until the next poll comes
-        // round — half a minute of empty sky after every switch of view
-        if (lastAirplanes.isNotEmpty()) onAirplanesUpdated(lastAirplanes)
     }
 
     /**
@@ -1142,7 +1139,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val plans = FlightPlanManager(this).getPlans()
         for (plan in plans) {
             if (!plan.visible || plan.waypoints.size < 2) continue
-            val line = map?.addPolyline(4f, plan.color, *plan.waypoints.toTypedArray())
+            // The same weight as the flight itself, so a plan and the flight
+            // flown against it read as the same kind of thing.
+            val line = map?.addPolyline(
+                LineWeights.PLAN, plan.color, *plan.waypoints.toTypedArray()
+            )
             if (line != null) {
                 flightPlanLines.add(line)
             }
@@ -3093,9 +3094,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         map?.onDestroy()
         mapHolder.removeAllViews()
         map = null
-        // Taking the map view away detaches every overlay on it, and osmdroid
-        // empties them as it goes — so the lines and the marker held here are
-        // now hollow, and touching one throws. They belong to the map, and the
+        // Taking the map view away takes its style with it, and every line
+        // and marker held here draws out of that style — so they are now
+        // hollow, and writing to one throws. They belong to the map, and the
         // map has gone.
         forgetMapOverlays()
 
@@ -3133,7 +3134,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         //
         // Following first: riding behind the model is a way of keeping up with
         // it, so the view drops the chase when it is told to stop keeping up.
-        view.setFollowing(followMode)
+        view.setFollowing(keepingUp())
         if (chaseMode) view.setChasing(true)
         // standing where the phone is standing and pointing where it points,
         // since the readers that know both are on this screen and have been
@@ -3314,7 +3315,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     private fun createHeadingPolyline(): MapLine? {
-        return map?.addPolyline(3f, preferenceManager.getHeadLineColor(), lastGPS, lastGPS)
+        return map?.addPolyline(LineWeights.HEADING, preferenceManager.getHeadLineColor(), lastGPS, lastGPS)
     }
 
     private fun setRSSIIcon(rssi: Int) {
@@ -3632,7 +3633,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val checkItem = if (terrain3D != null) {
             ITEM_3D
         } else {
-            mapType - OsmMapWrapper.MAP_TYPE_DEFAULT
+            mapType - MapLibreStyles.MAP_TYPE_DEFAULT
         }
 
         builder.setSingleChoiceItems(
@@ -3652,7 +3653,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             mapHolder.removeAllViews()
             map = null
             forgetMapOverlays()
-            mapType = item + OsmMapWrapper.MAP_TYPE_DEFAULT
+            mapType = item + MapLibreStyles.MAP_TYPE_DEFAULT
             preferenceManager.setMapType(mapType)
             initMap(true)
         }
@@ -4374,7 +4375,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                         this.formatDistance(this.lastTraveledDistance.toFloat());
                 }
 
-                if (!followMode) {
+                if (!keepingUp()) {
                     this.map?.invalidate()
                 }
                 this.tryCreateMarker()
@@ -4711,11 +4712,23 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
+    /**
+     * Whether the camera keeps up with the model at all.
+     *
+     * Either button does that; they differ in where the camera is put, not in
+     * whether it follows. Riding behind the model is keeping up with it, so
+     * everything that asks "should the camera move to the flight" asks this
+     * rather than asking for plain tracking and getting no for an answer while
+     * the chase is on.
+     */
+    private fun keepingUp(): Boolean = followMode || chaseMode
+
     fun setFollowMode(mode: Boolean) {
-        followMode = mode;
-        // Lit for plain tracking only. Riding behind the model tracks it too,
-        // but that is the other button's business: one of the two is on.
-        this.followButton.imageAlpha = if (mode && !chaseMode) 255 else 128
+        followMode = mode
+        // One or the other, never both. Asking for plain tracking is asking to
+        // stop riding behind it.
+        if (mode && chaseMode) setChaseMode(false)
+        this.followButton.imageAlpha = if (followMode) 255 else 128
     }
 
     /**
@@ -4724,35 +4737,30 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      *
      * It keeps up with the model itself, so plain tracking gives way to it.
      */
-    /** Whether the model was being tracked before the chase took over. */
-    private var followBeforeChase = false
-
     private fun setChaseMode(on: Boolean) {
         if (chaseMode == on) return
         chaseMode = on
         chaseButton.imageAlpha = if (on) 255 else 128
-        terrain3D?.setChasing(on)
         if (on) {
-            // Riding behind the model is a way of keeping up with it, so the
-            // chase takes tracking with it — but it is borrowing it, not
-            // turning it on.
-            followBeforeChase = followMode
-            setFollowMode(true)
-            terrain3D?.setFollowing(true)
-            applyHeadingUp()
-        } else {
-            // Given back exactly as it was. Turning the chase off used to leave
-            // tracking on behind it, so switching the chase on and off again
-            // was a way of switching tracking on — which nobody asked for, and
-            // the button then lit itself.
-            //
-            // The angle is left where the chase left it, in both views: the
-            // north-up button is the way back to north and it is one tap, and
-            // swinging the map round unasked, at the moment somebody has asked
-            // for something else, is a movement nobody wanted.
-            setFollowMode(followBeforeChase)
-            terrain3D?.setFollowing(followBeforeChase)
+            // One or the other. The chase used to borrow tracking and give it
+            // back on the way out, so whether turning the chase off left the
+            // model being tracked depended on what had been on before it — and
+            // asking to stop riding behind the model turned plain tracking on
+            // instead of stopping. Two buttons, each answering for itself, and
+            // never both lit.
+            followMode = false
+            followButton.imageAlpha = 128
         }
+        // Following first: the ground view drops the chase when it is told to
+        // stop keeping up, so it has to be told to keep up before it is told to
+        // ride behind.
+        terrain3D?.setFollowing(keepingUp())
+        terrain3D?.setChasing(on)
+        if (on) applyHeadingUp()
+        // The angle is left where the chase left it, in both views: the
+        // north-up button is the way back to north and it is one tap, and
+        // swinging the map round unasked, at the moment somebody has asked for
+        // something else, is a movement nobody wanted.
     }
 
     /** How far the map has been dragged and turned away from the model. */
@@ -4823,7 +4831,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             }
             updateHeading()
             updateHomeLine()
-            if (followMode && map.initialized()) {
+            if (keepingUp() && map.initialized()) {
                 map.moveCamera(Position(shownLat + mapLeanLat, shownLon + mapLeanLon))
             } else {
                 map.invalidate()

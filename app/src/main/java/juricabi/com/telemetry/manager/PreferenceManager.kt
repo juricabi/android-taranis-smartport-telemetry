@@ -2,7 +2,7 @@ package juricabi.com.telemetry.manager
 
 import android.content.Context
 import juricabi.com.telemetry.R
-import juricabi.com.telemetry.maps.osm.OsmMapWrapper
+import juricabi.com.telemetry.maps.maplibre.MapLibreStyles
 
 class PreferenceManager(context: Context) {
 
@@ -154,7 +154,7 @@ class PreferenceManager(context: Context) {
     }
 
     fun getMapType(): Int {
-        return sharedPreferences.getInt("map_type", OsmMapWrapper.MAP_TYPE_DEFAULT)
+        return sharedPreferences.getInt("map_type", MapLibreStyles.MAP_TYPE_DEFAULT)
     }
 
     fun setMapType(mapType: Int) {
