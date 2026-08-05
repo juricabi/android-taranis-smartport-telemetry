@@ -24,6 +24,20 @@ class FrskyDataDecoderTest {
     }
 
     @Test
+    fun sportAirspeedConvertsTenthsOfAKnotToKilometresPerHour() {
+        var airspeed = Float.NaN
+        val decoder = FrskyDataDecoder(object : DataDecoder.Companion.DefaultDecodeListener() {
+            override fun onAirSpeedData(speed: Float) {
+                airspeed = speed
+            }
+        })
+
+        decoder.decodeData(Protocol.Companion.TelemetryData(Protocol.ASPEED, 100))
+
+        assertEquals(18.52f, airspeed, 0.001f)
+    }
+
+    @Test
     fun arduPilotVelocityKeepsVerticalSignAndUsesAppSpeedUnits() {
         var verticalSpeed = Float.NaN
         var groundSpeed = Float.NaN
