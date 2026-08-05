@@ -1359,6 +1359,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     private fun startReplay(file: File?) {
         GhstProtocol.forgetLaunchAltitude()
+        juricabi.com.telemetry.gl.AltitudeFrame.forget()
         detectedCells = 0
         highestPackVoltage = 0f
         cellsAsked = false
@@ -2677,8 +2678,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         gatheredPoints.clear()
         gatheredHeights.clear()
         gatheredHeight = Float.NaN
-        // a new flight is a new question about what its heights mean
-        juricabi.com.telemetry.gl.AltitudeFrame.forget()
         polyLine?.clear()
         flightHeadLine?.clear()
         pendingVisualTrack.clear()
@@ -2724,6 +2723,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     private fun clearCrsfSystem() {
         GhstProtocol.forgetLaunchAltitude()
+        // A reconnect continues the same flight and does not come through
+        // here; a connection asked for by hand starts a new altitude frame.
+        juricabi.com.telemetry.gl.AltitudeFrame.forget()
         detectedCells = 0
         highestPackVoltage = 0f
         cellsAsked = false
@@ -3025,11 +3027,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         juricabi.com.telemetry.utils.Elevation.init(this)
         val view = AltitudeProfileView(this)
         val points = ArrayList<AltitudeProfileView.Point>(flown.size)
+        val altitudeEpoch = juricabi.com.telemetry.gl.AltitudeFrame.currentEpoch()
         // Betaflight reports height above the arming point once armed, so the
         // ground under the launch is what those heights are missing before they
         // can be drawn against terrain. Worked out the same way the 3D view
         // works it out: from the ground at the first fix.
-        val lift = launchGroundLift()
+        val lift = launchGroundLift(altitudeEpoch)
         for (p in flown) {
             points.add(AltitudeProfileView.Point(p.lat, p.lon, p.altitudeMsl + lift))
         }
@@ -3037,12 +3040,17 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         view.minimumHeight = (resources.displayMetrics.density * 220).toInt()
 
         fetchTerrainFor(flown) {
-            val settled = launchGroundLift()
-            val updated = ArrayList<AltitudeProfileView.Point>(flown.size)
-            for (p in flown) {
-                updated.add(AltitudeProfileView.Point(p.lat, p.lon, p.altitudeMsl + settled))
+            // The dialog may have outlived the flight whose terrain it asked
+            // for. Its late answer must not adopt or publish the new flight's
+            // altitude frame.
+            if (juricabi.com.telemetry.gl.AltitudeFrame.currentEpoch() == altitudeEpoch) {
+                val settled = launchGroundLift(altitudeEpoch)
+                val updated = ArrayList<AltitudeProfileView.Point>(flown.size)
+                for (p in flown) {
+                    updated.add(AltitudeProfileView.Point(p.lat, p.lon, p.altitudeMsl + settled))
+                }
+                view.setTrack(updated)
             }
-            view.setTrack(updated)
         }
 
         this.showDialog(
@@ -3061,7 +3069,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * like the ground beneath it, which means they are measured from where the
      * model armed.
      */
-    private fun launchGroundLift(): Float {
+    private fun launchGroundLift(altitudeEpoch: Long): Float {
         // The same answer the 3D ground works from, from the same code. This
         // used to ask whether the first fix read within sixty metres of the
         // terrain under it — a test the 3D view documents as unsound, and which
@@ -3071,9 +3079,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // it samples the terrain far more finely than this does, and two
         // answers to one question is how the same flight came to be drawn at
         // two heights.
-        juricabi.com.telemetry.gl.AltitudeFrame.lift()?.let { return it }
-        return juricabi.com.telemetry.gl.TerrainScene.referenceOf(
-            flightPath, juricabi.com.telemetry.utils.Elevation.TILE_ZOOM)?.lift ?: 0f
+        juricabi.com.telemetry.gl.AltitudeFrame.lift(altitudeEpoch)?.let { return it }
+        val proposed = juricabi.com.telemetry.gl.TerrainScene.referenceOf(
+            flightPath, juricabi.com.telemetry.utils.Elevation.TILE_ZOOM) ?: return 0f
+        return juricabi.com.telemetry.gl.AltitudeFrame
+            .settle(proposed, altitudeEpoch)?.lift ?: 0f
     }
 
     /**
@@ -4090,10 +4100,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // its end, started again — by ground arriving for something else.
         replayWaitingForGround = false
         forgetOperator()
+        juricabi.com.telemetry.gl.AltitudeFrame.forget()
         // The whole of it: a recording that has been closed leaves nothing
         // behind, neither the model nor the flight it was playing back, and in
         // the 3D view that includes the surface hanging under the flight.
         forgetFlight()
+        // The old scene is centred on the replay and owns its altitude epoch.
+        // Back in the live view, ground and altitude both start at the phone.
+        startFlightIn3D()
         marker?.remove()
         marker = null
         headingPolyline?.remove()

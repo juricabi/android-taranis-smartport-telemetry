@@ -20,14 +20,46 @@ object AltitudeFrame {
     @Volatile
     private var settled: TerrainScene.Companion.Reference? = null
 
-    fun remember(reference: TerrainScene.Companion.Reference) {
+    @Volatile
+    private var epoch = 0L
+
+    /** The flight a scene or an asynchronous terrain request belongs to. */
+    fun currentEpoch(): Long = epoch
+
+    /**
+     * Publish one answer for one flight, and return the answer that won.
+     *
+     * A retired terrain loader may finish after another flight has started;
+     * its epoch no longer matches and it is not allowed to overwrite the new
+     * flight. Within one flight the first datum is kept, with the same one-way
+     * correction TerrainScene permits: sea-level may become above-launch when
+     * more of the flight proves it, but a proven above-launch frame never
+     * flips back.
+     */
+    @Synchronized
+    fun settle(
+        reference: TerrainScene.Companion.Reference,
+        forEpoch: Long
+    ): TerrainScene.Companion.Reference? {
+        if (forEpoch != epoch) return null
+        settled?.let {
+            if (!it.aboveLaunch && reference.aboveLaunch) {
+                settled = reference
+                return reference
+            }
+            return it
+        }
         settled = reference
+        return reference
     }
 
-    /** How much to add to reported heights, or null if nothing has settled it. */
-    fun lift(): Float? = settled?.lift
+    /** How much to add to this flight's reported heights, if it has settled. */
+    @Synchronized
+    fun lift(forEpoch: Long): Float? = if (forEpoch == epoch) settled?.lift else null
 
+    @Synchronized
     fun forget() {
         settled = null
+        epoch++
     }
 }

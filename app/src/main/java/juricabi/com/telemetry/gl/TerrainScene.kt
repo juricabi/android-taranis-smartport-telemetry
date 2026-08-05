@@ -17,6 +17,9 @@ import juricabi.com.telemetry.utils.Imagery
  */
 class TerrainScene {
 
+    /** Prevent this scene publishing an altitude answer for a later flight. */
+    private val altitudeEpoch = AltitudeFrame.currentEpoch()
+
     /** [altitudeMsl] is NaN where the link reported no height at all. */
     class TrackPoint(val lat: Double, val lon: Double, val altitudeMsl: Float)
 
@@ -617,7 +620,8 @@ class TerrainScene {
     }
 
     private fun resolveAltitudeReference(points: List<TrackPoint>) {
-        val found = referenceOf(points, zoom) ?: return
+        val proposed = referenceOf(points, zoom) ?: return
+        val found = AltitudeFrame.settle(proposed, altitudeEpoch) ?: return
         val aboveLaunch = found.aboveLaunch
 
         // Only the answer matters, not the exact origin. The lowest point of a
@@ -639,7 +643,6 @@ class TerrainScene {
         // around the model — so working it out twice was two answers, metres
         // apart on a steep launch and further where they disagreed about
         // whether the heights were above the launch at all.
-        AltitudeFrame.remember(found)
         // Only this. The ground stays where it is: what changes is where the
         // flight sits in it, which is the whole of what was in doubt.
         launchGroundElevation = found.lift
