@@ -680,6 +680,7 @@ class DataService : Service(), DataDecoder.Listener {
     }
 
     override fun onGPSState(satellites: Int, gpsFix: Boolean) {
+        this.satellites = satellites
         hasGPSFix = gpsFix
         dataListener?.onGPSState(satellites, gpsFix)
         logListener?.onGPSState(satellites, gpsFix)
