@@ -215,14 +215,34 @@ class TerrainScene {
     }
 
     fun abandon() {
-        abandoned = true
-        val leaving = ArrayList(built.values)
-        built.clear()
-        tiles = emptyList()
+        val leaving = synchronized(this) {
+            if (abandoned) return
+            abandoned = true
+            val held = ArrayList(built.values)
+            built.clear()
+            tiles = emptyList()
+            held
+        }
         // The pictures, which are nearly all of it: sixteen megabytes each. The
         // drawing thread checks for a recycled picture before it uploads one,
         // so letting them go while it is still finishing a frame is safe.
-        for (mesh in leaving) mesh.texture?.recycle()
+        recyclePictures(leaving)
+    }
+
+    private fun recyclePictures(meshes: Iterable<TileMesh>) {
+        for (mesh in meshes) mesh.texture?.let {
+            if (!it.isRecycled) it.recycle()
+        }
+    }
+
+    /** Drop meshes without waiting for the bitmap garbage collector. */
+    private fun clearBuilt() {
+        val leaving = synchronized(this) {
+            val held = ArrayList(built.values)
+            built.clear()
+            held
+        }
+        recyclePictures(leaving)
     }
 
     /** Kept between loads so extending the ground only builds what is new. */
@@ -412,6 +432,7 @@ class TerrainScene {
                     focusLat: Double, focusLon: Double,
                     onTile: () -> Unit,
                     onDone: () -> Unit) {
+        if (abandoned) return
         // Ground around the model, not ground around the whole flight.
         //
         // Covering everything flown meant the tiles had to span it, and since
@@ -449,6 +470,10 @@ class TerrainScene {
         // since every vertex is baked relative to it.
         Elevation.prefetch(southEdge, westEdge, northEdge, eastEdge, z,
             { _, _ -> }, { _, _ -> })
+        // prefetch is blocking. The view may have gone away while it was in a
+        // network request, in which case none of the expensive mesh or imagery
+        // work below belongs to anybody any more.
+        if (abandoned) return
         zoom = z
         // The datum, once, from the ground itself rather than from anything the
         // model has said about where it is.
@@ -462,8 +487,8 @@ class TerrainScene {
                 // to the ground view halfway through a flight — and then it
                 // arrives for good, so the tiles built without it are thrown
                 // away and built again.
-                if (built.isNotEmpty() && here != originAltitude) {
-                    built.clear()
+                if (synchronized(this) { built.isNotEmpty() } && here != originAltitude) {
+                    clearBuilt()
                     worldMoved = true
                 }
                 originAltitude = here
@@ -486,7 +511,8 @@ class TerrainScene {
         // A change of detail makes every mesh the wrong shape, so start again;
         // otherwise keep what is built and add only what is missing.
         if (z != builtZoom) {
-            built.clear()
+            clearBuilt()
+            if (abandoned) return
             builtZoom = z
         }
 
@@ -520,11 +546,24 @@ class TerrainScene {
             val tx = t[0].toInt()
             val ty = t[1].toInt()
             val key = tileKey(tx, ty)
-            if (built.containsKey(key)) continue
+            if (synchronized(this) { built.containsKey(key) }) continue
             val mesh = buildTile(z, tx, ty)
             if (mesh != null) {
-                built[key] = mesh
-                publish(keys)
+                var dropped: List<TileMesh> = emptyList()
+                val accepted = synchronized(this) {
+                    if (abandoned || built.containsKey(key)) {
+                        false
+                    } else {
+                        built[key] = mesh
+                        dropped = publishLocked(keys)
+                        true
+                    }
+                }
+                if (!accepted) {
+                    if (abandoned) return
+                    continue
+                }
+                recyclePictures(dropped)
                 onTile()
             }
         }
@@ -534,7 +573,7 @@ class TerrainScene {
             val tx = t[0].toInt()
             val ty = t[1].toInt()
             val key = tileKey(tx, ty)
-            val standing = built[key] ?: continue
+            val standing = synchronized(this) { built[key] } ?: continue
             if (standing.texture != null) continue
             val picture = try {
                 Imagery.mosaic(z, tx, ty, IMAGERY_DETAIL)
@@ -544,13 +583,38 @@ class TerrainScene {
             // The shape is already worked out and has not moved: only the
             // picture is new. Building the tile again to hang it on would mean
             // another thirty-seven thousand height samples for nothing.
-            built[key] = TileMesh(standing.key, standing.vertices, standing.indices, picture)
-            publish(keys)
+            var dropped: List<TileMesh> = emptyList()
+            val accepted = synchronized(this) {
+                val current = built[key]
+                if (abandoned || current == null || current.texture != null) {
+                    false
+                } else {
+                    built[key] = TileMesh(
+                        current.key, current.vertices, current.indices, picture
+                    )
+                    dropped = publishLocked(keys)
+                    true
+                }
+            }
+            if (!accepted) {
+                picture.recycle()
+                if (abandoned) return
+                continue
+            }
+            recyclePictures(dropped)
             onTile()
         }
 
-        if (abandoned) return
-        publish(keys)
+        var finished = false
+        var dropped: List<TileMesh> = emptyList()
+        synchronized(this) {
+            if (!abandoned) {
+                dropped = publishLocked(keys)
+                finished = true
+            }
+        }
+        if (!finished) return
+        recyclePictures(dropped)
         onDone()
     }
 
@@ -561,7 +625,9 @@ class TerrainScene {
      * oldest go. The old rule was oldest first regardless, which on a window
      * that moves could throw away the tile the model was standing on.
      */
-    private fun publish(window: Set<Long>) {
+    /** Caller holds this scene's monitor. Returns pictures no longer retained. */
+    private fun publishLocked(window: Set<Long>): List<TileMesh> {
+        val dropped = ArrayList<TileMesh>()
         while (built.size > MAX_TILES) {
             var drop = -1L
             for (key in built.keys) {
@@ -572,9 +638,10 @@ class TerrainScene {
                 if (!oldest.hasNext()) break
                 drop = oldest.next()
             }
-            built.remove(drop)
+            built.remove(drop)?.let { dropped.add(it) }
         }
         tiles = ArrayList(built.values)
+        return dropped
     }
 
     private fun tileKey(x: Int, y: Int): Long = (x.toLong() shl 32) or (y.toLong() and 0xFFFFFFFFL)

@@ -43,6 +43,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private var lastAngle = 0f
     private var seenVersion = -1
     private var loadingTerrain = false
+    @Volatile private var released = false
 
     /** The ground is up: until it is, there is nothing to draw anything on. */
     private var terrainReady = false
@@ -102,6 +103,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
 
     private val poll = object : Runnable {
         override fun run() {
+            if (released) return
             // Opened with nowhere to stand — no fix from the model, none from
             // the phone. Rather than stay black until the map type is changed
             // and back, start as soon as either turns up. A flight only counts
@@ -116,7 +118,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
                 }
             }
             pickUpNewPoints()
-            ticker.postDelayed(this, FOLLOW_INTERVAL_MS)
+            if (!released) ticker.postDelayed(this, FOLLOW_INTERVAL_MS)
         }
     }
 
@@ -151,7 +153,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     fun start(points: List<TerrainScene.TrackPoint>,
               fallbackLat: Double, fallbackLon: Double,
               myLatitude: Double, myLongitude: Double, accuracy: Float) {
-        if (started) return
+        if (released || started) return
         started = true
         myLat = myLatitude
         myLon = myLongitude
@@ -210,14 +212,14 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         val worker = Thread(Runnable {
             try {
             scene.loadTerrain(flight, focusLat, focusLon,
-                { post { groundArrived() } },
-                { post { groundArrived(true); loadingTerrain = false } })
+                { postFromTerrain { groundArrived() } },
+                { postFromTerrain { groundArrived(true); loadingTerrain = false } })
             } catch (e: Throwable) {
                 // Whatever went wrong out here — no signal, a tile that would
                 // not decode, memory — the ground is as ready as it is ever
                 // going to be. Left false, nothing would ever draw again and
                 // the screen would stay black with nothing said.
-                post {
+                postFromTerrain {
                     val first = !terrainReady
                     terrainReady = true
                     loadingTerrain = false
@@ -240,6 +242,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
      * rate for the life of the view.
      */
     private fun watch() {
+        if (released) return
         if (!polling) {
             polling = true
             ticker.removeCallbacks(poll)
@@ -513,14 +516,14 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
      */
     private fun extendTerrainIfNeeded(points: List<TerrainScene.TrackPoint>,
                                       lat: Double, lon: Double, force: Boolean = false) {
-        if (!loadingTerrain && (force || scene.nearEdge(lat, lon))) {
+        if (!released && !loadingTerrain && (force || scene.nearEdge(lat, lon))) {
             loadingTerrain = true
             status.text = ""
             val worker = Thread(Runnable {
                 try {
                     scene.loadTerrain(points, lat, lon,
-                        { post { groundArrived() } },
-                        { post {
+                        { postFromTerrain { groundArrived() } },
+                        { postFromTerrain {
                             groundArrived(true)
                             renderer.maxDistance = reachOfFlight()
                             loadingTerrain = false
@@ -529,7 +532,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
                     // As the first load is guarded: no signal, a tile that will
                     // not decode, memory. The ground stays as it is; letting it
                     // out of the thread ends the process.
-                    post { loadingTerrain = false }
+                    postFromTerrain { loadingTerrain = false }
                 }
             })
             worker.name = "terrain-extend"
@@ -1213,6 +1216,8 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     }
 
     fun release() {
+        if (released) return
+        released = true
         ticker.removeCallbacks(poll)
         polling = false
         removeCallbacks(bearingWatch)
@@ -1225,5 +1230,11 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // and the ground: the thread loading it holds this view, and its
         // pictures are the largest thing the app ever has in its hands
         scene.abandon()
+    }
+
+    /** A worker may finish after this view has been detached. */
+    private fun postFromTerrain(action: () -> Unit) {
+        if (released) return
+        post { if (!released) action() }
     }
 }
