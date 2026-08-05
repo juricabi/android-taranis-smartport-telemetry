@@ -83,7 +83,7 @@ class MapLibreSpot(
             s.addLayer(
                 LineLayer(ringEdgeLyrId, ringSrcId).withProperties(
                     PropertyFactory.lineColor(colour),
-                    PropertyFactory.lineWidth(1.5f)
+                    PropertyFactory.lineWidth(0.8f)
                 )
             )
             ringSrc = ring
