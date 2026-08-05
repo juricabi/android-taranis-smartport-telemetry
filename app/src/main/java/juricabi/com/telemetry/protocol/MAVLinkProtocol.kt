@@ -55,9 +55,11 @@ class MAVLinkProtocol : Protocol {
         private const val MAV_PACKET_ATTITUDE_LENGTH = 28
         private const val MAV_PACKET_VFR_HUD_LENGTH = 20
         private const val MAV_PACKET_GPS_RAW_LENGTH = 30
+        private const val MAV_PACKET_GLOBAL_POSITION_LENGTH = 28
         private const val MAV_PACKET_RADIO_STATUS_LENGTH = 9
+        private const val MAV_PACKET_GPS_ORIGIN_LENGTH = 12
         private const val  MAV_PACKET_HOME_POSITION_LENGTH = 52
-        private const val MAV_PACKET_STATUSTEXT_LEN = 54
+        private const val MAV_PACKET_STATUSTEXT_MIN_LENGTH = 51
         private const val MAV_PACKET_TRANSMISSION_HANDSHAKE = 130
         private const val MAV_PACKET_ENCAPSULATED_DATA      = 131
     }
@@ -136,7 +138,10 @@ class MAVLinkProtocol : Protocol {
             }
             dataDecoder.decodeData( Protocol.Companion.TelemetryData( Protocol.CURRENT, current.toInt()))
             dataDecoder.decodeData(Protocol.Companion.TelemetryData(Protocol.FUEL, fuel.toInt()))
-        } else if (messageId == MAV_PACKET_STATUSTEXT_ID) {
+        } else if (
+            messageId == MAV_PACKET_STATUSTEXT_ID &&
+            packetLength >= MAV_PACKET_STATUSTEXT_MIN_LENGTH
+        ) {
             val severity = byteBuffer.get()
             dataDecoder.decodeData(Protocol.Companion.TelemetryData(STATUSTEXT, severity.toInt(), byteBuffer.array()))
         } else if (messageId == MAV_PACKET_HEARTBEAT_ID && packetLength == MAV_PACKET_HEARTBEAT_LENGTH) {
@@ -214,7 +219,10 @@ class MAVLinkProtocol : Protocol {
             val remnoise = byteBuffer.get()
             rssiSource.radioStatusArrived()
             dataDecoder.decodeData( Protocol.Companion.TelemetryData(RSSI,rssi.toInt()))
-        } else if (messageId == MAV_PACKET_GLOBAL_POSITION_ID) {
+        } else if (
+            messageId == MAV_PACKET_GLOBAL_POSITION_ID &&
+            packetLength == MAV_PACKET_GLOBAL_POSITION_LENGTH
+        ) {
             // Where the flight controller believes it is, rather than where the
             // GPS receiver alone says: position, height and heading after the
             // estimator has had the accelerometers, the barometer and the
@@ -272,7 +280,10 @@ class MAVLinkProtocol : Protocol {
             }
             if (cog != 0xFFFF && !preferGlobal)
                 dataDecoder.decodeData( Protocol.Companion.TelemetryData( Protocol.HEADING, cog))
-        } else if (messageId == MAV_PACKET_GPS_ORIGIN_ID) {
+        } else if (
+            messageId == MAV_PACKET_GPS_ORIGIN_ID &&
+            packetLength == MAV_PACKET_GPS_ORIGIN_LENGTH
+        ) {
             val lat = byteBuffer.int
             val lon = byteBuffer.int
 

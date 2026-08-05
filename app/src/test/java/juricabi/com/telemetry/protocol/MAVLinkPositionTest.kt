@@ -80,6 +80,19 @@ class MAVLinkPositionTest {
         assertEquals(330f, listener.headings.last(), 0.001f)
     }
 
+    @Test
+    fun mavLink1IgnoresShortPayloadsAndKeepsDecoding() {
+        val listener = PositionListener()
+        val protocol = MAVLinkProtocol(listener)
+
+        listOf(STATUSTEXT, GLOBAL_POSITION, GPS_ORIGIN).forEach { messageId ->
+            feed(protocol, mav1Frame(messageId, byteArrayOf(0)))
+        }
+        feed(protocol, mav1Frame(GPS_RAW, rawGps(45.0, 16.0, 123f)))
+
+        assertEquals(45.0 to 16.0, listener.positions.last())
+    }
+
     private fun feed(protocol: Protocol, frame: ByteArray) {
         frame.forEach { protocol.process(it.toUByte().toInt()) }
     }
@@ -160,5 +173,7 @@ class MAVLinkPositionTest {
     private companion object {
         const val GPS_RAW = 24
         const val GLOBAL_POSITION = 33
+        const val GPS_ORIGIN = 49
+        const val STATUSTEXT = 253
     }
 }
