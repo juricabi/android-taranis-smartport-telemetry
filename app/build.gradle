@@ -32,8 +32,8 @@ android {
         // none of that is owed while this is handed out as an APK rather than
         // through a store.
         targetSdk 28
-        versionCode 49
-        versionName "2.1.0"
+        versionCode 50
+        versionName "2.1.01"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             // MapLibre is a native renderer and ships a copy for every
