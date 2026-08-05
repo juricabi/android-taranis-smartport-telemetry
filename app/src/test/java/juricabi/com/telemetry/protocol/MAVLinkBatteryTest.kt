@@ -39,6 +39,18 @@ class MAVLinkBatteryTest {
         assertEquals(emptyList<Float>(), listener.voltages)
     }
 
+    @Test
+    fun signedFrameCannotDesynchroniseTheFollowingFrame() {
+        val listener = BatteryListener()
+        val protocol = MAVLink2Protocol(listener)
+
+        val signature = byteArrayOf(0xfd.toByte()) + ByteArray(12)
+        feed(protocol, mav2Frame(SYS_STATUS, systemStatus(12_000), incompatibility = 1) + signature)
+        feed(protocol, mav2Frame(SYS_STATUS, systemStatus(13_000)))
+
+        assertEquals(listOf(12f, 13f), listener.voltages)
+    }
+
     private fun systemStatus(voltageMillivolts: Int): ByteArray =
         ByteBuffer.allocate(31).order(ByteOrder.LITTLE_ENDIAN)
             .putInt(0).putInt(0).putInt(0)
@@ -59,9 +71,13 @@ class MAVLinkBatteryTest {
         return byteArrayOf(0xfe.toByte()) + header + payload + checksum(header, payload, messageId)
     }
 
-    private fun mav2Frame(messageId: Int, payload: ByteArray): ByteArray {
+    private fun mav2Frame(
+        messageId: Int,
+        payload: ByteArray,
+        incompatibility: Byte = 0
+    ): ByteArray {
         val header = byteArrayOf(
-            payload.size.toByte(), 0, 0, 0, 1, 1,
+            payload.size.toByte(), incompatibility, 0, 0, 1, 1,
             messageId.toByte(), (messageId shr 8).toByte(), (messageId shr 16).toByte()
         )
         return byteArrayOf(0xfd.toByte()) + header + payload + checksum(header, payload, messageId)

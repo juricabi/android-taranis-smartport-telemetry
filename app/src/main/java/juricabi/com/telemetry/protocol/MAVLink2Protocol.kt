@@ -28,6 +28,7 @@ class MAVLink2Protocol : Protocol {
     private var messageIdIndex = 0
     private var crcLow: Int? = null
     private var crcHigh: Int? = null
+    private var signatureBytesRemaining = 0
     private var unique = HashSet<Int>()
     /** Prefer the estimator while its stream is actually still arriving. */
     private val positionSource = MavPositionSource()
@@ -36,10 +37,13 @@ class MAVLink2Protocol : Protocol {
 
     companion object {
         enum class State {
-            IDLE, LENGTH, INCOMPATIBILITY, COMPATIBILITY, INDEX, SYSTEM_ID, COMPONENT_ID, MESSAGE_ID, PAYLOAD, CRC
+            IDLE, LENGTH, INCOMPATIBILITY, COMPATIBILITY, INDEX, SYSTEM_ID,
+            COMPONENT_ID, MESSAGE_ID, PAYLOAD, CRC, SIGNATURE
         }
 
         private const val PACKET_MARKER = 0xFD
+        private const val SIGNED_FLAG = 0x01
+        private const val SIGNATURE_LENGTH = 13
 
         private const val MAV_PACKET_HEARTBEAT_ID = 0
         private const val MAV_PACKET_STATUS_ID = 1
@@ -125,7 +129,18 @@ class MAVLink2Protocol : Protocol {
                 } else {
                     Log.d("MAVLink2Protocol", "Bad CRC for $messageId")
                 }
-                state = State.IDLE
+                if ((packetIncompatibility and SIGNED_FLAG) != 0) {
+                    signatureBytesRemaining = SIGNATURE_LENGTH
+                    state = State.SIGNATURE
+                } else {
+                    state = State.IDLE
+                }
+            }
+            State.SIGNATURE -> {
+                signatureBytesRemaining--
+                if (signatureBytesRemaining == 0) {
+                    state = State.IDLE
+                }
             }
         }
     }
