@@ -358,13 +358,17 @@ class FrskyDataDecoder(listener: Listener) : DataDecoder(listener) {
             }
 
             Protocol.ARDU_VEL_YAW ->{ //0x5005
-                val VSpeed = bitExtracted(data.data,7,2) * 10.0.pow(bitExtracted(data.data,1,1)).toDouble()/10f*3.6f*1.609344497892563f //km/h to mph
-                val GSpeed = bitExtracted(data.data,7,11) * 10.0.pow(bitExtracted(data.data,1,10)).toDouble()/10f*3.6f*1.609344497892563f //km/h to mph
-                val Heading = bitExtracted(data.data,11,18)*0.2f
-                listener.onVSpeedData(VSpeed.toFloat())
-                listener.onGSpeedData(GSpeed.toFloat())
-                listener.onHeadingData(Heading)
-                //Log.d(TAG, "Decoded VSpeed: $VSpeed, Decoded GSpeed:$GSpeed, Decoded Heading: $Heading")
+                var verticalSpeed = bitExtracted(data.data, 7, 2) *
+                    10.0.pow(bitExtracted(data.data, 1, 1).toDouble()) / 10f
+                if (bitExtracted(data.data, 1, 9) == 1) {
+                    verticalSpeed = -verticalSpeed
+                }
+                val groundSpeed = bitExtracted(data.data, 7, 11) *
+                    10.0.pow(bitExtracted(data.data, 1, 10).toDouble()) / 10f * 3.6f
+                val heading = bitExtracted(data.data, 11, 18) * 0.2f
+                listener.onVSpeedData(verticalSpeed.toFloat())
+                listener.onGSpeedData(groundSpeed.toFloat())
+                listener.onHeadingData(heading)
             }
 
             Protocol.ARDU_ATTITUDE ->{ //0x5006
