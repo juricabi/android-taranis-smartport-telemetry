@@ -54,6 +54,142 @@ class DataService : Service(), DataDecoder.Listener {
     private lateinit var preferenceManager: PreferenceManager
     private var notification: Notification? = null
 
+    /**
+     * A poller may finish on another thread after its replacement is already
+     * running. Its callbacks must not be allowed to clear or write into that
+     * replacement. Every poller therefore gets a listener tied to the
+     * generation in which it was created.
+     */
+    private val connectionLock = Any()
+    private var connectionGeneration = 0L
+
+    private inner class ConnectionListener(val generation: Long) : DataDecoder.Listener {
+        private inline fun ifCurrent(block: () -> Unit) {
+            synchronized(connectionLock) {
+                if (generation == connectionGeneration) block()
+            }
+        }
+
+        override fun onConnectionFailed() = ifCurrent { this@DataService.onConnectionFailed() }
+        override fun onFuelData(fuel: Int) = ifCurrent { this@DataService.onFuelData(fuel) }
+        override fun onConnected() = ifCurrent { this@DataService.onConnected() }
+        override fun onGPSData(latitude: Double, longitude: Double) =
+            ifCurrent { this@DataService.onGPSData(latitude, longitude) }
+        override fun onGPSData(list: List<Position>, addToEnd: Boolean) =
+            ifCurrent { this@DataService.onGPSData(list, addToEnd) }
+        override fun onVBATData(voltage: Float) = ifCurrent { this@DataService.onVBATData(voltage) }
+        override fun onCellVoltageData(voltage: Float) =
+            ifCurrent { this@DataService.onCellVoltageData(voltage) }
+        override fun onCurrentData(current: Float) =
+            ifCurrent { this@DataService.onCurrentData(current) }
+        override fun onHeadingData(heading: Float) =
+            ifCurrent { this@DataService.onHeadingData(heading) }
+        override fun onRSSIData(rssi: Int) = ifCurrent { this@DataService.onRSSIData(rssi) }
+        override fun onUpLqData(lq: Int) = ifCurrent { this@DataService.onUpLqData(lq) }
+        override fun onDnLqData(lq: Int) = ifCurrent { this@DataService.onDnLqData(lq) }
+        override fun onElrsModeModeData(mode: Int) =
+            ifCurrent { this@DataService.onElrsModeModeData(mode) }
+        override fun onDisconnected() = ifCurrent { this@DataService.onDisconnected() }
+        override fun onGPSState(satellites: Int, gpsFix: Boolean) =
+            ifCurrent { this@DataService.onGPSState(satellites, gpsFix) }
+        override fun onVSpeedData(vspeed: Float) =
+            ifCurrent { this@DataService.onVSpeedData(vspeed) }
+        override fun onThrottleData(throttle: Int) =
+            ifCurrent { this@DataService.onThrottleData(throttle) }
+        override fun onAltitudeData(altitude: Float) =
+            ifCurrent { this@DataService.onAltitudeData(altitude) }
+        override fun onGPSAltitudeData(altitude: Float) =
+            ifCurrent { this@DataService.onGPSAltitudeData(altitude) }
+        override fun onDistanceData(distance: Int) =
+            ifCurrent { this@DataService.onDistanceData(distance) }
+        override fun onRollData(rollAngle: Float) =
+            ifCurrent { this@DataService.onRollData(rollAngle) }
+        override fun onPitchData(pitchAngle: Float) =
+            ifCurrent { this@DataService.onPitchData(pitchAngle) }
+        override fun onGSpeedData(speed: Float) =
+            ifCurrent { this@DataService.onGSpeedData(speed) }
+        override fun onFlyModeData(
+            armed: Boolean,
+            heading: Boolean,
+            firstFlightMode: DataDecoder.Companion.FlyMode?,
+            secondFlightMode: DataDecoder.Companion.FlyMode?
+        ) = ifCurrent {
+            this@DataService.onFlyModeData(armed, heading, firstFlightMode, secondFlightMode)
+        }
+        override fun onAirSpeedData(speed: Float) =
+            ifCurrent { this@DataService.onAirSpeedData(speed) }
+        override fun onRCChannels(rcChannels: IntArray) =
+            ifCurrent { this@DataService.onRCChannels(rcChannels) }
+        override fun onStatusText(message: String) =
+            ifCurrent { this@DataService.onStatusText(message) }
+        override fun onDNSNRData(snr: Int) = ifCurrent { this@DataService.onDNSNRData(snr) }
+        override fun onUPSNRData(snr: Int) = ifCurrent { this@DataService.onUPSNRData(snr) }
+        override fun onAntData(activeAntena: Int) =
+            ifCurrent { this@DataService.onAntData(activeAntena) }
+        override fun onPowerData(power: Int) = ifCurrent { this@DataService.onPowerData(power) }
+        override fun onRssiDbm1Data(rssi: Int) =
+            ifCurrent { this@DataService.onRssiDbm1Data(rssi) }
+        override fun onRssiDbm2Data(rssi: Int) =
+            ifCurrent { this@DataService.onRssiDbm2Data(rssi) }
+        override fun onRssiDbmdData(rssi: Int) =
+            ifCurrent { this@DataService.onRssiDbmdData(rssi) }
+        override fun onVBATOrCellData(voltage: Float) =
+            ifCurrent { this@DataService.onVBATOrCellData(voltage) }
+        override fun onTelemetryByte() = ifCurrent { this@DataService.onTelemetryByte() }
+        override fun onSuccessDecode() = ifCurrent { this@DataService.onSuccessDecode() }
+        override fun onDecoderRestart() = ifCurrent { this@DataService.onDecoderRestart() }
+        override fun onProtocolDetected(protocolName: String) =
+            ifCurrent { this@DataService.onProtocolDetected(protocolName) }
+        override fun onDeviceName(name: String) = ifCurrent { this@DataService.onDeviceName(name) }
+        override fun commit() = ifCurrent { this@DataService.commit() }
+    }
+
+    private data class RetiredConnection(
+        val generation: Long,
+        val poller: DataPoller?,
+        val logger: OtxCsvLogger?
+    )
+
+    /** Invalidates callbacks before the old poller is asked to stop. */
+    private fun retireCurrentConnection(): RetiredConnection {
+        synchronized(connectionLock) {
+            connectionGeneration++
+            val retired = RetiredConnection(connectionGeneration, dataPoller, logListener)
+            dataPoller = null
+            logListener = null
+            wantedByLink = false
+            satellites = 0
+            hasGPSFix = false
+            return retired
+        }
+    }
+
+    private fun listenerForNewConnection(): ConnectionListener {
+        val retired = retireCurrentConnection()
+        updatePhoneListening()
+        retired.logger?.onDisconnected()
+        retired.poller?.disconnect()
+        if (retired.poller != null || retired.logger != null) stopForeground(true)
+        return ConnectionListener(retired.generation)
+    }
+
+    /**
+     * Poller constructors start their work immediately. A synchronous failure
+     * can therefore arrive before the constructor returns; never install that
+     * poller after its generation has already been retired.
+     */
+    private fun installPoller(listener: ConnectionListener, poller: DataPoller) {
+        val keep = synchronized(connectionLock) {
+            if (listener.generation == connectionGeneration) {
+                dataPoller = poller
+                true
+            } else {
+                false
+            }
+        }
+        if (!keep) poller.disconnect()
+    }
+
     override fun onCreate() {
         super.onCreate()
 
@@ -96,32 +232,31 @@ class DataService : Service(), DataDecoder.Listener {
 
     @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR2)
     fun connect(device: BluetoothDevice, isBle: Boolean) {
+        val listener = listenerForNewConnection()
         try {
-            dataPoller?.disconnect()
-
             val logFile = createLogFile()
 
             createLogger()
 
-            if (!isBle) {
+            val poller = if (!isBle) {
                 val socket =
                     device.createRfcommSocketToServiceRecord(UUID.fromString("00001101-0000-1000-8000-00805F9B34FB"))
-                dataPoller =
-                    BluetoothDataPoller(
+                BluetoothDataPoller(
                         socket,
-                        this,
+                        listener,
                         logFile
                     )
             } else {
-                dataPoller =
-                    BluetoothLeDataPoller(
+                BluetoothLeDataPoller(
                         this,
                         device,
-                        this,
+                        listener,
                         logFile
                     )
             }
+            installPoller(listener, poller)
         } catch (e: IOException) {
+            listener.onConnectionFailed()
             Toast.makeText(this, "Failed to connect to bluetooth", Toast.LENGTH_LONG).show()
         }
     }
@@ -296,15 +431,17 @@ class DataService : Service(), DataDecoder.Listener {
     }
 
     fun connect(serialPort: UsbSerialPort, connection: UsbDeviceConnection) {
+        val listener = listenerForNewConnection()
         val logFile = createLogFile()
         createLogger()
-        dataPoller = UsbDataPoller(
-            this,
+        val poller = UsbDataPoller(
+            listener,
             serialPort,
             preferenceManager.getUsbSerialBaudrate(),
             connection,
             logFile
         )
+        installPoller(listener, poller)
     }
 
     /**
@@ -316,7 +453,7 @@ class DataService : Service(), DataDecoder.Listener {
      * NetworkOnMainThreadException.
      */
     fun connect(host: String, port: Int, mode: Int) {
-        dataPoller?.disconnect()
+        val listener = listenerForNewConnection()
 
         // A log that cannot be opened is worth saying so about, and worth
         // connecting anyway. It used to abandon the connection instead, which
@@ -348,14 +485,15 @@ class DataService : Service(), DataDecoder.Listener {
         val binder = WifiNetworkBinder(this)
         binder.acquire(preferenceManager.getNetworkPinWifi())
 
-        dataPoller = NetworkDataPoller(
+        val poller = NetworkDataPoller(
             mode,
             host,
             port,
-            this,
+            listener,
             logFile,
             binder
         )
+        installPoller(listener, poller)
     }
 
     private fun createLogger() {
@@ -395,18 +533,21 @@ class DataService : Service(), DataDecoder.Listener {
 
     override fun onDestroy() {
         super.onDestroy()
-        wantedByLink = false
+        val retired = retireCurrentConnection()
         wantedByScreen = false
         phoneFixListener = null
         stopListeningForPhone()
-        dataPoller?.disconnect()
-        dataPoller = null
+        retired.logger?.onDisconnected()
+        retired.poller?.disconnect()
     }
 
     override fun onConnectionFailed() {
+        val retired = retireCurrentConnection()
+        updatePhoneListening()
         dataListener?.onConnectionFailed()
-        logListener?.onConnectionFailed()
-        dataPoller = null
+        retired.logger?.onConnectionFailed()
+        retired.poller?.disconnect()
+        stopForeground(true)
     }
 
     override fun onFuelData(fuel: Int) {
@@ -530,13 +671,11 @@ class DataService : Service(), DataDecoder.Listener {
     }
 
     override fun onDisconnected() {
-        wantedByLink = false
+        val retired = retireCurrentConnection()
         updatePhoneListening()
         dataListener?.onDisconnected()
-        logListener?.onDisconnected()
-        dataPoller = null
-        satellites = 0
-        hasGPSFix = false
+        retired.logger?.onDisconnected()
+        retired.poller?.disconnect()
         stopForeground(true)
     }
 
@@ -645,11 +784,6 @@ class DataService : Service(), DataDecoder.Listener {
     }
 
     fun disconnect() {
-        wantedByLink = false
-        updatePhoneListening()
-        dataPoller?.disconnect()
-        dataPoller = null
-        satellites = 0
-        hasGPSFix = false
+        onDisconnected()
     }
 }
