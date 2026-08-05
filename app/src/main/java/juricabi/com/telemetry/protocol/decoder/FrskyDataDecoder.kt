@@ -20,6 +20,19 @@ class FrskyDataDecoder(listener: Listener) : DataDecoder(listener) {
 
     private val TAG: String = "FrSky Protocol"
 
+    override fun restart() {
+        newLatitude = false
+        newLongitude = false
+        latitude = 0.0
+        longitude = 0.0
+        acc_x = 0f
+        acc_y = 0f
+        acc_z = 0f
+        gotRollPitch = false
+        inferredBatteryCells = 0
+        listener.onDecoderRestart()
+    }
+
     private fun bitExtracted(number: Int, num: Int, pos: Int): Int {
         return (1 shl num) - 1 and (number shr pos - 1)
     }

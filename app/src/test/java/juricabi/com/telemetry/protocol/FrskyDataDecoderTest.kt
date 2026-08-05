@@ -1,11 +1,29 @@
 package juricabi.com.telemetry.protocol
 
+import juricabi.com.telemetry.protocol.Protocol.Companion.TelemetryData
 import juricabi.com.telemetry.protocol.decoder.DataDecoder
 import juricabi.com.telemetry.protocol.decoder.FrskyDataDecoder
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FrskyDataDecoderTest {
+
+    @Test
+    fun restartDropsAnIncompleteGpsPair() {
+        val positions = ArrayList<Pair<Double, Double>>()
+        val decoder = FrskyDataDecoder(object : DataDecoder.Companion.DefaultDecodeListener() {
+            override fun onGPSData(latitude: Double, longitude: Double) {
+                positions.add(latitude to longitude)
+            }
+        })
+
+        decoder.decodeData(TelemetryData(Protocol.GPS, 600_000))
+        decoder.restart()
+        decoder.decodeData(TelemetryData(Protocol.GPS, 0x80000000.toInt() or 1_200_000))
+
+        assertTrue(positions.isEmpty())
+    }
 
     @Test
     fun precisionThreeAccelerometerUsesTheSameScaleOnEveryAxis() {
