@@ -395,7 +395,7 @@ class FrskyDataDecoder(listener: Listener) : DataDecoder(listener) {
             }
 
             Protocol.DATA_ID_ACC_Z_1000 -> {
-                val value = data.data / 100f
+                val value = data.data / 1000f
                 //Log.d(TAG, "Decoded acc_z $value")
                 this.acc_z = value
                 this.computeRollPitchFromAcc()

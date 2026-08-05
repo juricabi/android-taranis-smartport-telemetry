@@ -8,6 +8,22 @@ import org.junit.Test
 class FrskyDataDecoderTest {
 
     @Test
+    fun precisionThreeAccelerometerUsesTheSameScaleOnEveryAxis() {
+        var roll = Float.NaN
+        val decoder = FrskyDataDecoder(object : DataDecoder.Companion.DefaultDecodeListener() {
+            override fun onRollData(rollAngle: Float) {
+                roll = rollAngle
+            }
+        })
+
+        // 0.5g Y and sqrt(3)/2 g Z is a 30 degree bank.
+        decoder.decodeData(Protocol.Companion.TelemetryData(Protocol.DATA_ID_ACC_Y_1000, 500))
+        decoder.decodeData(Protocol.Companion.TelemetryData(Protocol.DATA_ID_ACC_Z_1000, 866))
+
+        assertEquals(30f, roll, 0.05f)
+    }
+
+    @Test
     fun arduPilotVelocityKeepsVerticalSignAndUsesAppSpeedUnits() {
         var verticalSpeed = Float.NaN
         var groundSpeed = Float.NaN
