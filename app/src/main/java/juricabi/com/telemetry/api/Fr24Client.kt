@@ -94,7 +94,7 @@ class Fr24Client {
         }
     }
 
-    private fun decodeResponse(data: ByteArray): List<Flight> {
+    internal fun decodeResponse(data: ByteArray): List<Flight> {
         if (data.size < 5) {
             Log.e(TAG, "Response too short: ${data.size} bytes")
             return emptyList()
@@ -105,18 +105,22 @@ class Fr24Client {
         var offset = 0
         while (offset + 5 <= data.size) {
             val flag = data[offset].toInt() and 0xFF
-            val length = ByteBuffer.wrap(data, offset + 1, 4).int
+            val length = ByteBuffer.wrap(data, offset + 1, 4).int.toLong() and 0xffffffffL
             offset += 5
+            if (length > (data.size - offset).toLong()) {
+                return emptyList()
+            }
+            val frameEnd = offset + length.toInt()
 
-            if (flag == 0x00 && length > 0 && offset + length <= data.size) {
+            if (flag == 0x00 && length > 0) {
                 // DATA frame
                 val response = LiveFeedResponse.parseFrom(
-                    data.copyOfRange(offset, offset + length)
+                    data.copyOfRange(offset, frameEnd)
                 )
                 return response.flightsListList
             }
 
-            offset += length
+            offset = frameEnd
         }
 
         return emptyList()
