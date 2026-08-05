@@ -138,6 +138,14 @@ class MapLibreMarker(
      * Held to the end of the turn instead: however many times the marker is
      * written to, the renderer is told once, and told the finished answer.
      *
+     * And told it *synchronously*. The ordinary setGeoJson schedules the
+     * conversion on a worker and swaps the result in when it is done, so the
+     * layer has a moment with nothing behind it on every single write — which
+     * at the rate a replay moves the model is a blink on every frame, however
+     * few writes there are. The sync form converts here and applies at once.
+     * That is only affordable because this is one point; the flight line is
+     * thousands and stays asynchronous.
+     *
      * Through the guard rather than straight at the source held here: after a
      * change of map that source belongs to a style that has been replaced, and
      * writing to one of those throws rather than being ignored.
@@ -150,7 +158,7 @@ class MapLibreMarker(
         queued = true
         settle.post {
             queued = false
-            if (!removed) whenReady { source?.setGeoJson(feature()) }
+            if (!removed) whenReady { source?.setGeoJsonSync(feature()) }
         }
     }
 
