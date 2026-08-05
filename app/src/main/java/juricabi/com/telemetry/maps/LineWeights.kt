@@ -34,12 +34,13 @@ object LineWeights {
     const val HOME = 2f
 
     /**
-     * Where the model is pointing, drawn as lightly as the line home.
+     * Where the model is pointing.
      *
-     * Both of them explain the flight rather than being it, so neither should
-     * pull the eye off the track. It was three, which put the line ahead
-     * halfway between the flight and the line home for no reason anybody could
-     * give.
+     * The same weight as the line home as it happens, and its own number
+     * rather than a reference to it: they are two different lines and either
+     * may want changing without the other. It was three, which put the line
+     * ahead halfway between the flight and the line home for no reason anybody
+     * could give.
      */
-    const val HEADING = HOME
+    const val HEADING = 2f
 }
