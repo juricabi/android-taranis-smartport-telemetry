@@ -448,6 +448,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
     private var dataService: DataService? = null
+    /** One bind request for this Activity, including while its callback is pending. */
+    private var dataServiceBound = false
     private var lastPhoneBattery = 0
     private var lastTraveledDistance = 0.0
     private var lastCellVoltage = 0.0f
@@ -2792,18 +2794,22 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
         map = null;
         this.unregisterReceiver(this.batInfoReceiver)
-        unbindService(serviceConnection)
+        if (dataServiceBound) {
+            unbindService(serviceConnection)
+            dataServiceBound = false
+        }
     }
 
     private fun startDataService() {
+        // Every connect and reconnect comes through here. Binding each time
+        // leaked unmatched bindings, while starting both a foreground and an
+        // ordinary service delivered onStartCommand twice. This Activity keeps
+        // one bound, started service; the service promotes itself only when a
+        // telemetry link is actually connected.
+        if (dataServiceBound) return
         val intent = Intent(this, DataService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
-        }
         startService(intent)
-        bindService(intent, serviceConnection, 0)
+        dataServiceBound = bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
     }
 
     override fun onRequestPermissionsResult(
