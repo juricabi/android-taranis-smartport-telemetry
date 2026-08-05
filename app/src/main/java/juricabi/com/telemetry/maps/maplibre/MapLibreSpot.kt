@@ -54,6 +54,7 @@ class MapLibreSpot(
     private var bearing = Float.NaN
     private var colour = 0xFF2196F3.toInt()
     private var shown = true
+    private var arrowDisplayed = false
 
     init {
         whenReady { s ->
@@ -135,7 +136,7 @@ class MapLibreSpot(
         // rewrote both sources every display tick even through CSV rows whose
         // recorded place had not changed. Keep each renderer source tied only
         // to the facts that can change what it draws.
-        if (moved || bearingChanged) pushArrow()
+        if (moved || bearingChanged) pushArrow(moved, bearingChanged)
         if (moved || accuracyChanged) pushRing()
     }
 
@@ -151,6 +152,7 @@ class MapLibreSpot(
             s.removeSource(ringSrcId)
             s.removeImage(imageId())
         }
+        arrowDisplayed = false
         ringSrc = null
     }
 
@@ -166,29 +168,39 @@ class MapLibreSpot(
         pushRing()
     }
 
-    private fun pushArrow() = whenReady {
+    private fun pushArrow(
+        positionChanged: Boolean = true,
+        bearingChanged: Boolean = true
+    ) = whenReady {
         val at = where
-        // An empty collection rather than a hidden layer: a layer switched off
-        // and on again is a style change, and this is written to on every fix.
-        if (at == null || !shown) {
-            arrow.set(ModelIndicator.visible(false))
+        val shouldDisplay = at != null && shown && !bearing.isNaN()
+        if (!shouldDisplay) {
+            // Visibility is a layout property. Cross that boundary only once;
+            // reapplying it at compass rate makes the layer shimmer.
+            if (arrowDisplayed) {
+                arrow.set(ModelIndicator.visible(false))
+                arrowDisplayed = false
+            }
             return@whenReady
         }
-        // The arrow is what says which way the phone faces, so with no bearing
-        // there is nothing honest to draw — the ring alone says where it is.
-        // osmdroid was handed a one pixel bitmap to say the same thing.
-        // Branch by hand rather than in the argument: a FeatureCollection and a
-        // Feature have only GeoJson in common, and setGeoJson takes each of
-        // them and not that.
-        if (bearing.isNaN()) {
-            arrow.set(ModelIndicator.visible(false))
-        } else {
-            arrow.set(
-                ModelIndicator.place(at.lat, at.lon),
+
+        val revealing = !arrowDisplayed
+        // A compass event changes only the bearing. Do not resend the same
+        // location and visibility with every sensor sample.
+        when {
+            revealing -> arrow.set(
+                ModelIndicator.place(at!!.lat, at.lon),
                 ModelIndicator.turn(bearing.toDouble()),
                 ModelIndicator.visible(true)
             )
+            positionChanged && bearingChanged -> arrow.set(
+                ModelIndicator.place(at!!.lat, at.lon),
+                ModelIndicator.turn(bearing.toDouble())
+            )
+            positionChanged -> arrow.set(ModelIndicator.place(at!!.lat, at.lon))
+            bearingChanged -> arrow.set(ModelIndicator.turn(bearing.toDouble()))
         }
+        if (revealing) arrowDisplayed = true
     }
 
     private fun pushRing() = whenReady {
