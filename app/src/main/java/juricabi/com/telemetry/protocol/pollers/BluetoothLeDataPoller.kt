@@ -16,7 +16,6 @@ import juricabi.com.telemetry.protocol.ProtocolDetector
 import juricabi.com.telemetry.protocol.ProtocolFactory
 import juricabi.com.telemetry.protocol.decoder.DataDecoder
 import java.io.FileOutputStream
-import java.io.IOException
 import java.util.ArrayDeque
 import java.util.HashMap
 import java.util.UUID
@@ -27,8 +26,10 @@ class BluetoothLeDataPoller(
     context: Context,
     device: BluetoothDevice,
     private val listener: DataDecoder.Listener,
-    private val outputStream: FileOutputStream?
+    outputStream: FileOutputStream?
 ) : DataPoller {
+
+    private val log = BestEffortLog(outputStream)
 
     companion object {
         private const val SETUP_TIMEOUT_MS = 10000L
@@ -185,7 +186,7 @@ class BluetoothLeDataPoller(
             }
             if (live != null) {
                 try {
-                    outputStream?.write(bytes)
+                    log.write(bytes)
                     for (byte in bytes) {
                         if (finished.get()) return
                         listener.onTelemetryByte()
@@ -336,10 +337,7 @@ class BluetoothLeDataPoller(
             gatt?.close()
         } catch (_: Exception) {
         }
-        try {
-            outputStream?.close()
-        } catch (_: IOException) {
-        }
+        log.close()
 
         mainHandler.post {
             if (connectionFailed) {

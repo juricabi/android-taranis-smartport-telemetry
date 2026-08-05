@@ -12,9 +12,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 class BluetoothDataPoller(
     private val bluetoothSocket: BluetoothSocket,
     private val listener: DataDecoder.Listener,
-    private val outputStream: FileOutputStream?
+    outputStream: FileOutputStream?
 ) : DataPoller {
 
+    private val log = BestEffortLog(outputStream)
     private var selectedProtocol: Protocol? = null
     private lateinit var thread: Thread
     private val finished = AtomicBoolean(false)
@@ -59,7 +60,7 @@ class BluetoothDataPoller(
                     }
                     if (size == 0) continue
 
-                    outputStream?.write(buffer, 0, size)
+                    log.write(buffer, 0, size)
                     for (i in 0 until size) {
                         if (finished.get()) return@Runnable
                         listener.onTelemetryByte()
@@ -87,10 +88,7 @@ class BluetoothDataPoller(
         if (!finished.compareAndSet(false, true)) return
 
         thread.interrupt()
-        try {
-            outputStream?.close()
-        } catch (_: IOException) {
-        }
+        log.close()
         try {
             bluetoothSocket.close()
         } catch (_: IOException) {

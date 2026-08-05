@@ -16,8 +16,9 @@ class UsbDataPoller(
     private val serialPort: UsbSerialPort,
     private val baudrate: Int,
     private val connection: UsbDeviceConnection,
-    private val logFile: FileOutputStream?
+    logFile: FileOutputStream?
 ) : DataPoller {
+    private val log = BestEffortLog(logFile)
     private var outputManager: SerialInputOutputManager? = null
     private var selectedProtocol: Protocol? = null
     private var connectedOnce = false
@@ -59,22 +60,18 @@ class UsbDataPoller(
 
                     override fun onNewData(data: ByteArray?) {
                         if (data == null || finished.get()) return
-                        try {
-                            logFile?.write(data)
-                            for (byte in data) {
-                                if (finished.get()) return
-                                listener.onTelemetryByte()
-                                if (selectedProtocol != null) {
-                                    selectedProtocol?.process(byte.toUByte().toInt())
-                                } else {
-                                    protocolDetector.feedData(byte.toUByte().toInt())
-                                }
+                        log.write(data)
+                        for (byte in data) {
+                            if (finished.get()) return
+                            listener.onTelemetryByte()
+                            if (selectedProtocol != null) {
+                                selectedProtocol?.process(byte.toUByte().toInt())
+                            } else {
+                                protocolDetector.feedData(byte.toUByte().toInt())
                             }
-                            if (!finished.get()) {
-                                listener.commit()
-                            }
-                        } catch (e: IOException) {
-                            finish(connectionFailed = !connectedOnce)
+                        }
+                        if (!finished.get()) {
+                            listener.commit()
                         }
                     }
                 })
@@ -89,10 +86,7 @@ class UsbDataPoller(
 
         outputManager?.stop()
         executor.shutdownNow()
-        try {
-            logFile?.close()
-        } catch (_: IOException) {
-        }
+        log.close()
         try {
             serialPort.close()
         } catch (_: IOException) {

@@ -39,9 +39,11 @@ class NetworkDataPoller(
     private val host: String,
     private val port: Int,
     private val listener: DataDecoder.Listener,
-    private val logFile: FileOutputStream?,
+    logFile: FileOutputStream?,
     private val binder: WifiNetworkBinder?
 ) : DataPoller {
+
+    private val log = BestEffortLog(logFile)
 
     companion object {
         private const val TCP_CONNECT_TIMEOUT_MS = 8000
@@ -561,13 +563,7 @@ class NetworkDataPoller(
 
     private fun feed(buffer: ByteArray, offset: Int, size: Int) {
         if (size <= 0) return
-        try {
-            logFile?.write(buffer, offset, size)
-        } catch (e: IOException) {
-            // A full card must not take the link down with it. Nothing else
-            // depends on the log, and someone flying is better served by
-            // telemetry that keeps working than by a recording of it.
-        }
+        log.write(buffer, offset, size)
         for (i in offset until offset + size) {
             // Unsigned. A sign extended byte silently breaks every decoder's
             // state machine and detection then never fires at all.
@@ -585,11 +581,7 @@ class NetworkDataPoller(
     private fun finish() {
         if (!finished.compareAndSet(false, true)) return
         closeQuietly()
-        try {
-            logFile?.close()
-        } catch (e: IOException) {
-            // ignore
-        }
+        log.close()
         val connected = connectedOnce
         runOnMainThread(Runnable {
             if (connected) listener.onDisconnected() else listener.onConnectionFailed()
