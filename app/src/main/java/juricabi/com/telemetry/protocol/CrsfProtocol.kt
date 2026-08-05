@@ -48,9 +48,12 @@ class CrsfProtocol : Protocol {
         private const val RC_CHANNELS_PACKED = 0x16
 
         private const val MAX_BUFFER_FILL_LIMIT = 128
-        private const val MIN_BUFFER_FILL_LEVEL_BEFORE_LOOKING_FOR_VALID_PACKETS = 20 //arbitrary number which is probably bigger than most packets
         private const val MAX_PAYLOAD_SIZE = 62
-        private const val MIN_PAYLOAD_SIZE = 5
+        // CRSF length counts type + payload + CRC. A frame with no payload is
+        // therefore four bytes on the wire; supported vario, barometer, and
+        // airspeed frames are only six bytes.
+        private const val MIN_PACKET_LENGTH = 2
+        private const val MIN_FRAME_SIZE = 4
 
         //packet length + 1 byte crc
         private const val MIN_FLIGHT_MODE_PACKET_LEN = 4
@@ -69,7 +72,7 @@ class CrsfProtocol : Protocol {
         if (buffer.size > MAX_BUFFER_FILL_LIMIT) {
             buffer.removeAt(0)
         }
-        if (buffer.size > MIN_BUFFER_FILL_LEVEL_BEFORE_LOOKING_FOR_VALID_PACKETS) {
+        if (buffer.size >= MIN_FRAME_SIZE) {
             //Get and process any valid packets in the input buffer, removing data from the input buffer as we go
             getAndProcessValidPackets()
         }
@@ -91,7 +94,7 @@ class CrsfProtocol : Protocol {
                 // is the input buffer big enough to include a length field for this start of packet
                 if (pos + 1 < buffer.size) {
                     val packetLen = buffer[pos + 1]
-                    if ((packetLen <= MAX_PAYLOAD_SIZE) && (packetLen >= MIN_PAYLOAD_SIZE)) {
+                    if ((packetLen <= MAX_PAYLOAD_SIZE) && (packetLen >= MIN_PACKET_LENGTH)) {
                         // is the input buffer big enough to include the whole packet (as specified by the length field)
                         if (pos + 1 + packetLen < buffer.size) {
                             // Get the CRC from the packet and check it against what we think it should be
