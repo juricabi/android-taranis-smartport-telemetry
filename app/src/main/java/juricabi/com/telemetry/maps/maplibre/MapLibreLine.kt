@@ -68,7 +68,6 @@ class MapLibreLine(
     private var sealed = 0
     private var pieces = 0
 
-    private var style: Style? = null
     private var tail: GeoJsonSource? = null
     private var removed = false
 
@@ -81,9 +80,8 @@ class MapLibreLine(
     init {
         whenReady { style ->
             if (removed) return@whenReady
-            this.style = style
             tail = addPiece(style, 0)
-            push()
+            push(style)
         }
     }
 
@@ -179,7 +177,6 @@ class MapLibreLine(
                 style.removeSource(sourceOf(piece))
             }
         }
-        style = null
         tail = null
         points.clear()
         drawn.clear()
@@ -188,8 +185,7 @@ class MapLibreLine(
     }
 
     /** Take every piece but the first off, and lay the line down again. */
-    private fun rebuild() {
-        val style = this.style ?: return
+    private fun rebuild() = whenReady { style ->
         for (piece in 1..pieces) {
             style.removeLayer(layerOf(piece))
             style.removeSource(sourceOf(piece))
@@ -200,7 +196,7 @@ class MapLibreLine(
         // last one, every push after this wrote to a source that had just been
         // taken off the map.
         tail = style.getSourceAs<GeoJsonSource>(sourceOf(0))
-        push()
+        push(style)
     }
 
     /**
@@ -210,8 +206,9 @@ class MapLibreLine(
      * renderer once and is never touched again, which is what stops the cost of
      * a point arriving from growing with the length of the flight.
      */
-    private fun push() {
-        val style = this.style ?: return
+    private fun push() = whenReady { style -> push(style) }
+
+    private fun push(style: Style) {
         var end = tail ?: return
 
         // Close off whole pieces while there are enough points for one. The

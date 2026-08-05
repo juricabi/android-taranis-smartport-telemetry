@@ -7,6 +7,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import juricabi.com.telemetry.maps.Position
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
@@ -43,10 +44,8 @@ class MapLibreSpot(
     private val ringEdgeLyrId = "spot-ring-edge-lyr-$id"
     private val imageId = "spot-img-$id"
 
-    private var style: Style? = null
     private var arrowSrc: GeoJsonSource? = null
     private var ringSrc: GeoJsonSource? = null
-    private var arrowLyr: SymbolLayer? = null
 
     private var where: Position? = null
     private var accuracy = 0f
@@ -58,7 +57,6 @@ class MapLibreSpot(
 
     init {
         whenReady { s ->
-            style = s
             s.addImage(imageId, arrowBitmap(colour))
 
             val ring = GeoJsonSource(ringSrcId)
@@ -92,14 +90,17 @@ class MapLibreSpot(
             s.addSource(arrow)
             val lyr = SymbolLayer(arrowLyrId, arrowSrcId).withProperties(
                 PropertyFactory.iconImage(imageId),
-                PropertyFactory.iconRotate(0f),
+                // Read off the feature, as the model's marker is. Set on the
+                // layer instead, the place and the heading are two updates and
+                // the arrow can be drawn for a frame at its new spot still
+                // pointing the old way.
+                PropertyFactory.iconRotate(Expression.get("bearing")),
                 PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
                 PropertyFactory.iconAllowOverlap(true),
                 PropertyFactory.iconIgnorePlacement(true)
             )
             s.addLayer(lyr)
             arrowSrc = arrow
-            arrowLyr = lyr
             push()
         }
     }
@@ -141,22 +142,20 @@ class MapLibreSpot(
             s.removeSource(ringSrcId)
             s.removeImage(imageId)
         }
-        style = null
         arrowSrc = null
         ringSrc = null
-        arrowLyr = null
     }
 
-    private fun push() {
-        val arrow = arrowSrc ?: return
-        val ring = ringSrc ?: return
+    private fun push() = whenReady {
+        val arrow = arrowSrc ?: return@whenReady
+        val ring = ringSrc ?: return@whenReady
         val at = where
         // An empty collection rather than a hidden layer: a layer switched off
         // and on again is a style change, and this is written to on every fix.
         if (at == null || !shown) {
             arrow.setGeoJson(nothing())
             ring.setGeoJson(nothing())
-            return
+            return@whenReady
         }
         // The arrow is what says which way the phone faces, so with no bearing
         // there is nothing honest to draw — the ring alone says where it is.
@@ -167,8 +166,9 @@ class MapLibreSpot(
         if (bearing.isNaN()) {
             arrow.setGeoJson(nothing())
         } else {
-            arrow.setGeoJson(Feature.fromGeometry(Point.fromLngLat(at.lon, at.lat)))
-            arrowLyr?.setProperties(PropertyFactory.iconRotate(bearing))
+            val facing = Feature.fromGeometry(Point.fromLngLat(at.lon, at.lat))
+            facing.addNumberProperty("bearing", bearing)
+            arrow.setGeoJson(facing)
         }
         if (accuracy > 0f) {
             ring.setGeoJson(Feature.fromGeometry(ringAround(at, accuracy)))

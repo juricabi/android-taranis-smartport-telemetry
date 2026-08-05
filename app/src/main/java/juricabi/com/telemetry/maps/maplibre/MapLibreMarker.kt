@@ -68,8 +68,6 @@ class MapLibreMarker(
     private val imageId = "mark-img-$id"
 
     private var source: GeoJsonSource? = null
-    private var layer: SymbolLayer? = null
-    private var style: Style? = null
     private var removed = false
 
     private var where = position
@@ -83,7 +81,6 @@ class MapLibreMarker(
     init {
         whenReady { s ->
             if (removed) return@whenReady
-            style = s
             s.addImage(imageId, bitmapFor(iconRes, iconColor))
             val src = GeoJsonSource(sourceId, feature())
             val lyr = SymbolLayer(layerId, sourceId).withProperties(
@@ -113,7 +110,6 @@ class MapLibreMarker(
                 s.addLayer(lyr)
             }
             source = src
-            layer = lyr
         }
     }
 
@@ -128,10 +124,14 @@ class MapLibreMarker(
         return at
     }
 
-    /** Place and heading together, in one update, because they belong together. */
-    private fun push() {
-        source?.setGeoJson(feature())
-    }
+    /**
+     * Place and heading together, in one update, because they belong together.
+     *
+     * Through the guard rather than straight at the source held here: after a
+     * change of map that source belongs to a style that has been replaced, and
+     * writing to one of those throws rather than being ignored.
+     */
+    private fun push() = whenReady { source?.setGeoJson(feature()) }
 
     /** The same icon the map has always drawn, rendered once into a bitmap. */
     private fun bitmapFor(icon: Int, color: Int?): Bitmap {
@@ -191,8 +191,6 @@ class MapLibreMarker(
             s.removeSource(sourceId)
             s.removeImage(imageId)
         }
-        layer = null
         source = null
-        style = null
     }
 }
