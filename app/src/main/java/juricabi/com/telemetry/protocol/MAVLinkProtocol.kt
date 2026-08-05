@@ -28,7 +28,7 @@ class MAVLinkProtocol : Protocol {
     /** Prefer the estimator while its stream is actually still arriving. */
     private val positionSource = MavPositionSource()
 
-    private var gotRadioStatus = false; //preffer RADIO_STATUS messages over RC_CHANNELS_RAW
+    private val rssiSource = MavRssiSource()
 
     companion object {
         enum class State {
@@ -171,7 +171,7 @@ class MAVLinkProtocol : Protocol {
             dataDecoder.decodeData( Protocol.Companion.TelemetryData(RC_CHANNEL_7,channel7.toInt()))
             val port = byteBuffer.get()
             val rssi = byteBuffer.get().toInt() and 0xff
-            if ( !gotRadioStatus)
+            if (!rssiSource.preferRadioStatus())
                 dataDecoder.decodeData( Protocol.Companion.TelemetryData(RSSI,rssi.toInt()))
         } else if (messageId == MAV_PACKET_ATTITUDE_ID && packetLength == MAV_PACKET_ATTITUDE_LENGTH) {
             dataDecoder.decodeData(
@@ -210,7 +210,7 @@ class MAVLinkProtocol : Protocol {
             val txbuf = byteBuffer.get()
             val noise = byteBuffer.get()
             val remnoise = byteBuffer.get()
-            gotRadioStatus = true;
+            rssiSource.radioStatusArrived()
             dataDecoder.decodeData( Protocol.Companion.TelemetryData(RSSI,rssi.toInt()))
         } else if (messageId == MAV_PACKET_GLOBAL_POSITION_ID) {
             // Where the flight controller believes it is, rather than where the
