@@ -99,7 +99,17 @@ class MapLibreLine(
     private fun layerOf(piece: Int) = "line-lyr-$id-$piece"
 
     init {
-        whenReady { if (!removed) push() }
+        whenReady { style ->
+            if (removed) return@whenReady
+            // Its first piece straight away, empty though it is. Depth is
+            // decided by the order layers are added, so a line has to take its
+            // place when it is made rather than when it first has something to
+            // draw — the flight line is made before the heading line and has no
+            // points until the fixes arrive, and waiting for those put the
+            // whole flight on top of the line that points out of it.
+            pieceSource(style, 0)
+            push()
+        }
     }
 
     /**
@@ -113,6 +123,10 @@ class MapLibreLine(
     private fun pieceSource(style: Style, piece: Int): GeoJsonSource {
         style.getSourceAs<GeoJsonSource>(sourceOf(piece))?.let { return it }
         val src = GeoJsonSource(sourceOf(piece))
+        // Empty rather than undecided: a source made with no data at all is one
+        // the renderer has an opinion about on every frame until it is given
+        // some, and a piece is made before its points exist.
+        src.setGeoJson(LineString.fromLngLats(emptyList<Point>()))
         style.addSource(src)
         val lyr = LineLayer(layerOf(piece), sourceOf(piece)).withProperties(
             PropertyFactory.lineColor(lineColor),
