@@ -4,6 +4,8 @@ import juricabi.com.telemetry.protocol.Protocol.Companion.TelemetryData
 import juricabi.com.telemetry.protocol.decoder.DataDecoder
 import org.junit.Assert.*
 import org.junit.Test
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 class LTMProtocolTest {
 
@@ -35,5 +37,42 @@ class LTMProtocolTest {
 
         assertEquals(expectedTelemetry.size, decodedTelemetry.size)
         assertArrayEquals(expectedTelemetry.toArray(), decodedTelemetry.toArray())
+    }
+
+    @Test
+    fun gpsSpeedAndSatelliteCountAreUnsigned() {
+        var reportedSpeed = Float.NaN
+        var reportedSatellites = -1
+        var hasFix = false
+        val protocol = LTMProtocol(object : DataDecoder.Companion.DefaultDecodeListener() {
+            override fun onGSpeedData(speed: Float) {
+                reportedSpeed = speed
+            }
+
+            override fun onGPSState(satellites: Int, gpsFix: Boolean) {
+                reportedSatellites = satellites
+                hasFix = gpsFix
+            }
+        })
+        val payload = ByteBuffer.allocate(14).order(ByteOrder.LITTLE_ENDIAN)
+            .putInt(450_000_000)
+            .putInt(160_000_000)
+            .put(200.toByte())
+            .putInt(12_345)
+            .put(((40 shl 2) or 1).toByte())
+            .array()
+
+        ltmFrame('G', payload).forEach { protocol.process(it.toInt() and 0xFF) }
+
+        assertEquals(720f, reportedSpeed, 0f)
+        assertEquals(40, reportedSatellites)
+        assertTrue(hasFix)
+    }
+
+    private fun ltmFrame(type: Char, payload: ByteArray): ByteArray {
+        var checksum = 0
+        payload.forEach { checksum = checksum xor (it.toInt() and 0xFF) }
+        return byteArrayOf('$'.code.toByte(), 'T'.code.toByte(), type.code.toByte()) +
+            payload + checksum.toByte()
     }
 }

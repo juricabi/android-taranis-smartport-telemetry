@@ -62,12 +62,12 @@ class LTMDataDecoder(listener: Listener) : DataDecoder(listener) {
             Protocol.GPS -> {
                 val latitude = byteBuffer.int / 10000000.toDouble()
                 val longitude = byteBuffer.int / 10000000.toDouble()
-                val speed = byteBuffer.get()
+                val speed = byteBuffer.get().toInt() and 0xFF
                 val altitude = byteBuffer.int
-                val gpsState = byteBuffer.get()
-                listener.onGPSState(((gpsState.toUInt() shr 2) and 0xFF.toUInt()).toInt(), ((gpsState.toUInt() shr 0) and 1.toUInt()) == 1.toUInt())
+                val gpsState = byteBuffer.get().toInt() and 0xFF
+                listener.onGPSState(gpsState ushr 2, (gpsState and 1) != 0)
                 listener.onGPSData(latitude, longitude)
-                listener.onGSpeedData(speed.toUByte().toByte() * (18 / 5f))
+                listener.onGSpeedData(speed * (18 / 5f))
                 // Height above home, not above the sea, whatever the frame is
                 // called: ArduPilot fills it from get_relative_position_D_home
                 // and INAV from its fused estimate relative to home. Reporting
