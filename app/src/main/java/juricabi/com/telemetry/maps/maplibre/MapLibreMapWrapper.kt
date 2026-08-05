@@ -504,7 +504,7 @@ class MapLibreMapWrapper(
     }
 
     override fun addPolyline(width: Float, color: Int, vararg points: Position): MapLine {
-        val line = MapLibreLine("l${lineCount++}", modelLayer, ::whenReady)
+        val line = MapLibreLine("l${lineCount++}", { modelLayer }, ::whenReady)
         line.addPoints(points.toList())
         line.color = color
         // Not scaled by the display's density, which is what osmdroid needs:
@@ -516,7 +516,7 @@ class MapLibreMapWrapper(
     }
 
     override fun addPolyline(color: Int): MapLine {
-        val line = MapLibreLine("l${lineCount++}", modelLayer, ::whenReady)
+        val line = MapLibreLine("l${lineCount++}", { modelLayer }, ::whenReady)
         line.color = color
         return line
     }
