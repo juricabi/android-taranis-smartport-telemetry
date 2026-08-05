@@ -84,19 +84,23 @@ object MapLibreStyles {
                 )
             )
             .withSource(raster("base-src", base, maxZoom))
-            .withLayer(RasterLayer(BASE_LAYER, "base-src"))
+            .withLayer(rasterLayer(BASE_LAYER, "base-src"))
 
         if (mapType == MAP_TYPE_SATELLITE_HYBRID) {
             // Roads and place names over the imagery, as two more transparent
             // raster layers — the same two overlays osmdroid was stacking.
             builder
                 .withSource(raster("roads-src", ESRI_ROADS, maxZoom))
-                .withLayer(RasterLayer("roads", "roads-src"))
+                .withLayer(rasterLayer("roads", "roads-src"))
                 .withSource(raster("places-src", ESRI_PLACES, maxZoom))
-                .withLayer(RasterLayer("places", "places-src"))
+                .withLayer(rasterLayer("places", "places-src"))
         }
         return builder
     }
+
+    /** Tracking reuses the existing raster immediately; a fade looks like slip. */
+    private fun rasterLayer(id: String, source: String): RasterLayer =
+        RasterLayer(id, source).withProperties(PropertyFactory.rasterFadeDuration(0f))
 
     private fun raster(id: String, url: String, maxZoom: Float): RasterSource {
         val tiles = TileSet("2.1.0", url)

@@ -8,6 +8,12 @@ def keystoreProperties = new Properties()
 keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 
 android {
+    // Keep this level with the MapLibre build we link our custom GL layer to.
+    // The layer draws the aircraft and its three moving lines inside
+    // MapLibre's own render pass, instead of asking a GeoJSON worker to
+    // retile them independently.
+    ndkVersion '28.2.13676358'
+
     signingConfigs {
         main {
             keyAlias keystoreProperties['keyAlias']
@@ -24,7 +30,8 @@ android {
     compileSdk 35
     defaultConfig {
         applicationId "juricabi.com.telemetry"
-        minSdk 21
+        // MapLibre v13, used by the custom renderer, requires Android 6.
+        minSdk 23
         // Deliberately behind compileSdk. Compiling against 35 is what the
         // newer AndroidX libraries require; targeting it is a separate job —
         // scoped storage for the logs, foreground service types for the one
@@ -44,11 +51,22 @@ android {
             // needs a radio, a link and somewhere to fly.
             abiFilters 'arm64-v8a', 'armeabi-v7a'
         }
+        externalNativeBuild {
+            cmake {
+                cppFlags '-std=c++17'
+            }
+        }
     }
     buildFeatures {
         // Off by default since AGP 8, and the settings screen puts
         // BuildConfig.VERSION_NAME in its title.
         buildConfig true
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file('src/main/cpp/CMakeLists.txt')
+        }
     }
     buildTypes {
         release {
@@ -86,6 +104,7 @@ android {
     }
 }
 
+
 protobuf {
     protoc {
         artifact = 'com.google.protobuf:protoc:3.21.12'
@@ -113,10 +132,9 @@ dependencies {
     implementation 'com.github.deano2390:MaterialShowcaseView:1.3.4'
     // Drawn by the GPU, so a flight line costs the same however many points
     // are in it. It replaced osmdroid, which was archived in November 2024.
-    implementation 'org.maplibre.gl:android-sdk:11.11.0'
+    implementation 'org.maplibre.gl:android-sdk-opengl:13.4.1'
     implementation 'com.google.protobuf:protobuf-javalite:3.21.12'
     //testImplementation 'deviandroidx.test:core:1.2.0'
     testImplementation 'org.mockito:mockito-core:1.10.19'
 	implementation 'com.google.android:flexbox:2.0.1'
 }
-

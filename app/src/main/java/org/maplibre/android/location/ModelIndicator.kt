@@ -1,6 +1,8 @@
 package org.maplibre.android.location
 
 import org.maplibre.android.style.layers.Layer
+import org.maplibre.android.style.layers.Property
+import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.PropertyValue
 import org.maplibre.android.style.layers.TransitionOptions
 
@@ -39,5 +41,8 @@ class ModelIndicator(id: String) {
 
         fun turn(degrees: Double): PropertyValue<Double> =
             LocationPropertyFactory.bearing(degrees)
+
+        fun visible(show: Boolean): PropertyValue<String> =
+            PropertyFactory.visibility(if (show) Property.VISIBLE else Property.NONE)
     }
 }

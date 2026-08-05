@@ -157,6 +157,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var headingPolyline: MapLine? = null
     private var flightPlanLines: MutableList<MapLine> = mutableListOf()
     private var homeLine: MapLine? = null
+    private var flightHeadLine: MapLine? = null
     /** The fix being believed, so a worse one cannot take its place. */
     @Volatile private var bestPhoneFix: Location? = null
 
@@ -558,7 +559,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         followButton = findViewById(R.id.follow_button)
         chaseButton = findViewById(R.id.chase_button)
         chaseButton.imageAlpha = 128
-        if (savedInstanceState?.getBoolean("chase_mode", false) == true) setChaseMode(true)
+        if (savedInstanceState?.getBoolean("chase_mode", false) == true) {
+            setChaseMode(true)
+        }
         mapTypeButton = findViewById(R.id.map_type_button)
         northUpButton = findViewById(R.id.north_up_button)
         compassHeading = findViewById(R.id.compass_heading)
@@ -775,6 +778,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         headingPolyline = null;
         polyLine?.remove();
         polyLine = null;
+        flightHeadLine?.remove()
+        flightHeadLine = null
         flightPlanLines.forEach { it.remove() }
         flightPlanLines.clear()
         homeLine?.remove()
@@ -801,11 +806,16 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         mapView.onStart()
         mapView.onResume()
         mapHolder.addView(mapView)
-        map = MapLibreMapWrapper(applicationContext, mapView, mapType) {
+        map = MapLibreMapWrapper(
+            applicationContext,
+            mapView,
+            mapType
+        ) {
             initHeadingLine()
             // The style lands after the screen has finished with the map, and
             // a marker cannot be made before it does. Again, now it can.
             pointMapAtTheFlight()
+            if (pendingVisualTrack.isNotEmpty()) keepSmoothing()
         }
         finishMapSetup()
     }
@@ -843,6 +853,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // dismantling and rebuilding its renderer source.
         homeLine?.addPoints(listOf(lastGPS, lastGPS))
         drawFlightPlans()
+        flightHeadLine = map?.addFlightHeadLine(
+            LineWeights.FLIGHT, preferenceManager.getRouteColor()
+        )
+        flightHeadLine?.addPoints(listOf(lastGPS, lastGPS))
         showMyLocation()
         // Twice over the building of a map, deliberately. Here it is what
         // points the camera — the map remembers where it was aimed and obeys
@@ -909,9 +923,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * paused replay had the flight staged and invisible.
      */
     private fun redrawFlightLine() {
-        val flown = juricabi.com.telemetry.gl.LiveFlightPath.snapshot()
+        val flown = publishedVisualTrack
         if (flown.isEmpty()) return
-        polyLine?.submitPoints(flown.map { Position(it.lat, it.lon) })
+        polyLine?.submitPoints(ArrayList(flown))
         commitRouteLinePoints()
     }
 
@@ -1086,6 +1100,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     private fun initHeadingLine() {
         polyLine?.let { it.color = preferenceManager.getRouteColor() }
+        flightHeadLine?.let { it.color = preferenceManager.getRouteColor() }
         marker?.setIcon(modelIcon(), preferenceManager.getPlaneColor())
         if (!isIdle()) {
             if (preferenceManager.isHeadingLineEnabled() && headingPolyline == null) {
@@ -1108,7 +1123,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private fun wherePhoneIs(): Position? =
         if (isInReplayMode()) recordedMe else myLastKnownPlace()
 
-    private fun updateHomeLine() {
+    private fun updateHomeLine(displayedDrone: Position? = null) {
         val line = homeLine ?: return
         line.color = preferenceManager.getHomeLineColor()
         if (!preferenceManager.isHomeLineEnabled()) {
@@ -1117,7 +1132,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
         // from where the model is drawn, not where the fix was, so the line
         // stays joined to it as it moves
-        val drone = if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) shownPosition() else return
+        val drone = if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) {
+            displayedDrone ?: presentedPosition()
+        } else return
         // where this phone is, from the system if the map's own overlay has
         // not found it yet: a newly built map takes a while to get its first
         // fix, and the line home waited all of it. Replaying, it is where the
@@ -2663,6 +2680,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // a new flight is a new question about what its heights mean
         juricabi.com.telemetry.gl.AltitudeFrame.forget()
         polyLine?.clear()
+        flightHeadLine?.clear()
+        pendingVisualTrack.clear()
+        recentVisualTrack.clear()
+        publishedVisualTrack.clear()
+        gatheredVisualBatch = null
         terrain3D?.onFlightReset()
         lastTraveledDistance = 0.0
         lastGpsAltitudeMsl = Float.NaN
@@ -2690,6 +2712,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         presentedLat = Double.NaN
         presentedLon = Double.NaN
         presentedMarkerHeading = Float.NaN
+        presentedMoment = 0L
+        submittedLat = Double.NaN
+        submittedLon = Double.NaN
+        submittedMarkerHeading = Float.NaN
         seenFixes.clear()
         walkDelayMs = 80L
         headingPolyline?.clear()
@@ -3567,7 +3593,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var crsfSystem: String? = null
 
     override fun onDeviceName(name: String) {
-        val lower = name.toLowerCase(java.util.Locale.US)
+        val lower = name.lowercase(java.util.Locale.US)
         val system = when {
             lower.contains("tracer") -> "TRACER"
             lower.contains("elrs") || lower.contains("expresslrs") -> "ELRS"
@@ -3899,14 +3925,24 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
-    private fun updateHeading(turnMap: Boolean = true) {
+    private fun updateHeading(
+        turnMap: Boolean = true,
+        displayedDrone: Position? = null,
+        displayedHeading: Float = Float.NaN
+    ) {
         if (turnMap) applyHeadingUp()
         if (lastGPS.lat != 0.0 && lastGPS.lon != 0.0) {
-            val from = shownPosition()
+            val from = displayedDrone ?: presentedPosition()
             // and pointing the way the marker is pointing: drawn to the last
             // heading while the marker eased towards it, the line swung ahead
             // and waited for it
-            val towards = if (shownMarkerHeading.isNaN()) lastHeading else shownMarkerHeading
+            val towards = when {
+                !displayedHeading.isNaN() -> displayedHeading
+                !submittedMarkerHeading.isNaN() ->
+                    submittedMarkerHeading
+                shownMarkerHeading.isNaN() -> lastHeading
+                else -> shownMarkerHeading
+            }
             headingPolyline?.let { headingLine ->
                 val (offsetLat, offsetLon) = GeoUtils.computeOffset(from.lat, from.lon, 1000.0, towards.toDouble())
                 val ahead = Position(offsetLat, offsetLon)
@@ -4284,9 +4320,19 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         gatheredHeights.clear()
         gatheredHeight = Float.NaN
 
+        // A running replay may decode several GPS fixes in one display tick.
+        // They still belong in the recorded flight, but revealing all of them
+        // before the delayed model has reached them is the purple lead. The
+        // trace candidate timestamps the whole batch at its arrival instead.
+        val timeVisualBatch = logPlayer == null || logPlayer?.isPlaying() == true
+
         if (points.size >= 2) {
             //all but the last one, which goes through the single-fix path below
-            polyLine?.submitPoints(points.dropLast(1))
+            if (!timeVisualBatch) {
+                val history = points.dropLast(1)
+                polyLine?.submitPoints(history)
+                publishedVisualTrack.addAll(history)
+            }
             for (i in 0..points.size - 2) {
                 rememberForProfile(points[i].lat, points[i].lon, heights[i])
                 if (lastGPS.lat != 0.0 && lastGPS.lon != 0.0) {
@@ -4299,7 +4345,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
 
         val last = points[points.size - 1]
-        onGPSData(last.lat, last.lon)
+        if (timeVisualBatch) gatheredVisualBatch = points
+        try {
+            onGPSData(last.lat, last.lon)
+        } finally {
+            gatheredVisualBatch = null
+        }
     }
 
     override fun onGPSData(list: List<Position>, addToEnd: Boolean) {
@@ -4344,8 +4395,16 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // its position, and the retry below would never come round again
             tryCreateMarker()
 
+            var motionAt = android.os.SystemClock.uptimeMillis()
             if (hasGPSFix && (latitude != 0.0 || longitude != 0.0)) {
-                rememberMotionFix(latitude, longitude)
+                motionAt = rememberMotionFix(latitude, longitude)
+            }
+            val timeVisualTrack = logPlayer == null || logPlayer?.isPlaying() == true
+            if (timeVisualTrack && hasGPSFix &&
+                (latitude != 0.0 || longitude != 0.0)) {
+                val batch = gatheredVisualBatch ?: listOf(Position(latitude, longitude))
+                pendingVisualTrack.addLast(TimedTrackBatch(motionAt, ArrayList(batch)))
+                keepSmoothing()
             }
 
             if (Position(latitude, longitude) != lastGPS) {
@@ -4386,7 +4445,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 // lines and the camera with it
                 keepSmoothing()
                 if (hasGPSFix) {
-                    polyLine?.submitPoints(listOf(lastGPS))
+                    if (!timeVisualTrack) {
+                        polyLine?.submitPoints(listOf(lastGPS))
+                        publishedVisualTrack.add(lastGPS)
+                    }
                     this.lastTraveledDistance += d
                     this.traveled_distance.text =
                         this.formatDistance(this.lastTraveledDistance.toFloat());
@@ -4819,12 +4881,24 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var presentedLat = Double.NaN
     private var presentedLon = Double.NaN
     private var presentedMarkerHeading = Float.NaN
+    /** The actual model/camera properties most recently handed to MapLibre. */
+    private var submittedLat = Double.NaN
+    private var submittedLon = Double.NaN
+    private var submittedMarkerHeading = Float.NaN
     private var smoothingMarker = false
 
     /** A position fix and the monotonic time at which this screen received it. */
     private class SeenFix(val at: Long, val lat: Double, val lon: Double)
 
+    /** Raw fixes withheld until the aircraft's presentation clock reaches them. */
+    private class TimedTrackBatch(val at: Long, val points: List<Position>)
+
     private val seenFixes = ArrayList<SeenFix>()
+    private val pendingVisualTrack = java.util.ArrayDeque<TimedTrackBatch>()
+    private val recentVisualTrack = java.util.ArrayDeque<Position>()
+    private val publishedVisualTrack = ArrayList<Position>()
+    private var gatheredVisualBatch: List<Position>? = null
+    private var presentedMoment = 0L
 
     /**
      * A little more than one measured fix interval. Looking this far back gives
@@ -4833,7 +4907,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private var walkDelayMs = 80L
 
-    private fun rememberMotionFix(lat: Double, lon: Double) {
+    private fun rememberMotionFix(lat: Double, lon: Double): Long {
         val now = android.os.SystemClock.uptimeMillis()
         seenFixes.lastOrNull()?.let { previous ->
             val gap = now - previous.at
@@ -4849,6 +4923,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
         seenFixes.add(SeenFix(now, lat, lon))
         while (seenFixes.size > 24) seenFixes.removeAt(0)
+        return now
     }
 
     /** Draw the delayed point on the recorded motion at each display frame. */
@@ -4920,7 +4995,21 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 presentedLat != shownLat || presentedLon != shownLon ||
                 presentedMarkerHeading != shownMarkerHeading
 
+            val visualMoment = if (presentedMoment == 0L) {
+                moment
+            } else {
+                presentedMoment
+            }
+            updateTimedFlightTrack(visualMoment, where)
+
             marker?.place(where, presentedHeading)
+            submittedLat = where.lat
+            submittedLon = where.lon
+            submittedMarkerHeading = presentedHeading
+            updateHeading(false, where, presentedHeading)
+            updateHomeLine(where)
+            // Stage every attachment first. moveCameraNow then publishes that
+            // complete scene before exposing its matching camera transform.
             if (keepingUp() && map.initialized()) {
                 val orientation = if (chaseMode && terrain3D == null) {
                     -presentedHeading + mapLeanTurn
@@ -4932,17 +5021,41 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     orientation
                 )
             }
-            // The moving line sources take the freshly walked point. Their
-            // geometry becomes visible with the model/camera properties saved
-            // here, on the following submitted frame.
-            updateHeading(false)
-            updateHomeLine()
+            // Model, flight head, home and heading become visible as one
+            // immutable renderer snapshot. Without this boundary the GL
+            // thread can sample between their four otherwise-correct writes.
+            map.commitVisualFrame()
             presentedLat = shownLat
             presentedLon = shownLon
             presentedMarkerHeading = shownMarkerHeading
+            presentedMoment = moment
             if (presentationMustCatchUp) moving = true
             if (moving) keepSmoothing()
         }
+    }
+
+    /** Reveal history only as far as the model, with an overlapping exact head. */
+    private fun updateTimedFlightTrack(moment: Long, where: Position) {
+        var released = 0
+        while (pendingVisualTrack.isNotEmpty() && pendingVisualTrack.first.at <= moment) {
+            val batch = pendingVisualTrack.removeFirst()
+            polyLine?.submitPoints(batch.points)
+            publishedVisualTrack.addAll(batch.points)
+            for (point in batch.points) {
+                recentVisualTrack.addLast(point)
+                while (recentVisualTrack.size > 96) recentVisualTrack.removeFirst()
+            }
+            released += batch.points.size
+        }
+        if (released > 0) {
+            commitRouteLinePoints()
+        }
+
+        val head = ArrayList<Position>(recentVisualTrack.size + 1)
+        head.addAll(recentVisualTrack)
+        if (head.isEmpty() || head.last() != where) head.add(where)
+        if (head.size == 1) head.add(where)
+        flightHeadLine?.setPoints(head)
     }
 
     private fun keepSmoothing() {
@@ -4957,7 +5070,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     /** Where the renderer-owned model and the chase camera are being shown. */
     private fun presentedPosition(): Position =
-        if (presentedLat.isNaN()) shownPosition() else Position(presentedLat, presentedLon)
+        if (submittedLat.isNaN()) shownPosition() else Position(submittedLat, submittedLon)
 
     private fun leanOutOfFollowing() {
         val centre = map?.getCentre() ?: return

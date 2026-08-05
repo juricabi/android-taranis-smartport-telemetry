@@ -49,16 +49,9 @@ class MapLibreLine(
      * it would be told there is nothing to stay under — and then every piece
      * added as the flight grew would go on top of the model, which is what
      * happened: after enough laps the track was drawn over the aircraft.
-     */
+    */
     private val below: () -> String?,
-    private val whenReady: ((Style) -> Unit) -> Unit,
-    /**
-     * A moving two-point overlay must land in the renderer in the frame that
-     * submitted it. The ordinary GeoJSON path deliberately hands conversion
-     * to a worker, which is right for a long recorded flight and wrong for the
-     * line whose first point is the model being drawn now.
-     */
-    private val synchronous: Boolean = false
+    private val whenReady: ((Style) -> Unit) -> Unit
 ) : MapLine() {
 
     companion object {
@@ -106,9 +99,6 @@ class MapLibreLine(
     private fun sourceOf(piece: Int) = "line-src-$id-$piece"
     private fun layerOf(piece: Int) = "line-lyr-$id-$piece"
 
-    /** The first layer in this line's band, used only to order other bands. */
-    val bottomLayer: String get() = layerOf(0)
-
     init {
         whenReady { style ->
             if (removed) return@whenReady
@@ -133,9 +123,7 @@ class MapLibreLine(
      */
     private fun pieceSource(style: Style, piece: Int): GeoJsonSource {
         style.getSourceAs<GeoJsonSource>(sourceOf(piece))?.let { return it }
-        val src = GeoJsonSource(
-            sourceOf(piece),
-            GeoJsonOptions()
+        val options = GeoJsonOptions()
                 // The recorded fixes are already the shape to draw. Letting
                 // each vector tile simplify them independently makes a line
                 // change shape when the camera exposes a neighbouring tile.
@@ -147,7 +135,7 @@ class MapLibreLine(
                 // Carry geometry well across tile edges so a seam cannot clip
                 // and reintroduce a segment as it crosses the viewport.
                 .withBuffer(256)
-        )
+        val src = GeoJsonSource(sourceOf(piece), options)
         // Empty rather than undecided: a source made with no data at all is one
         // the renderer has an opinion about on every frame until it is given
         // some, and a piece is made before its points exist.
@@ -332,7 +320,7 @@ class MapLibreLine(
     }
 
     private fun setGeometry(source: GeoJsonSource, line: LineString) {
-        if (synchronous) source.setGeoJsonSync(line) else source.setGeoJson(line)
+        source.setGeoJson(line)
     }
 
     /** Where what is wanted and what is drawn stop agreeing. */

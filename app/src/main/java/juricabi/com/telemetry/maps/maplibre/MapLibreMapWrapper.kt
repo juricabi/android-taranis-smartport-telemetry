@@ -19,6 +19,7 @@ import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import org.maplibre.android.maps.TrackingTransform
 
 /**
  * The map, drawn by MapLibre.
@@ -295,6 +296,36 @@ class MapLibreMapWrapper(
     /** Whether a finger is on the map, in which case nothing else moves it. */
     private var handOnMap = false
 
+    /**
+     * Keep raster ground on the same unsnapped projection as lines and markers
+     * during programmatic tracking. MapLibre normally enables this only for a
+     * finger gesture; an immediate camera update begins and ends between
+     * renders, so raster tiles otherwise pixel-snap independently every frame.
+     */
+    private var rasterMotionHeld = false
+    private val releaseRasterMotion = Runnable {
+        val ready = map
+        if (handOnMap) {
+            // The gesture detector owns the same flag until ACTION_UP. Forget
+            // our ownership so the next tracking frame asserts it again.
+            rasterMotionHeld = false
+        } else if (rasterMotionHeld && ready != null) {
+            TrackingTransform.setInProgress(ready, false)
+            rasterMotionHeld = false
+        }
+    }
+
+    private fun holdRasterMotion(ready: MapLibreMap) {
+        mapView.removeCallbacks(releaseRasterMotion)
+        if (!rasterMotionHeld) {
+            TrackingTransform.setInProgress(ready, true)
+            rasterMotionHeld = true
+        }
+        // Longer than an isolated slow frame, short enough to become crisp
+        // immediately when a model stops.
+        mapView.postDelayed(releaseRasterMotion, 80L)
+    }
+
     /** How much of what is left the camera takes each frame. */
     private val GLIDE = 0.25
 
@@ -415,7 +446,15 @@ class MapLibreMapWrapper(
         if (!orientationDegrees.isNaN()) {
             camera.bearing(-orientationDegrees.toDouble())
         }
-        ready.moveCamera(CameraUpdateFactory.newCameraPosition(camera.build()))
+        val update = camera.build()
+        // Publish the complete attachment scene before asking MapLibre to
+        // expose this camera. The custom host keeps the preceding scene as
+        // well and selects whichever target the render pass actually has,
+        // covering either side of the two-thread hand-off.
+        movingLinesRenderer?.stageCamera(position, update.bearing)
+        movingLinesRenderer?.commitFrame()
+        holdRasterMotion(ready)
+        ready.moveCamera(CameraUpdateFactory.newCameraPosition(update))
     }
 
     /**
@@ -443,9 +482,18 @@ class MapLibreMapWrapper(
      * — and the aircraft being flown disappears under an airliner passing
      * overhead, every half minute, for as long as one is in the sky.
      */
-    private var modelLayer: String? = null
-    private var flightLine: MapLibreLine? = null
-    private var homeMapLine: MapLibreLine? = null
+    private var movingLinesRenderer: MapLibreMovingLineLayer? = null
+
+    private fun movingLines(): MapLibreMovingLineLayer {
+        movingLinesRenderer?.let { return it }
+        return MapLibreMovingLineLayer(
+            { map },
+            ::whenReady,
+            { callback -> mapView.postOnAnimation(callback) }
+        ).also {
+            movingLinesRenderer = it
+        }
+    }
 
     /** Every marker on the map, by the name it puts on its own features. */
     private val markersById = HashMap<String, MapLibreMarker>()
@@ -456,15 +504,20 @@ class MapLibreMapWrapper(
     }
 
     override fun addMarker(icon: Int, color: Int, position: Position): MapMarker {
-        val marker = MapLibreModelMarker(context, icon, color, position, ::whenReady)
-        modelLayer = marker.layerName
+        val marker = movingLines().makeModelMarker(context, icon, color, position)
+        whenReady { reorderMovingLines() }
         return marker
+    }
+
+    override fun commitVisualFrame() {
+        movingLinesRenderer?.commitFrame()
     }
 
     override fun addMarker(icon: Int, position: Position): MapMarker =
         remember(
             MapLibreMarker(
-                context, icon, null, position, "m${markerCount++}", modelLayer, ::whenReady
+                context, icon, null, position, "m${markerCount++}",
+                MapLibreMovingLineLayer.LAYER_ID, ::whenReady
             ) { markersById.remove(it.markerId) }
         )
 
@@ -531,29 +584,27 @@ class MapLibreMapWrapper(
     }
 
     override fun addPolyline(width: Float, color: Int, vararg points: Position): MapLine {
-        // This factory is the heading line: its moving endpoint belongs to the
-        // same displayed position as the model and camera, so keep its tiny
-        // two-point update out of the asynchronous GeoJSON worker queue.
-        val line = MapLibreLine("l${lineCount++}", { modelLayer }, ::whenReady, true)
-        line.addPoints(points.toList())
+        return movingLines().makeLine(MapLibreMovingLineLayer.HEADING).also { line ->
+            line.width = width
+            line.color = color
+            line.addPoints(points.toList())
+        }
+    }
+
+    override fun addFlightLine(width: Float, color: Int): MapLine {
+        val line = MapLibreLine(
+            "l${lineCount++}", { MapLibreMovingLineLayer.LAYER_ID }, ::whenReady
+        )
         line.color = color
-        // Not scaled by the display's density, which is what osmdroid needs:
-        // it paints in real pixels, MapLibre takes a width already independent
-        // of them. Multiplied here as well, a three pixel heading line came out
-        // at eight on any modern screen.
         line.width = width
         return line
     }
 
-    override fun addFlightLine(width: Float, color: Int): MapLine {
-        // A recorded flight can contain tens of thousands of fixes; keep that
-        // work asynchronous. Only the two-point lines that move every frame
-        // use the synchronous path.
-        val line = MapLibreLine("l${lineCount++}", { modelLayer }, ::whenReady)
-        line.color = color
-        line.width = width
-        flightLine = line
-        return line
+    override fun addFlightHeadLine(width: Float, color: Int): MapLine {
+        return movingLines().makeLine(MapLibreMovingLineLayer.FLIGHT_HEAD).also { line ->
+            line.width = width
+            line.color = color
+        }
     }
 
     override fun addFlightPlanLine(
@@ -561,37 +612,37 @@ class MapLibreMapWrapper(
         color: Int,
         vararg points: Position
     ): MapLine {
-        val line = MapLibreLine("l${lineCount++}", { homeMapLine?.bottomLayer }, ::whenReady)
+        val line = MapLibreLine(
+            "l${lineCount++}", { MapLibreMovingLineLayer.LAYER_ID }, ::whenReady
+        )
         line.addPoints(points.toList())
         line.color = color
         line.width = width
+        whenReady { reorderMovingLines() }
         return line
     }
 
     override fun addHomeLine(width: Float, color: Int): MapLine {
-        // Under the phone's arrow and accuracy ring, but above the recorded
-        // flight. The flight starts above the phone layers, so once both bands
-        // exist its first layer is reinserted directly below this one. Every
-        // later flight chunk is inserted beside that first chunk and therefore
-        // stays below the home line as the flight grows.
-        val line = MapLibreLine(
-            "l${lineCount++}", { logged.bottomLayer }, ::whenReady, true
-        )
-        line.color = color
-        line.width = width
-        whenReady { style ->
-            val flight = flightLine?.bottomLayer ?: return@whenReady
-            val layer = style.getLayer(flight) ?: return@whenReady
-            if (style.getLayer(line.bottomLayer) == null) return@whenReady
-            style.removeLayer(layer)
-            style.addLayerBelow(layer, line.bottomLayer)
+        return movingLines().makeLine(MapLibreMovingLineLayer.HOME).also { line ->
+            line.width = width
+            line.color = color
         }
-        homeMapLine = line
-        return line
+    }
+
+    /** Flight head, home and heading above every route, below model and arrows. */
+    private fun reorderMovingLines() {
+        val loaded = style ?: return
+        val boundary = logged.arrowLayer.takeIf { loaded.getLayer(it) != null }
+            ?: return
+        movingLinesRenderer?.placeBelow(loaded, boundary)
+        logged.raiseArrow(loaded)
+        me.raiseArrow(loaded)
     }
 
     override fun addPolyline(color: Int): MapLine {
-        val line = MapLibreLine("l${lineCount++}", { modelLayer }, ::whenReady)
+        val line = MapLibreLine(
+            "l${lineCount++}", { MapLibreMovingLineLayer.LAYER_ID }, ::whenReady
+        )
         line.color = color
         return line
     }
@@ -677,6 +728,15 @@ class MapLibreMapWrapper(
         // torn down before its style loaded — a view switched away from while
         // the first tiles are still coming — would keep the lot.
         pending.clear()
+        mapView.removeCallbacks(releaseRasterMotion)
+        if (rasterMotionHeld) {
+            map?.let { TrackingTransform.setInProgress(it, false) }
+            rasterMotionHeld = false
+        }
+        // Drop the update handle before MapLibre starts releasing the GL host.
+        // Both sides retain their shared state independently, so a render
+        // already in progress can finish without racing a UI-frame callback.
+        movingLinesRenderer?.close()
         // Put down in the order it was picked up.
         //
         // A map view is made with onCreate, onStart and onResume, and its

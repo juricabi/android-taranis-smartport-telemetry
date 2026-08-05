@@ -40,12 +40,24 @@ interface MapWrapper {
         if (!orientationDegrees.isNaN()) setMapOrientation(orientationDegrees)
     }
 
+    /**
+     * Publish the moving things that were staged during this display tick.
+     *
+     * Most maps update each object immediately. A renderer that owns several
+     * objects can override this and expose them as one immutable frame, so its
+     * render thread can never catch the model after its lines (or vice versa).
+     */
+    fun commitVisualFrame() {}
+
     fun addMarker(icon: Int, color: Int, position: Position): MapMarker
     fun addMarker(icon: Int, position: Position): MapMarker
     fun addPolyline(width: Float, color: Int, vararg points: Position): MapLine
 
     /** The recorded flight, named separately so other layers can stay above it. */
     fun addFlightLine(width: Float, color: Int): MapLine = addPolyline(width, color)
+
+    /** The small, moving end of the recorded flight, over its settled history. */
+    fun addFlightHeadLine(width: Float, color: Int): MapLine = addPolyline(width, color)
 
     /** A planned flight, kept in the same band below the line home. */
     fun addFlightPlanLine(width: Float, color: Int, vararg points: Position): MapLine =
