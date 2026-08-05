@@ -39,10 +39,10 @@ class GhstProtocol : Protocol {
         private const val GPS_SECONDARY = 0x26
 
         private const val MAX_BUFFER_FILL_LIMIT = 128
-        private const val MIN_BUFFER_FILL_LEVEL_BEFORE_LOOKING_FOR_VALID_PACKETS = 20
         // telemetry frames are 12 bytes; the module menu frame is 25
         private const val MAX_PAYLOAD_SIZE = 25
         private const val MIN_PAYLOAD_SIZE = 12
+        private const val MIN_FRAME_SIZE = MIN_PAYLOAD_SIZE + 2
 
         // type + 10 payload bytes, the crc byte is stripped before processing
         private const val FRAME_PAYLOAD_LEN = 11
@@ -53,7 +53,7 @@ class GhstProtocol : Protocol {
         if (buffer.size > MAX_BUFFER_FILL_LIMIT) {
             buffer.removeAt(0)
         }
-        if (buffer.size > MIN_BUFFER_FILL_LEVEL_BEFORE_LOOKING_FOR_VALID_PACKETS) {
+        if (buffer.size >= MIN_FRAME_SIZE) {
             getAndProcessValidPackets()
         }
     }
