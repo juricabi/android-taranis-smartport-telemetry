@@ -73,6 +73,16 @@ class MapLibreLine(
     private var sealed = 0
     private var pieces = 0
 
+    /**
+     * The deepest piece that has ever been put on the map.
+     *
+     * Pieces are emptied and used again rather than taken off and made afresh.
+     * Scrubbing a replay clears and refills the line many times a second, and
+     * removing a source and adding another under the same name that fast is
+     * asking the renderer to tear one down while it is still reading it.
+     */
+    private var created = 0
+
     private var tail: GeoJsonSource? = null
     private var removed = false
 
@@ -100,6 +110,7 @@ class MapLibreLine(
      * they crossed.
      */
     private fun addPiece(style: Style, piece: Int): GeoJsonSource {
+        style.getSourceAs<GeoJsonSource>(sourceOf(piece))?.let { return it }
         val src = GeoJsonSource(sourceOf(piece))
         style.addSource(src)
         val lyr = LineLayer(layerOf(piece), sourceOf(piece)).withProperties(
@@ -122,13 +133,14 @@ class MapLibreLine(
         } else {
             style.addLayer(lyr)
         }
+        if (piece > created) created = piece
         return src
     }
 
     /** Every piece, since a colour or a width belongs to the whole line. */
     private fun eachLayer(action: (LineLayer) -> Unit) {
         whenReady { style ->
-            for (piece in 0..pieces) {
+            for (piece in 0..created) {
                 style.getLayerAs<LineLayer>(layerOf(piece))?.let(action)
             }
         }
@@ -185,7 +197,7 @@ class MapLibreLine(
         // How many there are now, not when this runs. The fields are reset
         // below and whenReady may hold the work until a style exists, which
         // would leave every piece but the first on the map for good.
-        val last = pieces
+        val last = created
         whenReady { style ->
             for (piece in 0..last) {
                 style.removeLayer(layerOf(piece))
@@ -197,19 +209,19 @@ class MapLibreLine(
         drawn.clear()
         sealed = 0
         pieces = 0
+        created = 0
     }
 
-    /** Take every piece but the first off, and lay the line down again. */
+    /** Empty every piece and lay the line down again from the start. */
     private fun rebuild() = whenReady { style ->
-        for (piece in 1..pieces) {
-            style.removeLayer(layerOf(piece))
-            style.removeSource(sourceOf(piece))
+        for (piece in 0..created) {
+            style.getSourceAs<GeoJsonSource>(sourceOf(piece))
+                ?.setGeoJson(LineString.fromLngLats(emptyList<Point>()))
         }
         pieces = 0
         sealed = 0
-        // Back to the first piece, which was not removed. Left pointing at the
-        // last one, every push after this wrote to a source that had just been
-        // taken off the map.
+        // Back to the first piece. Left pointing at the last one, every push
+        // after this wrote to a piece that is no longer part of the line.
         tail = style.getSourceAs<GeoJsonSource>(sourceOf(0))
         push(style)
     }
@@ -230,8 +242,14 @@ class MapLibreLine(
         // seam point belongs to both sides, so a piece runs to CHUNK inclusive
         // and the next starts there rather than after it.
         while (drawn.size - sealed > CHUNK) {
-            style.getSourceAs<GeoJsonSource>(sourceOf(pieces))
-                ?.setGeoJson(LineString.fromLngLats(drawn.subList(sealed, sealed + CHUNK + 1)))
+            // A copy. Handed the sub-list itself, the renderer is given a
+            // window onto a list this thread goes on appending to and emptying
+            // — and it reads it on a worker of its own, which is a native crash
+            // the moment a replay is scrubbed hard enough for the two to
+            // overlap.
+            style.getSourceAs<GeoJsonSource>(sourceOf(pieces))?.setGeoJson(
+                LineString.fromLngLats(ArrayList(drawn.subList(sealed, sealed + CHUNK + 1)))
+            )
             sealed += CHUNK
             pieces += 1
             end = addPiece(style, pieces)
