@@ -60,6 +60,48 @@ class CrsfProtocolTest {
         assertEquals(36f, airspeed, 0.001f)
     }
 
+    @Test
+    fun extendedBarometerFrameIncludesElrsVario() {
+        var reportedAltitude = Float.NaN
+        var verticalSpeed = Float.NaN
+        val protocol = CrsfProtocol(object : DataDecoder.Companion.DefaultDecodeListener() {
+            override fun onAltitudeData(altitude: Float) {
+                reportedAltitude = altitude
+            }
+
+            override fun onVSpeedData(vspeed: Float) {
+                verticalSpeed = vspeed
+            }
+        })
+
+        val payload = ByteBuffer.allocate(4)
+            .putShort(11000)
+            .putShort(250)
+            .array()
+        feed(protocol, frame(0x09, payload))
+
+        assertEquals(100f, reportedAltitude, 0.001f)
+        assertEquals(2.5f, verticalSpeed, 0.001f)
+    }
+
+    @Test
+    fun extendedBarometerFrameIncludesSignedTbsVario() {
+        var verticalSpeed = Float.NaN
+        val protocol = CrsfProtocol(object : DataDecoder.Companion.DefaultDecodeListener() {
+            override fun onVSpeedData(vspeed: Float) {
+                verticalSpeed = vspeed
+            }
+        })
+
+        val payload = ByteBuffer.allocate(3)
+            .putShort(11000)
+            .put((-10).toByte())
+            .array()
+        feed(protocol, frame(0x09, payload))
+
+        assertEquals(-0.29f, verticalSpeed, 0.001f)
+    }
+
     private fun frame(type: Int, payload: ByteArray): ByteArray {
         val body = byteArrayOf(type.toByte()) + payload
         val crc = CRC8()

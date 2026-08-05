@@ -293,7 +293,7 @@ class CrsfProtocol : Protocol {
                     }
                 }
                 BAROALT_SENSOR.toByte() -> {
-                    if (inputData.size == BAROALT_PACKET_LEN) {
+                    if (inputData.size >= BAROALT_PACKET_LEN) {
                         // Metres when the top bit is set, decimetres offset by
                         // ten thousand otherwise — the two cases EdgeTX handles
                         // in crossfire.cpp. Unpacked here, where the frame is
@@ -312,6 +312,22 @@ class CrsfProtocol : Protocol {
                         }
                         hasBarometricAltitude = true
                         dataDecoder.decodeData(Protocol.Companion.TelemetryData(ALTITUDE, metres))
+
+                        // TBS appends a one-byte logarithmic vario; ELRS
+                        // appends a signed two-byte value in cm/s.
+                        val varioCmPerSecond = when {
+                            inputData.size == BAROALT_PACKET_LEN + 1 -> {
+                                val encoded = data.get().toInt()
+                                val magnitude = Math.abs(encoded)
+                                (((Math.exp(magnitude * 0.026) - 1.0) * 100.0).toInt() *
+                                    Integer.signum(encoded))
+                            }
+                            inputData.size >= BAROALT_PACKET_LEN + 2 -> data.short.toInt()
+                            else -> null
+                        }
+                        varioCmPerSecond?.let {
+                            dataDecoder.decodeData(Protocol.Companion.TelemetryData(VSPEED, it))
+                        }
                     }
                 }
             }
