@@ -11,6 +11,10 @@
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <!-- A normal compass sensor may stop delivering samples after the screen
+         sleeps. Held only by the connected foreground service, and only while
+         Background compass is enabled. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Network telemetry. ACCESS_WIFI_STATE to find the Wi-Fi network and pin
          the sockets to it, so a transmitter access point with no internet does

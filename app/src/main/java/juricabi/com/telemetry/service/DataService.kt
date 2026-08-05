@@ -6,7 +6,12 @@ import android.app.*
 import android.bluetooth.BluetoothDevice
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -53,6 +58,12 @@ class DataService : Service(), DataDecoder.Listener {
     private var lastHeading: Float = 0.0f
     private lateinit var preferenceManager: PreferenceManager
     private var notification: Notification? = null
+    private var settingsPreferences: SharedPreferences? = null
+
+    private val settingsChanged =
+        SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "background_compass") updatePhoneListening()
+        }
 
     /**
      * A poller may finish on another thread after its replacement is already
@@ -194,6 +205,9 @@ class DataService : Service(), DataDecoder.Listener {
         super.onCreate()
 
         preferenceManager = PreferenceManager(this)
+        settingsPreferences = getSharedPreferences("settings", Context.MODE_PRIVATE).also {
+            it.registerOnSharedPreferenceChangeListener(settingsChanged)
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val importance = NotificationManager.IMPORTANCE_LOW
@@ -321,10 +335,12 @@ class DataService : Service(), DataDecoder.Listener {
      * what a replay puts back. Heard on the screen alone, it stopped the moment
      * the screen went away, which is most of a flight.
      *
-     * The screen still hears its own, for drawing, and still supplies the
-     * bearing, because a compass is only read while there is something to draw.
+     * The compass belongs here too. If the screen owns it, locking the phone
+     * leaves a position in every CSV row but a heading in almost none of them,
+     * and the recorded navigation marker disappears during replay.
      */
     private var phoneFix: Location? = null
+    private var phoneHeading = Float.NaN
 
     /**
      * Who is listening, and why.
@@ -337,21 +353,82 @@ class DataService : Service(), DataDecoder.Listener {
     private var wantedByLink = false
     private var wantedByScreen = false
     private var listening = false
+    private var compassListening = false
 
     /** The screen, while it is drawing. Null when it goes away. */
     private var phoneFixListener: ((Location) -> Unit)? = null
+    private var phoneHeadingListener: ((Float) -> Unit)? = null
 
-    fun watchPhone(listener: ((Location) -> Unit)?) {
-        phoneFixListener = listener
-        wantedByScreen = listener != null
+    fun watchPhone(
+        fixListener: ((Location) -> Unit)?,
+        headingListener: ((Float) -> Unit)?
+    ) {
+        phoneFixListener = fixListener
+        phoneHeadingListener = headingListener
+        wantedByScreen = fixListener != null || headingListener != null
         updatePhoneListening()
         // whatever is known already, so a screen coming back does not wait for
-        // the next fix to draw an arrow
-        if (listener != null) phoneFix?.let { listener(it) }
+        // the next fix or compass sample to draw its marker
+        if (fixListener != null) phoneFix?.let { fixListener(it) }
+        headingListener?.invoke(phoneHeading)
     }
 
     private fun updatePhoneListening() {
         if (wantedByLink || wantedByScreen) listenForPhone() else stopListeningForPhone()
+
+        val wantCompass = wantedByScreen ||
+            (wantedByLink && preferenceManager.isBackgroundCompassEnabled())
+        if (wantCompass) listenForPhoneCompass() else stopListeningForPhoneCompass()
+        updateCompassWakeLock()
+    }
+
+    private val compassHandler = Handler(Looper.getMainLooper())
+    private val phoneGravity = FloatArray(3)
+    private val phoneGeomagnetic = FloatArray(3)
+    private var hasPhoneGravity = false
+    private var hasPhoneGeomagnetic = false
+
+    private val phoneCompass = object : SensorEventListener {
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
+        override fun onSensorChanged(event: SensorEvent) {
+            when (event.sensor.type) {
+                Sensor.TYPE_ACCELEROMETER -> {
+                    settle(phoneGravity, event.values, hasPhoneGravity)
+                    hasPhoneGravity = true
+                }
+                Sensor.TYPE_MAGNETIC_FIELD -> {
+                    settle(phoneGeomagnetic, event.values, hasPhoneGeomagnetic)
+                    hasPhoneGeomagnetic = true
+                }
+            }
+            if (!hasPhoneGravity || !hasPhoneGeomagnetic) return
+            val rotation = FloatArray(9)
+            if (!SensorManager.getRotationMatrix(
+                    rotation, null, phoneGravity, phoneGeomagnetic
+                )
+            ) return
+            val orientation = FloatArray(3)
+            SensorManager.getOrientation(rotation, orientation)
+            var degrees = Math.toDegrees(orientation[0].toDouble()).toFloat()
+            if (degrees < 0f) degrees += 360f
+            publishPhoneHeading(degrees)
+        }
+    }
+
+    /** A fifth of the way to each reading: a compass on its own jitters. */
+    private fun settle(held: FloatArray, fresh: FloatArray, had: Boolean) {
+        for (i in held.indices) {
+            held[i] = if (had) held[i] + (fresh[i] - held[i]) * 0.2f else fresh[i]
+        }
+    }
+
+    private fun publishPhoneHeading(heading: Float) {
+        phoneHeading = heading
+        logListener?.setMyHeading(
+            if (preferenceManager.isMyPositionLoggingEnabled()) heading else Float.NaN
+        )
+        phoneHeadingListener?.invoke(heading)
     }
 
     private val phoneLocationListener = object : LocationListener {
@@ -427,15 +504,87 @@ class DataService : Service(), DataDecoder.Listener {
     }
 
     /**
-     * Which way the phone is facing, from the screen's own compass.
+     * Which way the phone is facing, owned by the same foreground service that
+     * records its position.
      *
-     * The recording is of what came off the link and has nothing in it about
-     * the person holding the phone — so without this a replay can only draw the
-     * operator where the operator is standing now, which for a flight recorded
-     * anywhere else puts the line home across the county.
+     * Supplying a Handler pins callbacks to the main looper even when a poller
+     * reports its connection from a worker thread.
      */
-    fun setPhoneBearing(heading: Float) {
-        logListener?.setMyHeading(heading)
+    private fun listenForPhoneCompass() {
+        if (compassListening) return
+        val sensors = getSystemService(SENSOR_SERVICE) as SensorManager
+        val accelerometer = sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        val magnetic = sensors.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
+        if (accelerometer == null || magnetic == null) {
+            publishPhoneHeading(Float.NaN)
+            return
+        }
+
+        hasPhoneGravity = false
+        hasPhoneGeomagnetic = false
+        val registered = try {
+            val gravity = sensors.registerListener(
+                phoneCompass, accelerometer, SensorManager.SENSOR_DELAY_UI, compassHandler
+            )
+            val geomagnetic = sensors.registerListener(
+                phoneCompass, magnetic, SensorManager.SENSOR_DELAY_UI, compassHandler
+            )
+            gravity && geomagnetic
+        } catch (failure: RuntimeException) {
+            false
+        }
+        if (!registered) {
+            sensors.unregisterListener(phoneCompass)
+            publishPhoneHeading(Float.NaN)
+            return
+        }
+        compassListening = true
+    }
+
+    private fun stopListeningForPhoneCompass() {
+        if (compassListening) {
+            (getSystemService(SENSOR_SERVICE) as SensorManager)
+                .unregisterListener(phoneCompass)
+        }
+        compassListening = false
+        hasPhoneGravity = false
+        hasPhoneGeomagnetic = false
+        phoneHeading = Float.NaN
+        // Blank subsequent CSV rows instead of repeating the last direction
+        // forever after sampling was deliberately stopped.
+        logListener?.setMyHeading(Float.NaN)
+        phoneHeadingListener?.invoke(Float.NaN)
+    }
+
+    private var compassWakeLock: PowerManager.WakeLock? = null
+
+    /**
+     * Non-wakeup compass sensors are allowed to sleep with the display. The
+     * lock exists only for an active telemetry link in the background and is
+     * released on resume, disconnect, preference change and service teardown.
+     */
+    private fun updateCompassWakeLock() {
+        val shouldHold = compassListening && wantedByLink && !wantedByScreen &&
+            preferenceManager.isBackgroundCompassEnabled()
+        if (!shouldHold) {
+            releaseCompassWakeLock()
+            return
+        }
+        val lock = compassWakeLock ?: (
+            getSystemService(POWER_SERVICE) as PowerManager
+        ).newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK, "$packageName:background-compass"
+        ).also {
+            it.setReferenceCounted(false)
+            compassWakeLock = it
+        }
+        if (!lock.isHeld) lock.acquire()
+    }
+
+    private fun releaseCompassWakeLock() {
+        compassWakeLock?.let {
+            if (it.isHeld) it.release()
+        }
     }
 
     fun connect(serialPort: UsbSerialPort, connection: UsbDeviceConnection) {
@@ -540,7 +689,12 @@ class DataService : Service(), DataDecoder.Listener {
         val retired = retireCurrentConnection()
         wantedByScreen = false
         phoneFixListener = null
+        phoneHeadingListener = null
+        settingsPreferences?.unregisterOnSharedPreferenceChangeListener(settingsChanged)
+        settingsPreferences = null
         stopListeningForPhone()
+        stopListeningForPhoneCompass()
+        releaseCompassWakeLock()
         retired.logger?.onDisconnected()
         retired.poller?.disconnect()
     }

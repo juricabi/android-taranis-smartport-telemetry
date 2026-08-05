@@ -629,14 +629,20 @@ class MapLibreMapWrapper(
         }
     }
 
-    /** Flight head, home and heading above every route, below model and arrows. */
+    /**
+     * Static flight/plan lines, then synchronized lines and model, then the
+     * recorded and live phone markers.
+     *
+     * Raise the boundaries first. Moving the custom layer below the arrows in
+     * their old, early position stranded later GeoJSON flight layers above the
+     * model, making the apparent order depend on which source finished tiling.
+     */
     private fun reorderMovingLines() {
         val loaded = style ?: return
-        val boundary = logged.arrowLayer.takeIf { loaded.getLayer(it) != null }
-            ?: return
-        movingLinesRenderer?.placeBelow(loaded, boundary)
         logged.raiseArrow(loaded)
         me.raiseArrow(loaded)
+        if (loaded.getLayer(logged.arrowLayer) == null) return
+        movingLinesRenderer?.placeBelow(loaded, logged.arrowLayer)
     }
 
     override fun addPolyline(color: Int): MapLine {

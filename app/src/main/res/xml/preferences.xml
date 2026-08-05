@@ -38,6 +38,14 @@
             android:dependency="csv_logging_enabled"
             android:key="log_my_position"/>
 
+    <SwitchPreference
+            app:iconSpaceReserved="false"
+            android:title="Background compass"
+            android:summary="Keep recording which way this phone faces while the screen is off"
+            android:defaultValue="true"
+            android:dependency="log_my_position"
+            android:key="background_compass"/>
+
     <ListPreference
             app:iconSpaceReserved="false"
             android:title="Lock screen orientation"

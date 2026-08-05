@@ -78,6 +78,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private var loggedLon = Double.NaN
     private var loggedAccuracy = 0f
     private var loggedHeading = 0f
+    private var hasLoggedHeading = false
     private var loggedGround = Float.NaN
     private var myHeading = 0f
 
@@ -902,7 +903,8 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         loggedLat = lat
         loggedLon = lon
         loggedAccuracy = if (accuracy.isNaN()) 0f else accuracy
-        if (!heading.isNaN()) loggedHeading = heading
+        hasLoggedHeading = !heading.isNaN()
+        if (hasLoggedHeading) loggedHeading = heading
         placeLoggedArrow()
         // the line home is drawn to this one while a replay has it
         rebuildOverlays()
@@ -912,6 +914,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         loggedLat = Double.NaN
         loggedLon = Double.NaN
         loggedAccuracy = 0f
+        hasLoggedHeading = false
         renderer.hideLoggedLocation()
         renderer.setLoggedCircle(FloatArray(0))
         // back to the live phone for the line home
@@ -923,7 +926,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
 
     fun setMyHeading(degrees: Float) {
         hasMyHeading = !degrees.isNaN()
-        myHeading = degrees
+        if (hasMyHeading) myHeading = degrees
         placeMyArrow()
     }
 
@@ -966,7 +969,9 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private fun placeLoggedArrow() {
         loggedGround = standArrow(
             loggedLat, loggedLon, loggedAccuracy, loggedHeading, loggedGround,
-            { x, y, z, heading -> renderer.setLoggedLocation(x, y, z, heading) },
+            { x, y, z, heading ->
+                renderer.setLoggedLocation(x, y, z, heading, hasLoggedHeading)
+            },
             { ring -> renderer.setLoggedCircle(ring) }
         )
     }

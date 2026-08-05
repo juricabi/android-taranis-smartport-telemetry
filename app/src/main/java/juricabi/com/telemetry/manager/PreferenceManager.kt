@@ -110,6 +110,10 @@ class PreferenceManager(context: Context) {
         return sharedPreferences.getBoolean("log_my_position", true)
     }
 
+    fun isBackgroundCompassEnabled(): Boolean {
+        return sharedPreferences.getBoolean("background_compass", true)
+    }
+
     fun isClockEnabled(): Boolean {
         return sharedPreferences.getBoolean("show_clock", true)
     }

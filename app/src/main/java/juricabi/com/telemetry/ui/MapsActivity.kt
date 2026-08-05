@@ -13,10 +13,6 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbManager
@@ -160,65 +156,32 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     /** The fix being believed, so a worse one cannot take its place. */
     @Volatile private var bestPhoneFix: Location? = null
 
-    /**
-     * Which way this phone is facing.
-     *
-     * Read here rather than borrowed from whichever view is open: the 3D view
-     * has a reader for its arrow and the map has another for its own, and
-     * neither exists while the other is on screen — but the recording wants it
-     * in every mode, and a replay is worth nothing without it.
-     */
+    /** Cached here for whichever of the two views is currently being drawn. */
     @Volatile private var phoneHeading = Float.NaN
-    private val phoneGravity = FloatArray(3)
-    private val phoneGeomagnetic = FloatArray(3)
-    private var hasPhoneGravity = false
-    private var hasPhoneGeomagnetic = false
+    private var phoneWatchWanted = false
 
-    private val phoneCompass = object : SensorEventListener {
-        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
-
-        override fun onSensorChanged(event: SensorEvent) {
-            when (event.sensor.type) {
-                Sensor.TYPE_ACCELEROMETER -> {
-                    settle(phoneGravity, event.values, hasPhoneGravity)
-                    hasPhoneGravity = true
-                }
-                Sensor.TYPE_MAGNETIC_FIELD -> {
-                    settle(phoneGeomagnetic, event.values, hasPhoneGeomagnetic)
-                    hasPhoneGeomagnetic = true
-                }
-            }
-            if (!hasPhoneGravity || !hasPhoneGeomagnetic) return
-            val r = FloatArray(9)
-            if (!SensorManager.getRotationMatrix(r, null, phoneGravity, phoneGeomagnetic)) return
-            val orientation = FloatArray(3)
-            SensorManager.getOrientation(r, orientation)
-            var degrees = Math.toDegrees(orientation[0].toDouble()).toFloat()
-            if (degrees < 0) degrees += 360f
-            phoneHeading = degrees
-            recordWhereIAm()
-            // and to everything that draws with it. Not over a replay, which is
-            // saying which way the phone was facing then.
-            if (showLiveArrow()) {
-                map?.setPhoneBearing(degrees)
-                terrain3D?.setMyHeading(degrees)
-            }
+    private fun onPhoneHeading(degrees: Float) {
+        phoneHeading = degrees
+        // Not over a replay unless its menu also asks for the live phone.
+        if (showLiveArrow()) {
+            map?.setPhoneBearing(degrees)
+            terrain3D?.setMyHeading(degrees)
         }
     }
 
-    /** A fifth of the way to each reading: a compass on its own jitters. */
-    private fun settle(held: FloatArray, fresh: FloatArray, had: Boolean) {
-        for (i in held.indices) {
-            held[i] = if (had) held[i] + (fresh[i] - held[i]) * 0.2f else fresh[i]
+    private fun setPhoneWatch(wanted: Boolean) {
+        phoneWatchWanted = wanted
+        val service = dataService ?: return
+        if (wanted) {
+            service.watchPhone(
+                { fix -> onPhoneFix(fix) },
+                { heading -> onPhoneHeading(heading) }
+            )
+        } else {
+            service.watchPhone(null, null)
         }
     }
 
-    /**
-     * Hand the recording where this phone is, so a replay can put it back.
-     *
-     * Only where it is being recorded at all — it lands in the CSV, which
-     * travels with the log wherever the log goes.
-     */
     /**
      * Whether where this phone is now is worth drawing.
      *
@@ -243,7 +206,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val fix = bestPhoneFix ?: return
         if (!showLiveArrow()) return
         terrain3D?.setMyPosition(fix.latitude, fix.longitude, phoneAccuracy)
-        if (!phoneHeading.isNaN()) terrain3D?.setMyHeading(phoneHeading)
+        terrain3D?.setMyHeading(phoneHeading)
     }
 
     /** What the screen knows about this phone, onto the map that draws it. */
@@ -261,24 +224,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             where,
             if (fix != null && fix.hasAccuracy()) fix.accuracy else Float.NaN
         )
-        if (!phoneHeading.isNaN()) map?.setPhoneBearing(phoneHeading)
-    }
-
-    /**
-     * The bearing, which is all this screen has to give the recording.
-     *
-     * Where the phone is comes from the service now: it hears the satellites
-     * whether or not anybody is looking, and a flight watched with the phone in
-     * a pocket is still a flight somebody stood somewhere for. A compass is
-     * only read while there is something to draw, so when this screen stops
-     * reading it, it says so rather than leaving the last angle standing.
-     */
-    private fun recordWhereIAm() {
-        if (!preferenceManager.isMyPositionLoggingEnabled()) {
-            dataService?.setPhoneBearing(Float.NaN)
-            return
-        }
-        dataService?.setPhoneBearing(phoneHeading)
+        // NaN is meaningful: draw a dot rather than retaining an old arrow.
+        map?.setPhoneBearing(phoneHeading)
     }
 
     /**
@@ -489,7 +436,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             dataService = (p1 as DataService.DataBinder).getService()
             dataService?.setDataListener(this@MapsActivity)
             dataService?.let {
-                it.watchPhone { fix -> onPhoneFix(fix) }
+                setPhoneWatch(phoneWatchWanted)
                 if (it.isConnected()) {
                     switchToConnectedState()
                     redrawFlightLine()
@@ -1868,18 +1815,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         clock_text.postDelayed(clockTicker, 1000)
         initHeadingLine()
         updateHomeLine()
-        dataService?.watchPhone { onPhoneFix(it) }
-        val sensors = getSystemService(SENSOR_SERVICE) as SensorManager?
-        sensors?.let {
-            it.registerListener(
-                phoneCompass, it.getDefaultSensor(Sensor.TYPE_ACCELEROMETER),
-                SensorManager.SENSOR_DELAY_UI
-            )
-            it.registerListener(
-                phoneCompass, it.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD),
-                SensorManager.SENSOR_DELAY_UI
-            )
-        }
+        setPhoneWatch(true)
         startFr24()
     }
 
@@ -1892,13 +1828,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         this.logPlayer?.stop();
         stopFr24()
         updateFullscreenState()//check if user has brought system ui with swipe
-        // The service goes on listening for as long as a link is up, and stops
-        // when neither it nor this screen has a reason to.
-        dataService?.watchPhone(null)
-        (getSystemService(SENSOR_SERVICE) as SensorManager?)?.unregisterListener(phoneCompass)
-        // The compass is not being read from here, so the recording stops
-        // being given a bearing — the place keeps arriving, from the service.
-        dataService?.setPhoneBearing(Float.NaN)
+        // The service keeps both location and compass for a connected flight;
+        // this only removes callbacks to a screen that is no longer drawing.
+        setPhoneWatch(false)
     }
 
     override fun onStop() {

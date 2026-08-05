@@ -583,6 +583,9 @@ class TerrainRenderer : GLSurfaceView.Renderer {
 
 
     private var arrowBuffer: FloatBuffer? = null
+    private var arrowCount = 0
+    private var puckBuffer: FloatBuffer? = null
+    private var puckCount = 0
     private val arrowMatrix = FloatArray(16)
     private val arrowMvp = FloatArray(16)
     /**
@@ -599,12 +602,11 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         @Volatile var visible = false
 
         /**
-         * Whether the arrow itself is drawn, as opposed to the ring around it.
+         * Whether direction is known and this is an arrow rather than a puck.
          *
          * A phone with no compass knows where it is and not which way it
-         * faces. The map draws the ring and nothing in it, rather than an arrow
-         * that would point north all session; this is how the ground view says
-         * the same thing.
+         * faces. A puck keeps that known position visible without inventing a
+         * north-facing arrow.
          */
         @Volatile var pointing = true
         @Volatile var x = 0f
@@ -673,7 +675,11 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         logged.visible = false
     }
 
-    fun setLoggedLocation(x: Float, y: Float, z: Float, headingDegrees: Float) {
+    fun setLoggedLocation(
+        x: Float, y: Float, z: Float, headingDegrees: Float,
+        pointing: Boolean = true
+    ) {
+        logged.pointing = pointing
         place(logged, x, y, z, headingDegrees)
     }
 
@@ -690,7 +696,16 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         spot.x = x; spot.y = y; spot.z = z
         spot.headingTarget = headingDegrees
         spot.visible = true
-        if (arrowBuffer == null) arrowBuffer = floats(arrowMesh())
+        if (arrowBuffer == null) {
+            val mesh = arrowMesh()
+            arrowBuffer = floats(mesh)
+            arrowCount = mesh.size / MODEL_FLOATS
+        }
+        if (puckBuffer == null) {
+            val mesh = puckMesh()
+            puckBuffer = floats(mesh)
+            puckCount = mesh.size / MODEL_FLOATS
+        }
     }
 
     /**
@@ -713,6 +728,13 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         solid.tri(tail, right, spine)
         solid.tri(nose, tail, left)
         solid.tri(nose, right, tail)
+        return solid.build()
+    }
+
+    /** A low marker for a known place whose direction was not recorded. */
+    private fun puckMesh(): FloatArray {
+        val solid = Solid()
+        solid.post(0f, 0f, 0.8f, 0f, 0.22f, 16)
         return solid.build()
     }
 
@@ -1572,16 +1594,25 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     }
 
     private fun drawArrow(spot: Spot) {
-        val mine: FloatBuffer?
+        var mine: FloatBuffer? = null
+        var count = 0
+        var pointing = false
         synchronized(this) {
-            mine = if (spot.visible && spot.pointing) arrowBuffer else null
+            pointing = spot.pointing
+            if (spot.visible) {
+                mine = if (pointing) arrowBuffer else puckBuffer
+                count = if (pointing) arrowCount else puckCount
+            }
         }
-        if (mine == null || modelProgram == 0) return
+        val buffer = mine ?: return
+        if (modelProgram == 0) return
 
         // eased towards the compass rather than snapped to it, so it turns
         // like the needle on the map instead of twitching
-        spot.heading = juricabi.com.telemetry.utils.GeoUtils.turnTowards(
-            spot.heading, spot.headingTarget, 0.12f)
+        if (pointing) {
+            spot.heading = juricabi.com.telemetry.utils.GeoUtils.turnTowards(
+                spot.heading, spot.headingTarget, 0.12f)
+        }
 
         // A fraction of the distance out, so it is the same size on screen
         // however far the camera is — and a larger fraction than it reads as,
@@ -1591,10 +1622,10 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // Clearance in proportion, because the arrow lies flat: zoomed out it
         // is tens of metres across, and a fixed quarter of a metre left its
         // uphill half buried in any slope.
-        val lift = groundLift() + size * 0.3f
+        val lift = groundLift() + size * (if (pointing) 0.3f else 0.08f)
         Matrix.setIdentityM(arrowMatrix, 0)
         Matrix.translateM(arrowMatrix, 0, spot.x, spot.y + lift, spot.z)
-        Matrix.rotateM(arrowMatrix, 0, -spot.heading, 0f, 1f, 0f)
+        if (pointing) Matrix.rotateM(arrowMatrix, 0, -spot.heading, 0f, 1f, 0f)
         Matrix.scaleM(arrowMatrix, 0, size, size, size)
         Matrix.multiplyMM(arrowMvp, 0, mvp, 0, arrowMatrix, 0)
 
@@ -1603,14 +1634,14 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val aCorner = GLES20.glGetAttribLocation(modelProgram, "aCorner")
         val aNormal = GLES20.glGetAttribLocation(modelProgram, "aNormal")
         val stride = MODEL_FLOATS * 4
-        mine.position(0)
-        GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, stride, mine)
+        buffer.position(0)
+        GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, stride, buffer)
         GLES20.glEnableVertexAttribArray(aPosition)
-        mine.position(3)
-        GLES20.glVertexAttribPointer(aCorner, 3, GLES20.GL_FLOAT, false, stride, mine)
+        buffer.position(3)
+        GLES20.glVertexAttribPointer(aCorner, 3, GLES20.GL_FLOAT, false, stride, buffer)
         GLES20.glEnableVertexAttribArray(aCorner)
-        mine.position(6)
-        GLES20.glVertexAttribPointer(aNormal, 3, GLES20.GL_FLOAT, false, stride, mine)
+        buffer.position(6)
+        GLES20.glVertexAttribPointer(aNormal, 3, GLES20.GL_FLOAT, false, stride, buffer)
         GLES20.glEnableVertexAttribArray(aNormal)
 
         GLES20.glUniformMatrix4fv(
@@ -1624,7 +1655,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         GLES20.glUniform3f(
             GLES20.glGetUniformLocation(modelProgram, "uBase"),
             spot.base[0], spot.base[1], spot.base[2])
-        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 18)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, count)
 
         GLES20.glDisableVertexAttribArray(aPosition)
         GLES20.glDisableVertexAttribArray(aCorner)

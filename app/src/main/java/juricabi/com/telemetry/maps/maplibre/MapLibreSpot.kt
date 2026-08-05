@@ -25,9 +25,8 @@ import org.maplibre.geojson.Polygon
  * which is why this exists once rather than twice.
  *
  * osmdroid got both from MyLocationNewOverlay, which came with a location
- * provider of its own. Nothing here has one: the screen owns the only location
- * listener there is and hands the position over, which is the right way round
- * and was already how the interface was written.
+ * provider of its own. Nothing here has one: the telemetry service owns the
+ * single location and compass readers and hands their state to either view.
  */
 class MapLibreSpot(
     private val context: Context,
@@ -40,7 +39,8 @@ class MapLibreSpot(
     private val ringLyrId = "spot-ring-lyr-$id"
     private val ringEdgeLyrId = "spot-ring-edge-lyr-$id"
     private var imageVersion = 0
-    private fun imageId() = "spot-img-$id-$imageVersion"
+    private fun arrowImageId() = "spot-arrow-img-$id-$imageVersion"
+    private fun dotImageId() = "spot-dot-img-$id-$imageVersion"
     private val arrow = ModelIndicator(arrowLyrId)
 
     val arrowLayer: String get() = arrowLyrId
@@ -50,15 +50,16 @@ class MapLibreSpot(
     private var where: Position? = null
     private var accuracy = 0f
 
-    /** Not a number until a compass has said, and then the arrow appears. */
+    /** Not a number until a compass has said; position still appears as a dot. */
     private var bearing = Float.NaN
     private var colour = 0xFF2196F3.toInt()
     private var shown = true
-    private var arrowDisplayed = false
+    private var spotDisplayed = false
 
     init {
         whenReady { s ->
-            s.addImage(imageId(), arrowBitmap(colour))
+            s.addImage(arrowImageId(), arrowBitmap(colour))
+            s.addImage(dotImageId(), dotBitmap(colour))
 
             val ring = GeoJsonSource(ringSrcId)
             s.addSource(ring)
@@ -92,7 +93,7 @@ class MapLibreSpot(
             // source on every display tick; the two arrows alone accounted for
             // almost nine thousand tile parses in the 43-second stress replay.
             arrow.set(
-                ModelIndicator.image(imageId()),
+                ModelIndicator.image(dotImageId()),
                 ModelIndicator.imageScale(1f),
                 ModelIndicator.visible(false)
             )
@@ -107,11 +108,18 @@ class MapLibreSpot(
         // map type that one has been replaced, and writing to a replaced style
         // throws rather than being ignored.
         whenReady { s ->
-            val old = imageId()
+            val oldArrow = arrowImageId()
+            val oldDot = dotImageId()
             imageVersion++
-            s.addImage(imageId(), arrowBitmap(value))
-            arrow.set(ModelIndicator.image(imageId()))
-            s.removeImage(old)
+            s.addImage(arrowImageId(), arrowBitmap(value))
+            s.addImage(dotImageId(), dotBitmap(value))
+            arrow.set(
+                ModelIndicator.image(
+                    if (bearing.isNaN()) dotImageId() else arrowImageId()
+                )
+            )
+            s.removeImage(oldArrow)
+            s.removeImage(oldDot)
             s.getLayerAs<FillLayer>(ringLyrId)?.setProperties(PropertyFactory.fillColor(value))
             s.getLayerAs<LineLayer>(ringEdgeLyrId)?.setProperties(PropertyFactory.lineColor(value))
         }
@@ -150,9 +158,10 @@ class MapLibreSpot(
             s.removeLayer(ringEdgeLyrId)
             s.removeLayer(ringLyrId)
             s.removeSource(ringSrcId)
-            s.removeImage(imageId())
+            s.removeImage(arrowImageId())
+            s.removeImage(dotImageId())
         }
-        arrowDisplayed = false
+        spotDisplayed = false
         ringSrc = null
     }
 
@@ -173,34 +182,51 @@ class MapLibreSpot(
         bearingChanged: Boolean = true
     ) = whenReady {
         val at = where
-        val shouldDisplay = at != null && shown && !bearing.isNaN()
+        val shouldDisplay = at != null && shown
         if (!shouldDisplay) {
             // Visibility is a layout property. Cross that boundary only once;
             // reapplying it at compass rate makes the layer shimmer.
-            if (arrowDisplayed) {
+            if (spotDisplayed) {
                 arrow.set(ModelIndicator.visible(false))
-                arrowDisplayed = false
+                spotDisplayed = false
             }
             return@whenReady
         }
 
-        val revealing = !arrowDisplayed
+        val revealing = !spotDisplayed
+        val pointing = !bearing.isNaN()
+        val image = if (pointing) arrowImageId() else dotImageId()
         // A compass event changes only the bearing. Do not resend the same
         // location and visibility with every sensor sample.
         when {
-            revealing -> arrow.set(
+            revealing && pointing -> arrow.set(
+                ModelIndicator.image(image),
                 ModelIndicator.place(at!!.lat, at.lon),
                 ModelIndicator.turn(bearing.toDouble()),
                 ModelIndicator.visible(true)
             )
-            positionChanged && bearingChanged -> arrow.set(
+            revealing -> arrow.set(
+                ModelIndicator.image(image),
+                ModelIndicator.place(at!!.lat, at.lon),
+                ModelIndicator.visible(true)
+            )
+            positionChanged && bearingChanged && pointing -> arrow.set(
+                ModelIndicator.image(image),
                 ModelIndicator.place(at!!.lat, at.lon),
                 ModelIndicator.turn(bearing.toDouble())
             )
+            positionChanged && bearingChanged -> arrow.set(
+                ModelIndicator.image(image),
+                ModelIndicator.place(at!!.lat, at.lon)
+            )
             positionChanged -> arrow.set(ModelIndicator.place(at!!.lat, at.lon))
-            bearingChanged -> arrow.set(ModelIndicator.turn(bearing.toDouble()))
+            bearingChanged && pointing -> arrow.set(
+                ModelIndicator.image(image),
+                ModelIndicator.turn(bearing.toDouble())
+            )
+            bearingChanged -> arrow.set(ModelIndicator.image(image))
         }
-        if (revealing) arrowDisplayed = true
+        if (revealing) spotDisplayed = true
     }
 
     private fun pushRing() = whenReady {
@@ -275,6 +301,24 @@ class MapLibreSpot(
         edge.strokeWidth = u
         edge.color = 0xFF000000.toInt()
         canvas.drawPath(path, edge)
+        return bitmap
+    }
+
+    /** Position without direction: visible and honest, rather than a north arrow. */
+    private fun dotBitmap(color: Int): Bitmap {
+        val px = (context.resources.displayMetrics.density * 26).toInt()
+        val bitmap = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val u = px / 24f
+        val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+        fill.style = Paint.Style.FILL
+        fill.color = color
+        canvas.drawCircle(12f * u, 12f * u, 6.25f * u, fill)
+        val edge = Paint(Paint.ANTI_ALIAS_FLAG)
+        edge.style = Paint.Style.STROKE
+        edge.strokeWidth = u
+        edge.color = 0xFF000000.toInt()
+        canvas.drawCircle(12f * u, 12f * u, 6.25f * u, edge)
         return bitmap
     }
 }
