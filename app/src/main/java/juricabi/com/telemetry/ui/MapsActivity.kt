@@ -2688,6 +2688,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         terrain3D?.onFlightReset()
         lastTraveledDistance = 0.0
         flightAltitude.clear()
+        isArmed = false
+        gotArmedState = false
         lastRememberedHeight = Float.NaN
         forgetModel()
     }
