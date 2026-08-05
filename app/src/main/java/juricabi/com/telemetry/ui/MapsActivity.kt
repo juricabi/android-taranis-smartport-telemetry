@@ -89,8 +89,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private val flightPath: List<juricabi.com.telemetry.gl.TerrainScene.TrackPoint>
         get() = juricabi.com.telemetry.gl.LiveFlightPath.snapshot()
-    private var lastGpsAltitudeMsl = Float.NaN
-    private var lastGpsAltitudeAt = 0L
+    private val flightAltitude = juricabi.com.telemetry.gl.FlightAltitude()
 
     @Volatile private var detectedCells = 0
     @Volatile private var highestPackVoltage = 0f
@@ -2686,8 +2685,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         gatheredVisualBatch = null
         terrain3D?.onFlightReset()
         lastTraveledDistance = 0.0
-        lastGpsAltitudeMsl = Float.NaN
-        lastAnyAltitude = Float.NaN
+        flightAltitude.clear()
         lastRememberedHeight = Float.NaN
         forgetModel()
     }
@@ -2901,25 +2899,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
-    /**
-     * The last height of any kind, for links that send no GPS altitude.
-     *
-     * What it is measured from does not matter here: whether it is sea level or
-     * the launch point is worked out later, from the ground under the first
-     * fix. What matters is that a flight is recorded at all, which without this
-     * did not happen on a link that only reports a barometric height.
-     */
-    private var lastAnyAltitude = Float.NaN
-
     override fun onAltitudeData(altitude: Float) {
-        // A GPS altitude that has stopped arriving is not an altitude. It used
-        // to be believed for the rest of the flight, so a receiver that lost
-        // the altitude sensor mid-air left the flight recorded as dead flat at
-        // whatever height it had reached, while the model went on climbing.
-        if (System.currentTimeMillis() - lastGpsAltitudeAt > 10000L) {
-            lastGpsAltitudeMsl = Float.NaN
-        }
-        if (lastGpsAltitudeMsl.isNaN()) lastAnyAltitude = altitude
+        flightAltitude.onFallback(altitude)
         this.sensorTimeoutManager.onAltitudeData(altitude);
         showAltitude(altitude, false)
     }
@@ -2950,8 +2931,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     override fun onGPSAltitudeData(altitude: Float) {
         this.sensorTimeoutManager.onGPSAltitudeData(altitude);
-        lastGpsAltitudeMsl = altitude
-        lastGpsAltitudeAt = System.currentTimeMillis()
+        flightAltitude.onGps(altitude)
         showAltitude(altitude, true)
     }
 
@@ -3318,11 +3298,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * cannot be known from the reading. The fix itself is still recorded, and
      * is drawn where it was, on the ground.
      */
-    private fun heightNow(): Float {
+    private fun heightNow(fixCount: Int = 1): Float {
+        val reported = flightAltitude.forFix(fixCount)
         if (gotArmedState && !isArmed && preferenceManager.isDisarmedHeightIgnored()) {
             return Float.NaN
         }
-        return if (!lastGpsAltitudeMsl.isNaN()) lastGpsAltitudeMsl else lastAnyAltitude
+        return reported
     }
 
     /**
@@ -4384,7 +4365,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 // one height turns a climb into a staircase, so it is walked
                 // across the piece from the height the last one ended at. That
                 // is what a climb between two readings actually looked like.
-                val to = heightNow()
+                val to = heightNow(list.size)
                 val from = when {
                     !gatheredHeight.isNaN() -> gatheredHeight
                     !lastRememberedHeight.isNaN() -> lastRememberedHeight
