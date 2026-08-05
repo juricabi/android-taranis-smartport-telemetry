@@ -93,18 +93,11 @@ class FrskyDataDecoder(listener: Listener) : DataDecoder(listener) {
 //                  Log.d(TAG, "Decoded GPS lat=$latitude long=$longitude")
                 }
             }
-/*
-            Protocol.VBAT -> {
-                val value = data.data / 100f
-                listener.onVBATData(value)
-//                Log.d(TAG, "Decoded vbat $value")
-            }
             Protocol.CELL_VOLTAGE -> {
                 val value = data.data / 100f
                 listener.onCellVoltageData(value)
 //                Log.d(TAG, "Decoded cell voltage $value")
             }
- */
 
             Protocol.VBAT_OR_CELL -> {
                 val value = data.data / 100f

@@ -38,6 +38,7 @@ class SportProtocolTest {
             listener.gps
         )
         assertEquals(listOf(16.80f), listener.reportedVoltage)
+        assertEquals(listOf(4.20f), listener.cellVoltage)
         assertEquals(listOf(5.1f), listener.current)
         assertEquals(listOf(180.25f), listener.heading)
     }
@@ -46,6 +47,7 @@ class SportProtocolTest {
         val fuel = ArrayList<Int>()
         val gps = ArrayList<Pair<Double, Double>>()
         val reportedVoltage = ArrayList<Float>()
+        val cellVoltage = ArrayList<Float>()
         val current = ArrayList<Float>()
         val heading = ArrayList<Float>()
 
@@ -59,6 +61,10 @@ class SportProtocolTest {
 
         override fun onVBATOrCellData(voltage: Float) {
             reportedVoltage.add(voltage)
+        }
+
+        override fun onCellVoltageData(voltage: Float) {
+            cellVoltage.add(voltage)
         }
 
         override fun onCurrentData(current: Float) {
