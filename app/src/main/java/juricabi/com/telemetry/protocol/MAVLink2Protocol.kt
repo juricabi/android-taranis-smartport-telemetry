@@ -138,7 +138,7 @@ class MAVLink2Protocol : Protocol {
             val enabledSensors = byteBuffer.int
             val healthSensors = byteBuffer.int
             val load = byteBuffer.short
-            val voltage = byteBuffer.short
+            val voltage = byteBuffer.short.toInt() and 0xFFFF
             val current = byteBuffer.short
             val dropRate = byteBuffer.short
             val errors = byteBuffer.short
@@ -148,12 +148,9 @@ class MAVLink2Protocol : Protocol {
             val errorsCount4 = byteBuffer.short
             val fuel = byteBuffer.get()
 
-            dataDecoder.decodeData(
-                Protocol.Companion.TelemetryData(
-                    VBAT,
-                    voltage.toInt()
-                )
-            )
+            if (voltage != 0xFFFF) {
+                dataDecoder.decodeData(Protocol.Companion.TelemetryData(VBAT, voltage))
+            }
             dataDecoder.decodeData(
                 Protocol.Companion.TelemetryData(
                     Protocol.CURRENT,
