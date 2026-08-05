@@ -5,6 +5,8 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.LayerDrawable
+import android.os.Handler
+import android.os.Looper
 import androidx.core.graphics.drawable.DrawableCompat
 import juricabi.com.telemetry.R
 import juricabi.com.telemetry.maps.MapMarker
@@ -125,13 +127,32 @@ class MapLibreMarker(
     }
 
     /**
-     * Place and heading together, in one update, because they belong together.
+     * Place and heading together, once for the turn they were both set in.
+     *
+     * The screen moves the model and turns it as two statements, on every frame
+     * it draws, and each landing on the source is a handover of its own — which
+     * the renderer parses on a worker and swaps in when it is done. Two of
+     * those in flight at once leaves moments with neither, and at the rate a
+     * replay runs that is a model which blinks.
+     *
+     * Held to the end of the turn instead: however many times the marker is
+     * written to, the renderer is told once, and told the finished answer.
      *
      * Through the guard rather than straight at the source held here: after a
      * change of map that source belongs to a style that has been replaced, and
      * writing to one of those throws rather than being ignored.
      */
-    private fun push() = whenReady { source?.setGeoJson(feature()) }
+    private val settle = Handler(Looper.getMainLooper())
+    private var queued = false
+
+    private fun push() {
+        if (queued || removed) return
+        queued = true
+        settle.post {
+            queued = false
+            if (!removed) whenReady { source?.setGeoJson(feature()) }
+        }
+    }
 
     /** The same icon the map has always drawn, rendered once into a bitmap. */
     private fun bitmapFor(icon: Int, color: Int?): Bitmap {
@@ -185,6 +206,7 @@ class MapLibreMarker(
 
     override fun remove() {
         removed = true
+        settle.removeCallbacksAndMessages(null)
         onRemoved?.invoke(this)
         whenReady { s ->
             s.removeLayer(layerId)
