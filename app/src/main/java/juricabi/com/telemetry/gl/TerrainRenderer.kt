@@ -1431,6 +1431,22 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glUniformMatrix4fv(uMvp, 1, false, liftMvp, 0)
             ring.position(0)
             GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12, ring)
+
+            // Filled as well as drawn round, the way the map fills it. A ring
+            // that is only an outline reads as somewhere to go; filled, it
+            // reads as how well the place inside it is known, which is what it
+            // is for.
+            //
+            // A fan from the first point on the rim rather than from a centre,
+            // because the centre is not in the buffer — and a fan from any
+            // corner fills a convex shape, which a circle is. Translucent, and
+            // writing no depth: the ground under it and the arrow standing in
+            // it both have to keep drawing through it.
+            GLES20.glUniform4f(uColor, spot.ink[0], spot.ink[1], spot.ink[2], 0.15f)
+            GLES20.glDepthMask(false)
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_FAN, 0, rCount)
+            GLES20.glDepthMask(true)
+
             GLES20.glUniform4f(uColor, spot.ink[0], spot.ink[1], spot.ink[2], spot.ink[3])
             GLES20.glLineWidth(3f)
             GLES20.glDrawArrays(GLES20.GL_LINE_LOOP, 0, rCount)

@@ -8,6 +8,7 @@ import android.graphics.Path
 import juricabi.com.telemetry.maps.Position
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.layers.FillLayer
+import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.SymbolLayer
@@ -39,6 +40,7 @@ class MapLibreSpot(
     private val arrowLyrId = "spot-arrow-lyr-$id"
     private val ringSrcId = "spot-ring-src-$id"
     private val ringLyrId = "spot-ring-lyr-$id"
+    private val ringEdgeLyrId = "spot-ring-edge-lyr-$id"
     private val imageId = "spot-img-$id"
 
     private var style: Style? = null
@@ -70,6 +72,20 @@ class MapLibreSpot(
                     PropertyFactory.fillOpacity(0.15f)
                 )
             )
+            // and its edge drawn, the way the ground view draws it. Filled and
+            // nothing more, the ring has no edge at all where the fill is faint
+            // over pale ground, and how far it reaches — the whole of what it
+            // says — cannot be read.
+            //
+            // A line layer over a polygon draws that polygon's outline, so both
+            // come off the one source and cannot disagree about where the edge
+            // is.
+            s.addLayer(
+                LineLayer(ringEdgeLyrId, ringSrcId).withProperties(
+                    PropertyFactory.lineColor(colour),
+                    PropertyFactory.lineWidth(1.5f)
+                )
+            )
             ringSrc = ring
 
             val arrow = GeoJsonSource(arrowSrcId)
@@ -96,6 +112,7 @@ class MapLibreSpot(
         whenReady { s ->
             s.addImage(imageId, arrowBitmap(value))
             s.getLayerAs<FillLayer>(ringLyrId)?.setProperties(PropertyFactory.fillColor(value))
+            s.getLayerAs<LineLayer>(ringEdgeLyrId)?.setProperties(PropertyFactory.lineColor(value))
         }
     }
 
@@ -118,6 +135,7 @@ class MapLibreSpot(
     fun remove() {
         whenReady { s ->
             s.removeLayer(arrowLyrId)
+            s.removeLayer(ringEdgeLyrId)
             s.removeLayer(ringLyrId)
             s.removeSource(arrowSrcId)
             s.removeSource(ringSrcId)
