@@ -50,7 +50,6 @@ interface MapWrapper {
 
     /** Turn the map to an angle and stay there, for heading up. */
     fun setMapOrientation(degrees: Float)
-    fun invalidate()
 
     fun onCreate(bundle: Bundle?)
     fun onResume()

@@ -844,6 +844,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         homeLine = map?.addPolyline(LineWeights.HOME, preferenceManager.getHomeLineColor())
         drawFlightPlans()
         showMyLocation()
+        // Twice over the building of a map, deliberately. Here it is what
+        // points the camera — the map remembers where it was aimed and obeys
+        // the moment it exists — but it cannot make a marker, since there is no
+        // style yet to hang one on. It runs again when the style lands and
+        // makes the marker then. Nothing in it shows for being done twice.
         pointMapAtTheFlight()
         // and the traffic, which is otherwise gone until the next poll comes
         // round — half a minute of empty sky after every switch of view
@@ -1107,7 +1112,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         line.color = preferenceManager.getHomeLineColor()
         if (!preferenceManager.isHomeLineEnabled()) {
             line.clear()
-            map?.invalidate()
             return
         }
         // from where the model is drawn, not where the fix was, so the line
@@ -1119,7 +1123,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // phone was then — there is no line to draw without that.
         val phone = wherePhoneIs() ?: run {
             line.clear()
-            map?.invalidate()
             return
         }
         if (line.size == 2) {
@@ -1129,7 +1132,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             line.clear()
             line.addPoints(listOf(drone, phone))
         }
-        map?.invalidate()
     }
 
     private fun drawFlightPlans() {
@@ -4375,9 +4377,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                         this.formatDistance(this.lastTraveledDistance.toFloat());
                 }
 
-                if (!keepingUp()) {
-                    this.map?.invalidate()
-                }
                 this.tryCreateMarker()
                 fr24Manager?.updateDronePosition(latitude, longitude)
             }
@@ -4833,8 +4832,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             updateHomeLine()
             if (keepingUp() && map.initialized()) {
                 map.moveCamera(Position(shownLat + mapLeanLat, shownLon + mapLeanLon))
-            } else {
-                map.invalidate()
             }
             if (moving) keepSmoothing()
         }
@@ -5183,7 +5180,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // a view built later put them back from the list.
         lastAirplanes = emptyList()
         terrain3D?.setTraffic(emptyList())
-        map?.invalidate()
     }
 
     private var lastAirplanes: List<Fr24Manager.AirplaneInfo> = emptyList()
@@ -5232,7 +5228,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 }
             }
         }
-        map?.invalidate()
     }
 
     override fun onProximityWarning(

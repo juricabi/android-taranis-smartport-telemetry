@@ -39,6 +39,11 @@ import org.maplibre.geojson.Point
  */
 class MapLibreLine(
     private val id: String,
+    /**
+     * A layer to stay under, for a line made after the thing it belongs
+     * beneath. Null puts it on top, which is the usual case.
+     */
+    private val below: String?,
     private val whenReady: ((Style) -> Unit) -> Unit
 ) : MapLine() {
 
@@ -97,16 +102,26 @@ class MapLibreLine(
     private fun addPiece(style: Style, piece: Int): GeoJsonSource {
         val src = GeoJsonSource(sourceOf(piece))
         style.addSource(src)
-        style.addLayer(
-            LineLayer(layerOf(piece), sourceOf(piece)).withProperties(
+        val lyr = LineLayer(layerOf(piece), sourceOf(piece)).withProperties(
                 PropertyFactory.lineColor(lineColor),
                 PropertyFactory.lineWidth(lineWidth),
                 // A flight doubles back on itself and crosses its own track;
                 // butt ends and mitred joins leave notches at every one.
-                PropertyFactory.lineCap("round"),
-                PropertyFactory.lineJoin("round")
-            )
+            PropertyFactory.lineCap("round"),
+            PropertyFactory.lineJoin("round")
         )
+        // Under the model where one has been named and is still there. The
+        // heading line is made twice over the life of a screen — with the rest
+        // of the lines when the map is built, and again on its own if it is
+        // switched on in the settings — and appending puts that second one over
+        // the model it points out of. Which of the two happened decided the
+        // depth, so the same line was above or below the model depending on
+        // when it came to exist.
+        if (below != null && style.getLayer(below) != null) {
+            style.addLayerBelow(lyr, below)
+        } else {
+            style.addLayer(lyr)
+        }
         return src
     }
 
