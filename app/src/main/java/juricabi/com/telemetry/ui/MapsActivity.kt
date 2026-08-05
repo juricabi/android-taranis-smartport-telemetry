@@ -2744,6 +2744,22 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         map?.onDestroy()
         if (!isChangingConfigurations) {
             dataService?.setDataListener(null)
+            // A replay cannot outlive the screen playing it, and what it flew
+            // is kept where the process can reach it rather than on this
+            // screen — so that a second window onto the same flight, the
+            // ground view, sees the points without being told.
+            //
+            // Nothing was throwing it away. Swiping the app off the recents
+            // list ends this screen but not the process, which the data
+            // service holds open, so the flight just replayed was still there
+            // to be found: opening the app again drew the last recording
+            // played as though it were flying now. A live flight is the
+            // service's and outlives this screen on purpose; a replay is only
+            // ever this screen's.
+            if (isInReplayMode()) {
+                juricabi.com.telemetry.gl.LiveFlightPath.clear()
+                juricabi.com.telemetry.gl.AltitudeFrame.forget()
+            }
         }
         map = null;
         this.unregisterReceiver(this.batInfoReceiver)
