@@ -15,7 +15,10 @@ class PreferenceManager(context: Context) {
         if (chosen != null) {
             val moved = sharedPreferences.edit().remove("playback_duration")
             if (chosen > 0 && !sharedPreferences.contains("playback_seconds")) {
-                moved.putInt("playback_seconds", Math.max(15, Math.min(300, chosen)))
+                // The same range the slider offers, so a value carried across
+                // from the old five choices cannot land outside what can be
+                // chosen now.
+                moved.putInt("playback_seconds", Math.max(15, Math.min(500, chosen)))
             }
             moved.apply()
         }

@@ -105,7 +105,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         )
         /** What a replay may be asked to last, in seconds, and by what step. */
         private const val SECONDS_LEAST = 15
-        private const val SECONDS_MOST = 300
+        private const val SECONDS_MOST = 500
         private const val SECONDS_STEP = 5
         private const val REQUEST_ENABLE_BT: Int = 0
         private const val REQUEST_LOCATION_PERMISSION: Int = 1
