@@ -294,12 +294,20 @@ class DataService : Service(), DataDecoder.Listener {
         ) {
             val name = SimpleDateFormat("yyyy-MM-dd HH-mm-ss").format(Date())
             logName = name
-            val dir = Environment.getExternalStoragePublicDirectory("TelemetryLogs")
-            dir.mkdirs()
-            val file = File(dir, "$name.tlm")
-            val counted = CountingLog(file)
-            recording = counted
-            fileOutputStream = counted
+            try {
+                val dir = Environment.getExternalStoragePublicDirectory("TelemetryLogs")
+                dir.mkdirs()
+                val file = File(dir, "$name.tlm")
+                val counted = CountingLog(file)
+                recording = counted
+                fileOutputStream = counted
+            } catch (e: Exception) {
+                // Storage is optional. A full, missing, or revoked volume must
+                // not turn an otherwise healthy telemetry link into a failure.
+                recording = null
+                Toast.makeText(this, "Failed to open the telemetry log", Toast.LENGTH_LONG)
+                    .show()
+            }
         }
 
         return fileOutputStream
@@ -459,19 +467,8 @@ class DataService : Service(), DataDecoder.Listener {
         // connecting anyway. It used to abandon the connection instead, which
         // left the button on "Connecting…" with nothing on its way to clear it,
         // because no poller was ever created to report a failure.
-        val logFile = try {
-            createLogFile()
-        } catch (e: IOException) {
-            Toast.makeText(this, "Failed to open the telemetry log", Toast.LENGTH_LONG).show()
-            null
-        }
-        // inside the same guard: this opens a file in the same directory, so it
-        // fails for the same reasons
-        try {
-            createLogger()
-        } catch (e: Exception) {
-            logListener = null
-        }
+        val logFile = createLogFile()
+        createLogger()
 
         // Pinning to Wi-Fi and holding the multicast lock: without these a
         // transmitter's own access point, which has no internet, loses to
@@ -506,7 +503,14 @@ class DataService : Service(), DataDecoder.Listener {
                 Manifest.permission.WRITE_EXTERNAL_STORAGE
             ) == PackageManager.PERMISSION_GRANTED
         ) {
-            OtxCsvLogger(logName) { recording?.bytesWritten ?: 0L }
+            try {
+                OtxCsvLogger(logName) { recording?.bytesWritten ?: 0L }
+            } catch (e: Exception) {
+                // CSV is a companion recording, never a prerequisite for the
+                // telemetry connection itself.
+                Toast.makeText(this, "Failed to open the CSV log", Toast.LENGTH_LONG).show()
+                null
+            }
         } else {
             null
         }
