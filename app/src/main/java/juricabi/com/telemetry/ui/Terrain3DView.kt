@@ -1216,6 +1216,12 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         ticker.removeCallbacks(poll)
         polling = false
         removeCallbacks(bearingWatch)
+        // These closures belong to the Activity. A terrain worker may still be
+        // returning from one blocking network request after abandon(), so do
+        // not let the retired view keep or call back into its dead screen.
+        onGroundReady = null
+        onFollowingLost = null
+        onBearingChanged = null
         // and the ground: the thread loading it holds this view, and its
         // pictures are the largest thing the app ever has in its hands
         scene.abandon()

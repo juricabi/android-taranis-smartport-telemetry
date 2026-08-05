@@ -2758,6 +2758,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     override fun onDestroy() {
         super.onDestroy()
+        // A 3D scene owns terrain workers and the largest bitmaps in the app.
+        // The normal 3D -> 2D switch releases it, but destroying the screen
+        // while 3D was still open did not: the abandoned Activity then stayed
+        // reachable until every tile and image had finished loading.
+        terrain3D?.release()
+        terrain3D = null
         tts?.shutdown()
         tts = null
         ttsReady = false
