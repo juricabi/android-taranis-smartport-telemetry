@@ -30,9 +30,16 @@ object LineWeights {
     /** A plan is the same weight as the flight, so the two read as one kind. */
     const val PLAN = FLIGHT
 
-    /** Where the model is pointing. */
-    const val HEADING = 3f
-
     /** Back to whoever is holding the phone. */
     const val HOME = 2f
+
+    /**
+     * Where the model is pointing, drawn as lightly as the line home.
+     *
+     * Both of them explain the flight rather than being it, so neither should
+     * pull the eye off the track. It was three, which put the line ahead
+     * halfway between the flight and the line home for no reason anybody could
+     * give.
+     */
+    const val HEADING = HOME
 }
