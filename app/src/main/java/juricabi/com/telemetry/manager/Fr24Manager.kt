@@ -155,6 +155,10 @@ class Fr24Manager(
             Log.d(TAG, "Fetching: radius=${radiusKm}km, displayCeiling=${displayCeiling}m")
             val bounds = computeBoundingBox(phoneLat, phoneLon, radiusMeters)
             val flights = client.fetchLiveFeed(bounds, displayCeiling)
+            if (flights == null) {
+                Log.w(TAG, "FR24 request failed; keeping the last traffic snapshot")
+                return
+            }
             Log.d(TAG, "FR24 returned ${flights.size} raw flights")
 
             val airplanes = flights.mapNotNull { flight ->

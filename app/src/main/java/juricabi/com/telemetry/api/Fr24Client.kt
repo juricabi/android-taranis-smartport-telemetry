@@ -16,7 +16,7 @@ class Fr24Client {
             "https://data-feed.flightradar24.com/fr24.feed.api.v1.Feed/LiveFeed"
     }
 
-    fun fetchLiveFeed(bounds: LocationBoundaries, altitudeCeilingMeters: Int): List<Flight> {
+    fun fetchLiveFeed(bounds: LocationBoundaries, altitudeCeilingMeters: Int): List<Flight>? {
         val ceilingFt = (altitudeCeilingMeters / 0.3048).toInt()
 
         val request = LiveFeedRequest.newBuilder()
@@ -47,7 +47,7 @@ class Fr24Client {
         return buffer.array()
     }
 
-    private fun executeRequest(body: ByteArray): List<Flight> {
+    private fun executeRequest(body: ByteArray): List<Flight>? {
         val connection = URL(ENDPOINT).openConnection() as HttpURLConnection
         try {
             connection.requestMethod = "POST"
@@ -70,7 +70,7 @@ class Fr24Client {
             val responseCode = connection.responseCode
             if (responseCode != 200) {
                 Log.e(TAG, "HTTP error $responseCode: ${connection.responseMessage}")
-                return emptyList()
+                return null
             }
 
             val responseBytes = connection.inputStream.use { input ->
@@ -83,21 +83,21 @@ class Fr24Client {
                 baos.toByteArray()
             }
 
-            val flights = decodeResponse(responseBytes)
+            val flights = decodeResponse(responseBytes) ?: return null
             Log.d(TAG, "Decoded ${flights.size} flights from response")
             return flights
         } catch (e: Exception) {
             Log.e(TAG, "FR24 fetch failed", e)
-            return emptyList()
+            return null
         } finally {
             connection.disconnect()
         }
     }
 
-    internal fun decodeResponse(data: ByteArray): List<Flight> {
+    internal fun decodeResponse(data: ByteArray): List<Flight>? {
         if (data.size < 5) {
             Log.e(TAG, "Response too short: ${data.size} bytes")
-            return emptyList()
+            return null
         }
 
         // gRPC-web frame: 1 byte flags + 4 byte length + payload
@@ -108,21 +108,26 @@ class Fr24Client {
             val length = ByteBuffer.wrap(data, offset + 1, 4).int.toLong() and 0xffffffffL
             offset += 5
             if (length > (data.size - offset).toLong()) {
-                return emptyList()
+                return null
             }
             val frameEnd = offset + length.toInt()
 
-            if (flag == 0x00 && length > 0) {
+            if (flag == 0x00) {
                 // DATA frame
-                val response = LiveFeedResponse.parseFrom(
-                    data.copyOfRange(offset, frameEnd)
-                )
-                return response.flightsListList
+                return try {
+                    val response = LiveFeedResponse.parseFrom(
+                        data.copyOfRange(offset, frameEnd)
+                    )
+                    response.flightsListList
+                } catch (e: Exception) {
+                    Log.e(TAG, "Invalid LiveFeed response", e)
+                    null
+                }
             }
 
             offset = frameEnd
         }
 
-        return emptyList()
+        return null
     }
 }
