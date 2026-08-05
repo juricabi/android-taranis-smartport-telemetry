@@ -60,6 +60,26 @@ class MAVLinkPositionTest {
         assertTrue(listener.gpsFixes.last())
     }
 
+    @Test
+    fun mavLink1RawGpsCourseCoversTheFullCircle() {
+        val listener = PositionListener()
+        val protocol = MAVLinkProtocol(listener)
+
+        feed(protocol, mav1Frame(GPS_RAW, rawGps(45.0, 16.0, 123f, course = 33000)))
+
+        assertEquals(330f, listener.headings.last(), 0.001f)
+    }
+
+    @Test
+    fun mavLink2RawGpsCourseCoversTheFullCircle() {
+        val listener = PositionListener()
+        val protocol = MAVLink2Protocol(listener)
+
+        feed(protocol, mav2Frame(GPS_RAW, rawGps(45.0, 16.0, 123f, course = 33000)))
+
+        assertEquals(330f, listener.headings.last(), 0.001f)
+    }
+
     private fun feed(protocol: Protocol, frame: ByteArray) {
         frame.forEach { protocol.process(it.toUByte().toInt()) }
     }
@@ -79,14 +99,15 @@ class MAVLinkPositionTest {
         lat: Double,
         lon: Double,
         altitude: Float,
-        fixType: Byte = 3
+        fixType: Byte = 3,
+        course: Int = 9000
     ): ByteArray =
         ByteBuffer.allocate(30).order(ByteOrder.LITTLE_ENDIAN)
             .putLong(1_000_000)
             .putInt((lat * 10_000_000).toInt())
             .putInt((lon * 10_000_000).toInt())
             .putInt((altitude * 1_000).toInt())
-            .putShort(100).putShort(100).putShort(0).putShort(9_000)
+            .putShort(100).putShort(100).putShort(0).putShort(course.toShort())
             .put(fixType).put(12)
             .array()
 
@@ -117,6 +138,7 @@ class MAVLinkPositionTest {
         val positions = ArrayList<Pair<Double, Double>>()
         val gpsAltitudes = ArrayList<Float>()
         val gpsFixes = ArrayList<Boolean>()
+        val headings = ArrayList<Float>()
 
         override fun onGPSData(latitude: Double, longitude: Double) {
             positions.add(latitude to longitude)
@@ -128,6 +150,10 @@ class MAVLinkPositionTest {
 
         override fun onGPSState(satellites: Int, gpsFix: Boolean) {
             gpsFixes.add(gpsFix)
+        }
+
+        override fun onHeadingData(heading: Float) {
+            headings.add(heading)
         }
     }
 

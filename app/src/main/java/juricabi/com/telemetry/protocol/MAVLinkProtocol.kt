@@ -248,7 +248,7 @@ class MAVLinkProtocol : Protocol {
             val eph = byteBuffer.short
             val epv = byteBuffer.short
             val vel = byteBuffer.short
-            val cog = byteBuffer.short
+            val cog = byteBuffer.short.toInt() and 0xFFFF
             val fixType = byteBuffer.get()
             val satellites = byteBuffer.get()
 
@@ -268,8 +268,8 @@ class MAVLinkProtocol : Protocol {
                 dataDecoder.decodeData(Protocol.Companion.TelemetryData(Protocol.GPS_LONGITUDE, lon))
                 this.processLongitude(lon / 10000000.toDouble());
             }
-            if (cog.toInt() != -1 && !preferGlobal)
-                dataDecoder.decodeData( Protocol.Companion.TelemetryData( Protocol.HEADING, cog.toInt()))
+            if (cog != 0xFFFF && !preferGlobal)
+                dataDecoder.decodeData( Protocol.Companion.TelemetryData( Protocol.HEADING, cog))
         } else if (messageId == MAV_PACKET_GPS_ORIGIN_ID) {
             val lat = byteBuffer.int
             val lon = byteBuffer.int
