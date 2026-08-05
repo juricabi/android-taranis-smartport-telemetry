@@ -612,6 +612,21 @@ class MapLibreMapWrapper(
         // torn down before its style loaded — a view switched away from while
         // the first tiles are still coming — would keep the lot.
         pending.clear()
+        // Put down in the order it was picked up.
+        //
+        // A map view is made with onCreate, onStart and onResume, and its
+        // renderer runs on a thread of its own that only those last two stop.
+        // Destroyed without them it is torn out from under a thread still
+        // drawing with it, and the next frame reads a peer that is no longer
+        // there: a null dereference inside MapRenderer::render, deep in the
+        // renderer where nothing here appears in the trace. It crashed the app
+        // on the way to the ground view, which is where the map is put down
+        // while the flight goes on.
+        //
+        // Being paused or stopped twice costs nothing; being destroyed while
+        // running costs the whole process.
+        mapView.onPause()
+        mapView.onStop()
         mapView.onDestroy()
     }
     override fun onSaveInstanceState(outState: Bundle?) {

@@ -3668,6 +3668,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             }
             preferenceManager.set3DMapChosen(false)
             hide3DView()
+            // Let go of rather than merely dropped, as the ground view does
+            // it: taking the view away leaves its renderer and its tile
+            // threads running with nothing to draw on.
+            map?.onDestroy()
             mapHolder.removeAllViews()
             map = null
             forgetMapOverlays()
