@@ -51,7 +51,14 @@ class MapLibreLine(
      * happened: after enough laps the track was drawn over the aircraft.
      */
     private val below: () -> String?,
-    private val whenReady: ((Style) -> Unit) -> Unit
+    private val whenReady: ((Style) -> Unit) -> Unit,
+    /**
+     * A moving two-point overlay must land in the renderer in the frame that
+     * submitted it. The ordinary GeoJSON path deliberately hands conversion
+     * to a worker, which is right for a long recorded flight and wrong for the
+     * line whose first point is the model being drawn now.
+     */
+    private val synchronous: Boolean = false
 ) : MapLine() {
 
     companion object {
@@ -301,8 +308,10 @@ class MapLibreLine(
             // window onto a list this thread goes on writing to — and it reads
             // it on a worker of its own, which is a native crash the moment the
             // two overlap.
-            pieceSource(style, piece)
-                .setGeoJson(LineString.fromLngLats(ArrayList(drawn.subList(start, end + 1))))
+            setGeometry(
+                pieceSource(style, piece),
+                LineString.fromLngLats(ArrayList(drawn.subList(start, end + 1)))
+            )
         }
         // Whatever the line no longer reaches, emptied rather than taken off so
         // the next flight that grows this long finds it already there. A line
@@ -313,12 +322,17 @@ class MapLibreLine(
         // asked to draw — is emptied rather than left as it was.
         for (piece in wanted until Math.max(had, 1)) {
             if (piece > created) break
-            style.getSourceAs<GeoJsonSource>(sourceOf(piece))
-                ?.setGeoJson(LineString.fromLngLats(emptyList<Point>()))
+            style.getSourceAs<GeoJsonSource>(sourceOf(piece))?.let {
+                setGeometry(it, LineString.fromLngLats(emptyList<Point>()))
+            }
         }
 
         if (shared < rendered.size) rendered.subList(shared, rendered.size).clear()
         for (i in shared until drawn.size) rendered.add(drawn[i])
+    }
+
+    private fun setGeometry(source: GeoJsonSource, line: LineString) {
+        if (synchronous) source.setGeoJsonSync(line) else source.setGeoJson(line)
     }
 
     /** Where what is wanted and what is drawn stop agreeing. */

@@ -392,6 +392,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     /** How much of a reported turn the model takes up on each drawn frame. */
     private val HEADING_EASE = 0.18f
+
     private var followMode = true
     private var chaseMode = false
     private var hasGPSFix = false
@@ -2686,6 +2687,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         shownLat = Double.NaN
         shownLon = Double.NaN
         shownMarkerHeading = Float.NaN
+        presentedLat = Double.NaN
+        presentedLon = Double.NaN
+        presentedMarkerHeading = Float.NaN
         seenFixes.clear()
         walkDelayMs = 80L
         headingPolyline?.clear()
@@ -4801,6 +4805,20 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var shownLat = Double.NaN
     private var shownLon = Double.NaN
     private var shownMarkerHeading = Float.NaN
+
+    /**
+     * The model and camera properties that belong to the geometry MapLibre is
+     * displaying now. A GeoJSON source update reaches the rendered line one
+     * frame after the location and camera properties submitted beside it. If
+     * all three are handed the new point together, the two lines visibly pull
+     * from the model's previous point at high replay speed. Holding only the
+     * model and camera for that same submitted frame keeps one presentation
+     * time across the renderer; [shownLat]/[shownLon] remain the one easing
+     * clock used to calculate everything.
+     */
+    private var presentedLat = Double.NaN
+    private var presentedLon = Double.NaN
+    private var presentedMarkerHeading = Float.NaN
     private var smoothingMarker = false
 
     /** A position fix and the monotonic time at which this screen received it. */
@@ -4887,21 +4905,42 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 }
             }
 
-            val where = Position(shownLat, shownLon)
-            marker?.place(where, shownMarkerHeading)
+            val firstPresentation = presentedLat.isNaN() || presentedLon.isNaN()
+            val where = if (firstPresentation) {
+                Position(shownLat, shownLon)
+            } else {
+                Position(presentedLat, presentedLon)
+            }
+            val presentedHeading = if (presentedMarkerHeading.isNaN()) {
+                shownMarkerHeading
+            } else {
+                presentedMarkerHeading
+            }
+            val presentationMustCatchUp = firstPresentation ||
+                presentedLat != shownLat || presentedLon != shownLon ||
+                presentedMarkerHeading != shownMarkerHeading
+
+            marker?.place(where, presentedHeading)
             if (keepingUp() && map.initialized()) {
                 val orientation = if (chaseMode && terrain3D == null) {
-                    -shownMarkerHeading + mapLeanTurn
+                    -presentedHeading + mapLeanTurn
                 } else {
                     Float.NaN
                 }
                 map.moveCameraNow(
-                    Position(shownLat + mapLeanLat, shownLon + mapLeanLon),
+                    Position(where.lat + mapLeanLat, where.lon + mapLeanLon),
                     orientation
                 )
             }
+            // The moving line sources take the freshly walked point. Their
+            // geometry becomes visible with the model/camera properties saved
+            // here, on the following submitted frame.
             updateHeading(false)
             updateHomeLine()
+            presentedLat = shownLat
+            presentedLon = shownLon
+            presentedMarkerHeading = shownMarkerHeading
+            if (presentationMustCatchUp) moving = true
             if (moving) keepSmoothing()
         }
     }
@@ -4916,16 +4955,24 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private fun shownPosition(): Position =
         if (shownLat.isNaN()) lastGPS else Position(shownLat, shownLon)
 
+    /** Where the renderer-owned model and the chase camera are being shown. */
+    private fun presentedPosition(): Position =
+        if (presentedLat.isNaN()) shownPosition() else Position(presentedLat, presentedLon)
+
     private fun leanOutOfFollowing() {
         val centre = map?.getCentre() ?: return
         if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) {
-            val model = shownPosition()
+            val model = presentedPosition()
             mapLeanLat = centre.lat - model.lat
             mapLeanLon = centre.lon - model.lon
         }
         if (chaseMode) {
             val heading =
-                if (shownMarkerHeading.isNaN()) lastHeading else shownMarkerHeading
+                if (presentedMarkerHeading.isNaN()) {
+                    if (shownMarkerHeading.isNaN()) lastHeading else shownMarkerHeading
+                } else {
+                    presentedMarkerHeading
+                }
             val wanted = -heading
             mapLeanTurn = ((map!!.getMapOrientation() - wanted) % 360f + 540f) % 360f - 180f
         }

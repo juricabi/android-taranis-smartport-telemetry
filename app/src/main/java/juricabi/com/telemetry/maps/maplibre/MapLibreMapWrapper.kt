@@ -531,7 +531,10 @@ class MapLibreMapWrapper(
     }
 
     override fun addPolyline(width: Float, color: Int, vararg points: Position): MapLine {
-        val line = MapLibreLine("l${lineCount++}", { modelLayer }, ::whenReady)
+        // This factory is the heading line: its moving endpoint belongs to the
+        // same displayed position as the model and camera, so keep its tiny
+        // two-point update out of the asynchronous GeoJSON worker queue.
+        val line = MapLibreLine("l${lineCount++}", { modelLayer }, ::whenReady, true)
         line.addPoints(points.toList())
         line.color = color
         // Not scaled by the display's density, which is what osmdroid needs:
@@ -543,7 +546,12 @@ class MapLibreMapWrapper(
     }
 
     override fun addFlightLine(width: Float, color: Int): MapLine {
-        val line = addPolyline(width, color) as MapLibreLine
+        // A recorded flight can contain tens of thousands of fixes; keep that
+        // work asynchronous. Only the two-point lines that move every frame
+        // use the synchronous path.
+        val line = MapLibreLine("l${lineCount++}", { modelLayer }, ::whenReady)
+        line.color = color
+        line.width = width
         flightLine = line
         return line
     }
@@ -566,7 +574,9 @@ class MapLibreMapWrapper(
         // exist its first layer is reinserted directly below this one. Every
         // later flight chunk is inserted beside that first chunk and therefore
         // stays below the home line as the flight grows.
-        val line = MapLibreLine("l${lineCount++}", { logged.bottomLayer }, ::whenReady)
+        val line = MapLibreLine(
+            "l${lineCount++}", { logged.bottomLayer }, ::whenReady, true
+        )
         line.color = color
         line.width = width
         whenReady { style ->
