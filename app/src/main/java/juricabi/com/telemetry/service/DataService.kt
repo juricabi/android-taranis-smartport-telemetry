@@ -213,7 +213,7 @@ class DataService : Service(), DataDecoder.Listener {
                     this,
                     -1,
                     Intent(this, MapsActivity::class.java),
-                    0
+                    PendingIntent.FLAG_IMMUTABLE
                 )
             )
             .setSmallIcon(R.drawable.ic_launcher_foreground)

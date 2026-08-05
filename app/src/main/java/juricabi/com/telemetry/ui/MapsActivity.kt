@@ -1809,7 +1809,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 }
             } else {
                 val pendingIntent =
-                    PendingIntent.getBroadcast(this, 0, Intent(ACTION_USB_DEVICE), 0)
+                    PendingIntent.getBroadcast(
+                        this,
+                        0,
+                        Intent(ACTION_USB_DEVICE).setPackage(packageName),
+                        PendingIntent.FLAG_IMMUTABLE
+                    )
                 registerReceiver(object : BroadcastReceiver() {
                     override fun onReceive(context: Context?, intent: Intent?) {
                         if (ACTION_USB_DEVICE == intent?.action) {
