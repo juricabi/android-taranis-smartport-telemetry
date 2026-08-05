@@ -44,6 +44,9 @@ class MapLibreSpot(
     private val ringEdgeLyrId = "spot-ring-edge-lyr-$id"
     private val imageId = "spot-img-$id"
 
+    /** The lowest layer this owns, for anything that must stay under it. */
+    val bottomLayer: String get() = ringLyrId
+
     private var arrowSrc: GeoJsonSource? = null
     private var ringSrc: GeoJsonSource? = null
 

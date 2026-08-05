@@ -841,7 +841,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // so an unconnected map opened afterwards drew the last flight as
         // though it were happening — which the 3D ground never did.
         redrawFlightLine()
-        homeLine = map?.addPolyline(LineWeights.HOME, preferenceManager.getHomeLineColor())
+        homeLine = map?.addHomeLine(LineWeights.HOME, preferenceManager.getHomeLineColor())
         drawFlightPlans()
         showMyLocation()
         // Twice over the building of a map, deliberately. Here it is what

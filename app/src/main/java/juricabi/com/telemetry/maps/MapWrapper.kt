@@ -30,6 +30,16 @@ interface MapWrapper {
     fun addMarker(icon: Int, color: Int, position: Position): MapMarker
     fun addMarker(icon: Int, position: Position): MapMarker
     fun addPolyline(width: Float, color: Int, vararg points: Position): MapLine
+
+    /**
+     * The line home, which is drawn *under* the arrow it runs to.
+     *
+     * It ends on the phone's own mark, and drawn over the top it cuts the
+     * accuracy ring in two and lies across the arrow. Every other line belongs
+     * above them, which is where the other map puts them, so this one is asked
+     * for apart. A map with nothing to say about depth draws it like any other.
+     */
+    fun addHomeLine(width: Float, color: Int): MapLine = addPolyline(width, color)
     fun setOnCameraMoveStartedListener(function: () -> Unit)
 
     /**

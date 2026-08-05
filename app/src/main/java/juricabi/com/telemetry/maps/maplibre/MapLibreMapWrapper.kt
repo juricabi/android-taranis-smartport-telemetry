@@ -515,6 +515,16 @@ class MapLibreMapWrapper(
         return line
     }
 
+    override fun addHomeLine(width: Float, color: Int): MapLine {
+        // Under the arrow and ring it runs to. `logged` is made before `me`,
+        // so its ring is the lowest layer either of them owns, and keeping
+        // under that keeps under both.
+        val line = MapLibreLine("l${lineCount++}", { logged.bottomLayer }, ::whenReady)
+        line.color = color
+        line.width = width
+        return line
+    }
+
     override fun addPolyline(color: Int): MapLine {
         val line = MapLibreLine("l${lineCount++}", { modelLayer }, ::whenReady)
         line.color = color
