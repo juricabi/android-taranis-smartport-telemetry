@@ -153,8 +153,8 @@ class MapLibreSpot(
         // An empty collection rather than a hidden layer: a layer switched off
         // and on again is a style change, and this is written to on every fix.
         if (at == null || !shown) {
-            arrow.setGeoJsonSync(nothing())
-            ring.setGeoJsonSync(nothing())
+            arrow.setGeoJson(nothing())
+            ring.setGeoJson(nothing())
             return@whenReady
         }
         // The arrow is what says which way the phone faces, so with no bearing
@@ -164,16 +164,16 @@ class MapLibreSpot(
         // Feature have only GeoJson in common, and setGeoJson takes each of
         // them and not that.
         if (bearing.isNaN()) {
-            arrow.setGeoJsonSync(nothing())
+            arrow.setGeoJson(nothing())
         } else {
             val facing = Feature.fromGeometry(Point.fromLngLat(at.lon, at.lat))
             facing.addNumberProperty("bearing", bearing)
-            arrow.setGeoJsonSync(facing)
+            arrow.setGeoJson(facing)
         }
         if (accuracy > 0f) {
-            ring.setGeoJsonSync(Feature.fromGeometry(ringAround(at, accuracy)))
+            ring.setGeoJson(Feature.fromGeometry(ringAround(at, accuracy)))
         } else {
-            ring.setGeoJsonSync(nothing())
+            ring.setGeoJson(nothing())
         }
     }
 
