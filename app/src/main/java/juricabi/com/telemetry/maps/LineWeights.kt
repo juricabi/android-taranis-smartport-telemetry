@@ -28,8 +28,15 @@ object LineWeights {
     /** The flight itself, and the plan for it: the heaviest, and equal. */
     const val FLIGHT = 4f
 
-    /** A plan is the same weight as the flight, so the two read as one kind. */
-    const val PLAN = FLIGHT
+    /**
+     * A flight plan: the same weight as the flight, so the two read as one
+     * kind of thing when a flight is flown against a plan for it.
+     *
+     * Its own number rather than a reference to [FLIGHT]. They are equal
+     * because that is how they look right, not because one is defined as the
+     * other, and either may want changing on its own.
+     */
+    const val PLAN = 4f
 
     /**
      * Back to whoever is holding the phone.
