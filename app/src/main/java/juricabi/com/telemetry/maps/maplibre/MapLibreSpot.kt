@@ -189,7 +189,13 @@ class MapLibreSpot(
      * exists to say. Drawn as a shape in real coordinates it stays honest.
      */
     private fun ringAround(at: Position, metres: Float): Polygon {
-        val steps = 48
+        // Enough corners that it is a circle at any zoom. Forty-eight showed
+        // its edges once the ring filled the screen — a good fix on a phone
+        // standing still is a few metres across, and zoomed to that it was
+        // plainly a polygon. It is a hundred and twenty-eight points built when
+        // a fix arrives, which is nothing; the ground view draws its own from
+        // sixty-four.
+        val steps = 128
         val latPerMetre = 1.0 / 111320.0
         val lonPerMetre = 1.0 / (111320.0 * Math.cos(Math.toRadians(at.lat)))
         val edge = ArrayList<Point>(steps + 1)
