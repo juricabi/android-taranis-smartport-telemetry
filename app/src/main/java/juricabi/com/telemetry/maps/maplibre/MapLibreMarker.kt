@@ -173,6 +173,13 @@ class MapLibreMarker(
             push()
         }
 
+    override fun place(position: Position, rotation: Float) {
+        if (position == where && rotation == heading) return
+        where = position
+        heading = rotation
+        push()
+    }
+
     override fun setIcon(icon: Int, color: Int) {
         iconRes = icon
         iconColor = color

@@ -390,13 +390,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var lastKnownGPSAt: Long = 0L
     private var lastHeading = 0f
 
-    /**
-     * How much of the way to the last fix the marker moves each frame.
-     *
-     * The same share the 3D view moves its model by, so the two are drawn at
-     * one pace: switching between them should not feel like changing gear.
-     */
-    private val MARKER_EASE = 0.18f
+    /** How much of a reported turn the model takes up on each drawn frame. */
+    private val HEADING_EASE = 0.18f
     private var followMode = true
     private var chaseMode = false
     private var hasGPSFix = false
@@ -835,13 +830,17 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         map?.setOnOrientationChangedListener { orientation ->
             updateCompassHeading(orientation)
         }
-        polyLine = map?.addPolyline(LineWeights.FLIGHT, preferenceManager.getRouteColor())
+        polyLine = map?.addFlightLine(LineWeights.FLIGHT, preferenceManager.getRouteColor())
         // Only a flight that is still going, or one being replayed. The service
         // outlives this screen and keeps the points of whatever it last heard,
         // so an unconnected map opened afterwards drew the last flight as
         // though it were happening — which the 3D ground never did.
         redrawFlightLine()
         homeLine = map?.addHomeLine(LineWeights.HOME, preferenceManager.getHomeLineColor())
+        // Keep a real two-point line from the start, as the heading line does.
+        // A missing phone fix can then leave it alone instead of repeatedly
+        // dismantling and rebuilding its renderer source.
+        homeLine?.addPoints(listOf(lastGPS, lastGPS))
         drawFlightPlans()
         showMyLocation()
         // Twice over the building of a map, deliberately. Here it is what
@@ -873,12 +872,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) {
             tryCreateMarker()
             marker?.let {
-                it.position = shownPosition()
                 // and pointing the way it was pointing. A marker is made facing
                 // north and only ever turned by the frame loop, which needs new
                 // data — so a map built after the link dropped showed the model
                 // facing north wherever it had really been going.
-                it.rotation = if (shownMarkerHeading.isNaN()) lastHeading else shownMarkerHeading
+                val heading =
+                    if (shownMarkerHeading.isNaN()) lastHeading else shownMarkerHeading
+                it.place(shownPosition(), heading)
             }
             // Straight at it, and not still leaning wherever the last map was
             // dragged to. The lean outlives the map it was made on, so a map
@@ -1121,17 +1121,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // not found it yet: a newly built map takes a while to get its first
         // fix, and the line home waited all of it. Replaying, it is where the
         // phone was then — there is no line to draw without that.
-        val phone = wherePhoneIs() ?: run {
-            line.clear()
-            return
-        }
-        if (line.size == 2) {
-            line.setPoint(0, drone)
-            line.setPoint(1, phone)
-        } else {
-            line.clear()
-            line.addPoints(listOf(drone, phone))
-        }
+        val phone = wherePhoneIs() ?: return
+        line.setPoints(listOf(drone, phone))
     }
 
     private fun drawFlightPlans() {
@@ -1143,7 +1134,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             if (!plan.visible || plan.waypoints.size < 2) continue
             // The same weight as the flight itself, so a plan and the flight
             // flown against it read as the same kind of thing.
-            val line = map?.addPolyline(
+            val line = map?.addFlightPlanLine(
                 LineWeights.PLAN, plan.color, *plan.waypoints.toTypedArray()
             )
             if (line != null) {
@@ -2695,6 +2686,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         shownLat = Double.NaN
         shownLon = Double.NaN
         shownMarkerHeading = Float.NaN
+        seenFixes.clear()
+        walkDelayMs = 80L
         headingPolyline?.clear()
         homeLine?.clear()
     }
@@ -3327,7 +3320,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             }
             marker =
                 map?.addMarker(modelIcon(), preferenceManager.getPlaneColor(), lastGPS)
-            marker?.rotation = lastHeading;
+            marker?.place(lastGPS, lastHeading)
             map?.moveCamera(lastGPS, LOCATE_ZOOM)
         }
     }
@@ -3902,8 +3895,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
-    private fun updateHeading() {
-        applyHeadingUp()
+    private fun updateHeading(turnMap: Boolean = true) {
+        if (turnMap) applyHeadingUp()
         if (lastGPS.lat != 0.0 && lastGPS.lon != 0.0) {
             val from = shownPosition()
             // and pointing the way the marker is pointing: drawn to the last
@@ -3917,13 +3910,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 // emptied when a replay resets, and setting a point of an empty
                 // line throws — which the home line beside it has always
                 // guarded against and this one never did.
-                if (headingLine.size == 2) {
-                    headingLine.setPoint(0, from)
-                    headingLine.setPoint(1, ahead)
-                } else {
-                    headingLine.clear()
-                    headingLine.addPoints(listOf(from, ahead))
-                }
+                headingLine.setPoints(listOf(from, ahead))
             }
         }
     }
@@ -4352,6 +4339,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // on every fix, not only a moved one: a quad on the ground repeats
             // its position, and the retry below would never come round again
             tryCreateMarker()
+
+            if (hasGPSFix && (latitude != 0.0 || longitude != 0.0)) {
+                rememberMotionFix(latitude, longitude)
+            }
 
             if (Position(latitude, longitude) != lastGPS) {
                 var d = 0.0;
@@ -4799,9 +4790,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      *
      * A fix lands five or ten times a second and the screen draws a hundred and
      * twenty, so a marker put straight onto each one teleports — it does not
-     * move. The 3D view has eased the model between fixes for a while; this is
-     * the same thing for the map, and the line home and the line ahead are
-     * drawn from the eased position so they stay attached to it.
+     * move. The latest few fixes are kept with their arrival times, and the
+     * model walks between the two surrounding the frame being drawn. That
+     * gives the camera a steady velocity instead of the hurry/coast pulse of
+     * easing separately towards every newly arrived fix.
      *
      * The recorded track still gets every fix as it arrives, unsmoothed. This
      * is about what the eye sees, not about what is kept.
@@ -4811,24 +4803,76 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var shownMarkerHeading = Float.NaN
     private var smoothingMarker = false
 
-    /** A step towards the last fix, at each frame the screen draws. */
+    /** A position fix and the monotonic time at which this screen received it. */
+    private class SeenFix(val at: Long, val lat: Double, val lon: Double)
+
+    private val seenFixes = ArrayList<SeenFix>()
+
+    /**
+     * A little more than one measured fix interval. Looking this far back gives
+     * each drawn frame a real fix on either side, so no velocity prediction is
+     * needed and the ground moves evenly beneath the camera.
+     */
+    private var walkDelayMs = 80L
+
+    private fun rememberMotionFix(lat: Double, lon: Double) {
+        val now = android.os.SystemClock.uptimeMillis()
+        seenFixes.lastOrNull()?.let { previous ->
+            val gap = now - previous.at
+            if (gap > 1000L) {
+                // A resumed link is a new placement, not a slow journey across
+                // all the ground between its old and new positions.
+                seenFixes.clear()
+                walkDelayMs = 80L
+            } else if (gap > 0L) {
+                val wanted = Math.min(250L, Math.max(24L, gap * 3L / 2L))
+                walkDelayMs = (walkDelayMs * 3L + wanted) / 4L
+            }
+        }
+        seenFixes.add(SeenFix(now, lat, lon))
+        while (seenFixes.size > 24) seenFixes.removeAt(0)
+    }
+
+    /** Draw the delayed point on the recorded motion at each display frame. */
     private val markerStep = object : Runnable {
         override fun run() {
             smoothingMarker = false
             val map = map ?: return
             if (lastGPS.lat == 0.0 && lastGPS.lon == 0.0) return
             var moving = false
-
-            if (shownLat.isNaN()) {
-                shownLat = lastGPS.lat
-                shownLon = lastGPS.lon
-            } else {
-                val dLat = lastGPS.lat - shownLat
-                val dLon = lastGPS.lon - shownLon
-                if (Math.abs(dLat) > 1e-8 || Math.abs(dLon) > 1e-8) {
-                    shownLat += dLat * MARKER_EASE
-                    shownLon += dLon * MARKER_EASE
+            val moment = android.os.SystemClock.uptimeMillis() - walkDelayMs
+            var before: SeenFix? = null
+            var after: SeenFix? = null
+            for (fix in seenFixes) {
+                if (fix.at <= moment) before = fix
+                else {
+                    after = fix
+                    break
+                }
+            }
+            when {
+                before != null && after != null && after.at > before.at -> {
+                    val part = (moment - before.at).toDouble() /
+                        (after.at - before.at).toDouble()
+                    val on = Math.max(0.0, Math.min(1.0, part))
+                    shownLat = before.lat + (after.lat - before.lat) * on
+                    shownLon = before.lon + (after.lon - before.lon) * on
                     moving = true
+                }
+                before != null -> {
+                    shownLat = before.lat
+                    shownLon = before.lon
+                }
+                seenFixes.isNotEmpty() -> {
+                    shownLat = seenFixes[0].lat
+                    shownLon = seenFixes[0].lon
+                    // Keep drawing until the delayed clock reaches this first
+                    // sample; a second fix may arrive in the meantime.
+                    moving = true
+                }
+                else -> {
+                    shownLat = lastGPS.lat
+                    shownLon = lastGPS.lon
                 }
             }
 
@@ -4838,21 +4882,26 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 val turn = ((lastHeading - shownMarkerHeading) % 360f + 540f) % 360f - 180f
                 if (Math.abs(turn) > 0.05f) {
                     shownMarkerHeading =
-                        ((shownMarkerHeading + turn * MARKER_EASE) % 360f + 360f) % 360f
+                        ((shownMarkerHeading + turn * HEADING_EASE) % 360f + 360f) % 360f
                     moving = true
                 }
             }
 
             val where = Position(shownLat, shownLon)
-            marker?.let {
-                it.position = where
-                it.rotation = shownMarkerHeading
-            }
-            updateHeading()
-            updateHomeLine()
+            marker?.place(where, shownMarkerHeading)
             if (keepingUp() && map.initialized()) {
-                map.moveCamera(Position(shownLat + mapLeanLat, shownLon + mapLeanLon))
+                val orientation = if (chaseMode && terrain3D == null) {
+                    -shownMarkerHeading + mapLeanTurn
+                } else {
+                    Float.NaN
+                }
+                map.moveCameraNow(
+                    Position(shownLat + mapLeanLat, shownLon + mapLeanLon),
+                    orientation
+                )
             }
+            updateHeading(false)
+            updateHomeLine()
             if (moving) keepSmoothing()
         }
     }
@@ -4870,11 +4919,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private fun leanOutOfFollowing() {
         val centre = map?.getCentre() ?: return
         if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) {
-            mapLeanLat = centre.lat - lastGPS.lat
-            mapLeanLon = centre.lon - lastGPS.lon
+            val model = shownPosition()
+            mapLeanLat = centre.lat - model.lat
+            mapLeanLon = centre.lon - model.lon
         }
         if (chaseMode) {
-            val wanted = -lastHeading
+            val heading =
+                if (shownMarkerHeading.isNaN()) lastHeading else shownMarkerHeading
+            val wanted = -heading
             mapLeanTurn = ((map!!.getMapOrientation() - wanted) % 360f + 540f) % 360f - 180f
         }
     }

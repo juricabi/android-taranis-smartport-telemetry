@@ -27,18 +27,31 @@ interface MapWrapper {
 
     fun moveCamera(position: Position)
     fun moveCamera(position: Position, zoom: Float)
+
+    /**
+     * Put the camera at a position already eased by the caller.
+     *
+     * The orientation is in the same sense as [setMapOrientation], or NaN to
+     * leave it unchanged. Maps without a combined update keep their existing
+     * behaviour through this default.
+     */
+    fun moveCameraNow(position: Position, orientationDegrees: Float) {
+        moveCamera(position)
+        if (!orientationDegrees.isNaN()) setMapOrientation(orientationDegrees)
+    }
+
     fun addMarker(icon: Int, color: Int, position: Position): MapMarker
     fun addMarker(icon: Int, position: Position): MapMarker
     fun addPolyline(width: Float, color: Int, vararg points: Position): MapLine
 
-    /**
-     * The line home, which is drawn *under* the arrow it runs to.
-     *
-     * It ends on the phone's own mark, and drawn over the top it cuts the
-     * accuracy ring in two and lies across the arrow. Every other line belongs
-     * above them, which is where the other map puts them, so this one is asked
-     * for apart. A map with nothing to say about depth draws it like any other.
-     */
+    /** The recorded flight, named separately so other layers can stay above it. */
+    fun addFlightLine(width: Float, color: Int): MapLine = addPolyline(width, color)
+
+    /** A planned flight, kept in the same band below the line home. */
+    fun addFlightPlanLine(width: Float, color: Int, vararg points: Position): MapLine =
+        addPolyline(width, color, *points)
+
+    /** The line home, kept above the recorded flight and below the model. */
     fun addHomeLine(width: Float, color: Int): MapLine = addPolyline(width, color)
     fun setOnCameraMoveStartedListener(function: () -> Unit)
 

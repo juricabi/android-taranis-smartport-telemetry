@@ -392,6 +392,33 @@ class MapLibreMapWrapper(
     }
 
     /**
+     * Follow an already-smoothed model without putting the camera through the
+     * wrapper's second glide. Target and chase bearing are one camera update,
+     * so the model and the ground use the same position and heading this frame.
+     */
+    override fun moveCameraNow(position: Position, orientationDegrees: Float) {
+        val ready = map
+        if (ready == null) {
+            pendingTarget = position
+            if (!orientationDegrees.isNaN()) pendingOrientation = orientationDegrees
+            return
+        }
+        if (handOnMap) return
+
+        glideTo = null
+        glideBearing = Double.NaN
+        mapView.removeCallbacks(glide)
+        gliding = false
+
+        val camera = CameraPosition.Builder(ready.cameraPosition)
+            .target(LatLng(position.lat, position.lon))
+        if (!orientationDegrees.isNaN()) {
+            camera.bearing(-orientationDegrees.toDouble())
+        }
+        ready.moveCamera(CameraUpdateFactory.newCameraPosition(camera.build()))
+    }
+
+    /**
      * A zoom level in osmdroid's terms, in MapLibre's.
      *
      * They are not the same number. MapLibre's zoom is defined against 512
@@ -417,6 +444,8 @@ class MapLibreMapWrapper(
      * overhead, every half minute, for as long as one is in the sky.
      */
     private var modelLayer: String? = null
+    private var flightLine: MapLibreLine? = null
+    private var homeMapLine: MapLibreLine? = null
 
     /** Every marker on the map, by the name it puts on its own features. */
     private val markersById = HashMap<String, MapLibreMarker>()
@@ -427,11 +456,9 @@ class MapLibreMapWrapper(
     }
 
     override fun addMarker(icon: Int, color: Int, position: Position): MapMarker {
-        val marker = MapLibreMarker(
-            context, icon, color, position, "m${markerCount++}", null, ::whenReady
-        ) { markersById.remove(it.markerId) }
+        val marker = MapLibreModelMarker(context, icon, color, position, ::whenReady)
         modelLayer = marker.layerName
-        return remember(marker)
+        return marker
     }
 
     override fun addMarker(icon: Int, position: Position): MapMarker =
@@ -515,13 +542,41 @@ class MapLibreMapWrapper(
         return line
     }
 
+    override fun addFlightLine(width: Float, color: Int): MapLine {
+        val line = addPolyline(width, color) as MapLibreLine
+        flightLine = line
+        return line
+    }
+
+    override fun addFlightPlanLine(
+        width: Float,
+        color: Int,
+        vararg points: Position
+    ): MapLine {
+        val line = MapLibreLine("l${lineCount++}", { homeMapLine?.bottomLayer }, ::whenReady)
+        line.addPoints(points.toList())
+        line.color = color
+        line.width = width
+        return line
+    }
+
     override fun addHomeLine(width: Float, color: Int): MapLine {
-        // Under the arrow and ring it runs to. `logged` is made before `me`,
-        // so its ring is the lowest layer either of them owns, and keeping
-        // under that keeps under both.
+        // Under the phone's arrow and accuracy ring, but above the recorded
+        // flight. The flight starts above the phone layers, so once both bands
+        // exist its first layer is reinserted directly below this one. Every
+        // later flight chunk is inserted beside that first chunk and therefore
+        // stays below the home line as the flight grows.
         val line = MapLibreLine("l${lineCount++}", { logged.bottomLayer }, ::whenReady)
         line.color = color
         line.width = width
+        whenReady { style ->
+            val flight = flightLine?.bottomLayer ?: return@whenReady
+            val layer = style.getLayer(flight) ?: return@whenReady
+            if (style.getLayer(line.bottomLayer) == null) return@whenReady
+            style.removeLayer(layer)
+            style.addLayerBelow(layer, line.bottomLayer)
+        }
+        homeMapLine = line
         return line
     }
 

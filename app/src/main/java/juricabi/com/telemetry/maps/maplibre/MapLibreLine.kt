@@ -7,6 +7,7 @@ import juricabi.com.telemetry.maps.Position
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.sources.GeoJsonOptions
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
@@ -98,6 +99,9 @@ class MapLibreLine(
     private fun sourceOf(piece: Int) = "line-src-$id-$piece"
     private fun layerOf(piece: Int) = "line-lyr-$id-$piece"
 
+    /** The first layer in this line's band, used only to order other bands. */
+    val bottomLayer: String get() = layerOf(0)
+
     init {
         whenReady { style ->
             if (removed) return@whenReady
@@ -122,7 +126,21 @@ class MapLibreLine(
      */
     private fun pieceSource(style: Style, piece: Int): GeoJsonSource {
         style.getSourceAs<GeoJsonSource>(sourceOf(piece))?.let { return it }
-        val src = GeoJsonSource(sourceOf(piece))
+        val src = GeoJsonSource(
+            sourceOf(piece),
+            GeoJsonOptions()
+                // The recorded fixes are already the shape to draw. Letting
+                // each vector tile simplify them independently makes a line
+                // change shape when the camera exposes a neighbouring tile.
+                .withTolerance(0f)
+                // Above this zoom, keep and overscale the same prepared tile.
+                // Continuous tracking then does not ask a worker for ever
+                // finer line tiles while raster ground is reusing its parent.
+                .withMaxZoom(16)
+                // Carry geometry well across tile edges so a seam cannot clip
+                // and reintroduce a segment as it crosses the viewport.
+                .withBuffer(256)
+        )
         // Empty rather than undecided: a source made with no data at all is one
         // the renderer has an opinion about on every frame until it is given
         // some, and a piece is made before its points exist.
@@ -170,6 +188,7 @@ class MapLibreLine(
     override var width: Float
         get() = lineWidth
         set(value) {
+            if (value == lineWidth) return
             lineWidth = value
             eachLayer { it.setProperties(PropertyFactory.lineWidth(value)) }
         }
@@ -177,6 +196,7 @@ class MapLibreLine(
     override var color: Int
         get() = lineColor
         set(value) {
+            if (value == lineColor) return
             lineColor = value
             eachLayer { it.setProperties(PropertyFactory.lineColor(value)) }
         }
@@ -194,8 +214,36 @@ class MapLibreLine(
 
     override fun setPoint(index: Int, position: Position) {
         if (index < 0 || index >= points.size) return
+        val old = points[index]
+        if (old.lat == position.lat && old.lon == position.lon) return
         points[index] = position
         drawn[index] = Point.fromLngLat(position.lon, position.lat)
+        push()
+    }
+
+    /**
+     * Both ends of a moving two-point line belong to one frame. Sending them
+     * separately gives the GeoJSON worker an intermediate, impossible line
+     * and doubles the amount of asynchronous work it has to catch up with.
+     */
+    override fun setPoints(points: List<Position>) {
+        if (points.size == this.points.size) {
+            var same = true
+            for (i in points.indices) {
+                val old = this.points[i]
+                val next = points[i]
+                if (old.lat != next.lat || old.lon != next.lon) {
+                    same = false
+                    break
+                }
+            }
+            if (same) return
+        }
+        settle.removeCallbacks(settleEmpty)
+        this.points.clear()
+        drawn.clear()
+        this.points.addAll(points)
+        for (point in points) drawn.add(Point.fromLngLat(point.lon, point.lat))
         push()
     }
 

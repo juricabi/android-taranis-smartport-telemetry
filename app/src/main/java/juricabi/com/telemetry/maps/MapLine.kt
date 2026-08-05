@@ -8,6 +8,13 @@ abstract class MapLine {
     abstract fun remove()
     abstract fun addPoints(points: List<Position>)
     abstract fun setPoint(index: Int, position: Position)
+
+    /** Replace a moving line's whole shape as one renderer update. */
+    open fun setPoints(points: List<Position>) {
+        clear()
+        addPoints(points)
+    }
+
     abstract fun clear()
 
     abstract val size: Int
