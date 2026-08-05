@@ -150,6 +150,12 @@ class MapLibreMapWrapper(
                 cameraMoveListener?.invoke()
                 false
             }
+            // A way out of a hand that never lifts. A gesture taken over by
+            // something else — a parent view, a dialog opening under the
+            // finger — can end without ACTION_UP ever arriving, and the map
+            // would then have stopped following for good with nothing to say
+            // why. The camera settling means nothing is being dragged.
+            ready.addOnCameraIdleListener { handOnMap = false }
             ready.addOnCameraMoveListener {
                 // Only where the angle has really moved. This fires for any
                 // camera move at all, and following the model is a camera move
@@ -594,6 +600,11 @@ class MapLibreMapWrapper(
     override fun onDestroy() {
         // a window of ours, which outlives the screen if nobody takes it down
         dismissBubble()
+        // Anything still waiting for a style that is now never going to arrive.
+        // Each one holds the line or the marker that asked for it, so a map
+        // torn down before its style loaded — a view switched away from while
+        // the first tiles are still coming — would keep the lot.
+        pending.clear()
         mapView.onDestroy()
     }
     override fun onSaveInstanceState(outState: Bundle?) {
