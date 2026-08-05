@@ -10,6 +10,8 @@ import juricabi.com.telemetry.proto.fr24.LocationBoundaries
 import juricabi.com.telemetry.utils.GeoUtils
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.atan2
 import kotlin.math.roundToInt
 
@@ -54,12 +56,15 @@ class Fr24Manager(
     private val executor = Executors.newSingleThreadExecutor()
     private val currentAirplanes = CopyOnWriteArrayList<AirplaneInfo>()
     private var phoneLocationProvider: (() -> Position?)? = null
-    private var running = false
+    @Volatile private var running = false
+    private val fetchInProgress = AtomicBoolean(false)
     private var fetchRunnable: Runnable? = null
     @Volatile private var droneLat: Double = 0.0
     @Volatile private var droneLon: Double = 0.0
 
+    @Synchronized
     fun start(phoneLocationProvider: () -> Position?) {
+        if (running || executor.isShutdown) return
         this.phoneLocationProvider = phoneLocationProvider
         running = true
         Log.d(TAG, "Started, poll interval=${preferenceManager.getFr24PollIntervalSec()}s")
@@ -67,10 +72,16 @@ class Fr24Manager(
     }
 
     fun stop() {
-        running = false
-        fetchRunnable?.let { handler.removeCallbacks(it) }
-        fetchRunnable = null
-        currentAirplanes.clear()
+        synchronized(this) {
+            running = false
+            fetchRunnable?.let { handler.removeCallbacks(it) }
+            fetchRunnable = null
+            phoneLocationProvider = null
+            currentAirplanes.clear()
+        }
+        // A manager is discarded after stop. Leaving this executor alive leaked
+        // one permanent thread on every pause/resume and replay transition.
+        executor.shutdownNow()
     }
 
     fun updateDronePosition(lat: Double, lon: Double) {
@@ -111,13 +122,23 @@ class Fr24Manager(
         if (!running) return
         val runnable = Runnable {
             val phonePos = phoneLocationProvider?.invoke()
-            if (phonePos != null) {
+            if (phonePos != null && fetchInProgress.compareAndSet(false, true)) {
                 Log.d(TAG, "Starting fetch cycle, phone at ${phonePos.lat},${phonePos.lon}")
-                executor.execute {
-                    doFetch(phonePos.lat, phonePos.lon)
+                try {
+                    executor.execute {
+                        try {
+                            if (running) doFetch(phonePos.lat, phonePos.lon)
+                        } finally {
+                            fetchInProgress.set(false)
+                        }
+                    }
+                } catch (_: RejectedExecutionException) {
+                    fetchInProgress.set(false)
                 }
             } else {
-                Log.w(TAG, "Skipping fetch cycle: phone location not available")
+                if (phonePos == null) {
+                    Log.w(TAG, "Skipping fetch cycle: phone location not available")
+                }
             }
             scheduleFetch()
         }
@@ -167,8 +188,11 @@ class Fr24Manager(
                 )
             }
 
-            currentAirplanes.clear()
-            currentAirplanes.addAll(airplanes)
+            synchronized(this) {
+                if (!running) return
+                currentAirplanes.clear()
+                currentAirplanes.addAll(airplanes)
+            }
 
             handler.post {
                 if (running) {

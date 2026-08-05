@@ -5395,11 +5395,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // Aircraft are where they are now, around where this phone is now. Over
         // a replay of last week's flight they are neither the right aircraft
         // nor in the right place, so a replay does without them.
-        if (isInReplayMode()) return
-        if (preferenceManager.isFr24Enabled()) {
-            fr24Manager = Fr24Manager(preferenceManager, this)
-            fr24Manager?.start { myLastKnownPlace() }
-        }
+        if (isInReplayMode() || !preferenceManager.isFr24Enabled()) return
+        // onResume and leaving replay can meet in the same foreground lifetime.
+        // Keep the manager already polling instead of orphaning it and its
+        // executor behind a new reference.
+        if (fr24Manager != null) return
+        val manager = Fr24Manager(preferenceManager, this)
+        fr24Manager = manager
+        manager.start { myLastKnownPlace() }
     }
 
     private fun stopFr24() {
