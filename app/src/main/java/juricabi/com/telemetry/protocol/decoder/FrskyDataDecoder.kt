@@ -2,6 +2,7 @@ package juricabi.com.telemetry.protocol.decoder
 
 import juricabi.com.telemetry.protocol.Protocol
 import java.io.IOException
+import kotlin.math.ceil
 import kotlin.math.pow
 
 class FrskyDataDecoder(listener: Listener) : DataDecoder(listener) {
@@ -15,6 +16,7 @@ class FrskyDataDecoder(listener: Listener) : DataDecoder(listener) {
     private var acc_y = 0.0f;
     private var acc_z = 0.0f;
     private var gotRollPitch = false;
+    private var inferredBatteryCells = 0
 
     private val TAG: String = "FrSky Protocol"
 
@@ -272,9 +274,15 @@ class FrskyDataDecoder(listener: Listener) : DataDecoder(listener) {
                 val fr_bat1_amps = bitExtracted(data.data,7,11) * 10.0.pow(bitExtracted(data.data,1,10).toDouble())/10f
                 val fr_bat1_mAh = bitExtracted(data.data,15,18)
                 val fr_bat1_volts = bitExtracted(data.data,9,1).toFloat() / 10f
-                val cellcount = fr_bat1_volts/4.3+1.toInt()
-                val cellVoltage=fr_bat1_volts/cellcount
-                listener.onCellVoltageData(cellVoltage.toFloat())
+                // A cell count is an integer. The old precedence converted only
+                // literal 1, producing divisors such as 4.906 cells for a 4S
+                // pack. Keep the largest credible count seen as voltage falls:
+                // turning a depleted 4S into a healthy-looking 3S is unsafe.
+                val inferred = ceil((fr_bat1_volts / 4.4f).toDouble()).toInt()
+                    .coerceAtLeast(1)
+                if (inferred > inferredBatteryCells) inferredBatteryCells = inferred
+                val cellVoltage = fr_bat1_volts / inferredBatteryCells.coerceAtLeast(1)
+                listener.onCellVoltageData(cellVoltage)
                 listener.onVBATData(fr_bat1_volts)
                 listener.onCurrentData(fr_bat1_amps.toFloat())
                 listener.onFuelData(fr_bat1_mAh)
