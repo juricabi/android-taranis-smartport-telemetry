@@ -45,6 +45,21 @@ class CrsfProtocolTest {
         assertEquals(2f, verticalSpeed, 0.001f)
     }
 
+    @Test
+    fun airspeedUsesTenthsOfAKilometrePerHour() {
+        var airspeed = Float.NaN
+        val protocol = CrsfProtocol(object : DataDecoder.Companion.DefaultDecodeListener() {
+            override fun onAirSpeedData(speed: Float) {
+                airspeed = speed
+            }
+        })
+
+        val payload = ByteBuffer.allocate(2).putShort(360).array()
+        feed(protocol, frame(0x0a, payload))
+
+        assertEquals(36f, airspeed, 0.001f)
+    }
+
     private fun frame(type: Int, payload: ByteArray): ByteArray {
         val body = byteArrayOf(type.toByte()) + payload
         val crc = CRC8()

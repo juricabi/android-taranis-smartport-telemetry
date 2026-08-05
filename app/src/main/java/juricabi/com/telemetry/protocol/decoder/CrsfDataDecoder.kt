@@ -278,7 +278,7 @@ https://github.com/iNavFlight/inav/blob/135456936834ab4129e6ed540038b2e88dcb3c44
                 listener.onDistanceData(data.data)
             }
             Protocol.ASPEED -> {
-                listener.onAirSpeedData(data.data / 0.036f)  //cm/s to km/h
+                listener.onAirSpeedData(data.data / 10f)
             }
             else -> {
                 decoded = false

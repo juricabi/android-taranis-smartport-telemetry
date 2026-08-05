@@ -288,7 +288,7 @@ class CrsfProtocol : Protocol {
                 }
                 AIRSPEED_SENSOR.toByte() -> {
                     if (inputData.size == AIRSPEED_PACKET_LEN) {
-                        val airspeed = data.short  //cm/s
+                        val airspeed = data.short // 0.1 km/h
                         dataDecoder.decodeData(Protocol.Companion.TelemetryData(ASPEED, airspeed.toInt()))
                     }
                 }
