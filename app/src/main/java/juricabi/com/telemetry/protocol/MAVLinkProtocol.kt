@@ -25,15 +25,8 @@ class MAVLinkProtocol : Protocol {
     private var crcLow: Int? = null
     private var crcHigh: Int? = null
     private var unique = HashSet<Int>()
-    /**
-     * Whether the estimator's own position is being sent.
-     *
-     * GPS_RAW_INT is the receiver talking; GLOBAL_POSITION_INT is the flight
-     * controller after it has weighed that against everything else it has. Both
-     * carry a place, and taking both put the model in two places a second
-     * apart, so the raw one steps aside where the other is arriving.
-     */
-    private var gotGlobalPosition = false
+    /** Prefer the estimator while its stream is actually still arriving. */
+    private val positionSource = MavPositionSource()
 
     private var gotRadioStatus = false; //preffer RADIO_STATUS messages over RC_CHANNELS_RAW
 
@@ -205,7 +198,7 @@ class MAVLinkProtocol : Protocol {
             // the launch, and taking both made the readout — and the height the
             // flight is drawn at — alternate between the two several times a
             // second.
-            if (!gotGlobalPosition) {
+            if (!positionSource.preferGlobal()) {
                 dataDecoder.decodeData(Protocol.Companion.TelemetryData(ALTITUDE, (alt * 100).toInt()))
             }
 
@@ -234,7 +227,7 @@ class MAVLinkProtocol : Protocol {
             val vz = byteBuffer.short
             val heading = byteBuffer.short.toInt() and 0xFFFF
 
-            gotGlobalPosition = true
+            positionSource.globalArrived()
             dataDecoder.decodeData(Protocol.Companion.TelemetryData(Protocol.GPS_ALTITUDE, altitude))
             dataDecoder.decodeData(Protocol.Companion.TelemetryData(Protocol.GPS_LATITUDE, lat))
             this.processLatitude(lat / 10000000.toDouble())
@@ -267,14 +260,15 @@ class MAVLinkProtocol : Protocol {
             // The place itself only while nothing better is being sent. Both
             // frames at once made the model step between the receiver's own
             // position and the estimator's several times a second.
-            if (!gotGlobalPosition) {
+            val preferGlobal = positionSource.preferGlobal()
+            if (!preferGlobal) {
                 dataDecoder.decodeData(Protocol.Companion.TelemetryData(Protocol.GPS_ALTITUDE, altitude))
                 dataDecoder.decodeData(Protocol.Companion.TelemetryData(Protocol.GPS_LATITUDE, lat))
                 this.processLatitude(lat / 10000000.toDouble());
                 dataDecoder.decodeData(Protocol.Companion.TelemetryData(Protocol.GPS_LONGITUDE, lon))
                 this.processLongitude(lon / 10000000.toDouble());
             }
-            if (cog.toInt() != -1 && !gotGlobalPosition)
+            if (cog.toInt() != -1 && !preferGlobal)
                 dataDecoder.decodeData( Protocol.Companion.TelemetryData( Protocol.HEADING, cog.toInt()))
         } else if (messageId == MAV_PACKET_GPS_ORIGIN_ID) {
             val lat = byteBuffer.int
