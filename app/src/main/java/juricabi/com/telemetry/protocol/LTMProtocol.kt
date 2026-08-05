@@ -89,18 +89,22 @@ class LTMProtocol : Protocol {
                 }
                 if (bufferIndex == packetSize) {
                     if (checksum.toInt() == 0) {
+                        // The parser reuses buffer for the next frame. Replays
+                        // retain TelemetryData, so each completed packet needs
+                        // its own immutable snapshot.
+                        val packet = buffer.copyOf(packetSize)
                         when (packetType) {
                             Companion.PacketType.GPS -> {
-                                dataDecoder.decodeData( Protocol.Companion.TelemetryData( GPS, 0, buffer ))
+                                dataDecoder.decodeData( Protocol.Companion.TelemetryData( GPS, 0, packet ))
                             }
                             Companion.PacketType.ATTITUDE -> {
-                                dataDecoder.decodeData( Protocol.Companion.TelemetryData( ATTITUDE, 0, buffer ))
+                                dataDecoder.decodeData( Protocol.Companion.TelemetryData( ATTITUDE, 0, packet ))
                             }
                             Companion.PacketType.STATUS -> {
-                                dataDecoder.decodeData( Protocol.Companion.TelemetryData( FLYMODE, 0, buffer ) )
+                                dataDecoder.decodeData( Protocol.Companion.TelemetryData( FLYMODE, 0, packet ) )
                             }
                             Companion.PacketType.ORIGIN -> {
-                                dataDecoder.decodeData( Protocol.Companion.TelemetryData( ORIGIN, 0, buffer ) )
+                                dataDecoder.decodeData( Protocol.Companion.TelemetryData( ORIGIN, 0, packet ) )
                             }
                             Companion.PacketType.NAVIGATION -> {
                             }
