@@ -50,6 +50,16 @@ class MAVLinkPositionTest {
         assertEquals(456f, listener.gpsAltitudes.last(), 0.001f)
     }
 
+    @Test
+    fun rtkGpsIsStillAValidFix() {
+        val listener = PositionListener()
+        val protocol = MAVLink2Protocol(listener)
+
+        feed(protocol, mav2Frame(GPS_RAW, rawGps(45.0, 16.0, 123f, fixType = 6)))
+
+        assertTrue(listener.gpsFixes.last())
+    }
+
     private fun feed(protocol: Protocol, frame: ByteArray) {
         frame.forEach { protocol.process(it.toUByte().toInt()) }
     }
@@ -65,14 +75,19 @@ class MAVLinkPositionTest {
             .putShort(9_000)
             .array()
 
-    private fun rawGps(lat: Double, lon: Double, altitude: Float): ByteArray =
+    private fun rawGps(
+        lat: Double,
+        lon: Double,
+        altitude: Float,
+        fixType: Byte = 3
+    ): ByteArray =
         ByteBuffer.allocate(30).order(ByteOrder.LITTLE_ENDIAN)
             .putLong(1_000_000)
             .putInt((lat * 10_000_000).toInt())
             .putInt((lon * 10_000_000).toInt())
             .putInt((altitude * 1_000).toInt())
             .putShort(100).putShort(100).putShort(0).putShort(9_000)
-            .put(3).put(12)
+            .put(fixType).put(12)
             .array()
 
     private fun mav1Frame(messageId: Int, payload: ByteArray): ByteArray {
@@ -101,6 +116,7 @@ class MAVLinkPositionTest {
     private class PositionListener : DataDecoder.Companion.DefaultDecodeListener() {
         val positions = ArrayList<Pair<Double, Double>>()
         val gpsAltitudes = ArrayList<Float>()
+        val gpsFixes = ArrayList<Boolean>()
 
         override fun onGPSData(latitude: Double, longitude: Double) {
             positions.add(latitude to longitude)
@@ -108,6 +124,10 @@ class MAVLinkPositionTest {
 
         override fun onGPSAltitudeData(altitude: Float) {
             gpsAltitudes.add(altitude)
+        }
+
+        override fun onGPSState(satellites: Int, gpsFix: Boolean) {
+            gpsFixes.add(gpsFix)
         }
     }
 

@@ -126,7 +126,7 @@ class MAVLinkDataDecoder(listener: Listener) : DataDecoder(listener) {
                 listener.onGPSState(satellites, fix)
             }
             Protocol.GPS_STATE -> {
-                fix = data.data == 3
+                fix = data.data >= 3
                 listener.onGPSState(satellites, fix)
             }
             Protocol.HEADING -> {
