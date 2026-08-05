@@ -87,7 +87,6 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
         AsyncTask<File, Long, ArrayList<Protocol.Companion.TelemetryData>>() {
 
         override fun doInBackground(vararg file: File): ArrayList<Protocol.Companion.TelemetryData> {
-            var logFile = FileInputStream(file[0])
             val arrayList = ArrayList<Protocol.Companion.TelemetryData>()
             val collected = ArrayList<Long>()
             decoded = collected
@@ -185,13 +184,17 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
 
             //feed protocolDetector until protocol is detected and
             //tempProtocol and protocol are assigned correct protocol decoder
-            while (logFile.read(buffer) == buffer.size && tempProtocol == null) {
-                for (byte in buffer) {
-                    if (tempProtocol == null) {
-                        protocolDetector.feedData(byte.toUByte().toInt())
-                    } else {
-                        break
+            FileInputStream(file[0]).use { logFile ->
+                var bytesRead = logFile.read(buffer)
+                while (bytesRead != -1 && tempProtocol == null) {
+                    for (i in 0 until bytesRead) {
+                        if (tempProtocol == null) {
+                            protocolDetector.feedData(buffer[i].toUByte().toInt())
+                        } else {
+                            break
+                        }
                     }
+                    if (tempProtocol == null) bytesRead = logFile.read(buffer)
                 }
             }
 
@@ -205,20 +208,30 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
             } else {
                 //now when protocol is detected and tempProtocol is assigned,
                 //feed tempProtocol to decode all packets into arrayList
-                logFile = FileInputStream(file[0])
-                val size = (file[0].length() / 100).toInt()
+                val length = file[0].length()
+                // About one progress update per percent for ordinary logs,
+                // without a zero-byte buffer for tiny files or a huge
+                // allocation for very large recordings.
+                val size = (length / 100L).coerceIn(1L, 64L * 1024L).toInt()
                 val bytes = ByteArray(size)
-                var bytesRead = logFile.read(bytes)
-                var allBytes = bytesRead
-                while (bytesRead == size) {
-                    for (i in 0 until bytesRead) {
-                        consumed++
-                        tempProtocol?.process(bytes[i].toUByte().toInt())
+                FileInputStream(file[0]).use { input ->
+                    var allBytes = 0L
+                    var bytesRead = input.read(bytes)
+                    while (bytesRead != -1) {
+                        for (i in 0 until bytesRead) {
+                            consumed++
+                            tempProtocol?.process(bytes[i].toUByte().toInt())
+                        }
+                        allBytes += bytesRead
+                        if (length > 0L) {
+                            publishProgress(
+                                Math.min(100L, (allBytes.toDouble() / length * 100.0).toLong())
+                            )
+                        }
+                        bytesRead = input.read(bytes)
                     }
-                    publishProgress(((allBytes / file[0].length().toFloat()) * 100).toLong())
-                    bytesRead = logFile.read(bytes)
-                    allBytes += bytesRead
                 }
+                publishProgress(100)
             }
 
             return arrayList
