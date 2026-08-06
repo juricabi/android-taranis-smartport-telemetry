@@ -429,7 +429,11 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         modelSize = size
         modelVisible = true
         if (modelBuffer == null || builtShape != modelShape) {
-            val mesh = if (modelShape == "plane") plane() else quad()
+            val mesh = when (modelShape) {
+                "plane" -> ModelMeshes.plane()
+                "heli" -> ModelMeshes.heli()
+                else -> ModelMeshes.quad()
+            }
             modelBuffer = floats(mesh)
             // eight floats a vertex now, not three: dividing by three drew far
             // more triangles than the mesh has and read whatever lay past its
@@ -439,153 +443,9 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         }
     }
 
-    /** "quad" or "plane": the same choice the map marker follows. */
+    /** "quad", "plane" or "heli": the same choice the map marker follows. */
     @Volatile var modelShape = "quad"
     private var builtShape = ""
-
-    /**
-     * Geometry for the model: position, which corner of its triangle each
-     * vertex is, and a normal. The normal is what the light reads, and is the
-     * whole difference between a model and a silhouette; the corner weights are
-     * what let one pass both fill a face and draw its edges.
-     */
-    private class Solid {
-        val out = ArrayList<Float>()
-
-        /**
-         * [hide] names edges that are not really there. Bit j holds the weight
-         * of the edge opposite vertex j at one, so a fragment never approaches
-         * a border there and the shader draws no line.
-         *
-         * A rectangle is two triangles with a seam down the middle. The seam is
-         * not an edge of the model, and drawing it puts a diagonal across every
-         * flat face.
-         */
-        fun tri(a: FloatArray, b: FloatArray, c: FloatArray, hide: Int = 0) {
-            val ux = b[0] - a[0]; val uy = b[1] - a[1]; val uz = b[2] - a[2]
-            val vx = c[0] - a[0]; val vy = c[1] - a[1]; val vz = c[2] - a[2]
-            var nx = uy * vz - uz * vy
-            var ny = uz * vx - ux * vz
-            var nz = ux * vy - uy * vx
-            val len = Math.sqrt((nx * nx + ny * ny + nz * nz).toDouble()).toFloat()
-            if (len > 0.00001f) { nx /= len; ny /= len; nz /= len }
-            for (i in 0..2) {
-                val p = when (i) { 0 -> a; 1 -> b; else -> c }
-                out.add(p[0]); out.add(p[1]); out.add(p[2])
-                // one at its own corner, nought at the others: the weights fall
-                // to nought along the far edge, which is how near one is measured
-                for (j in 0..2) {
-                    out.add(if (j == i || (hide shr j) and 1 == 1) 1f else 0f)
-                }
-                out.add(nx); out.add(ny); out.add(nz)
-            }
-        }
-
-        /** A flat four cornered face, seamless: only its border is an edge. */
-        fun face(a: FloatArray, b: FloatArray, c: FloatArray, d: FloatArray) {
-            tri(a, b, c, 1 shl 1)
-            tri(a, c, d, 1 shl 2)
-        }
-
-        /** A box, from its two opposite corners. */
-        fun box(x0: Float, y0: Float, z0: Float, x1: Float, y1: Float, z1: Float) {
-            val a = floatArrayOf(x0, y0, z0); val b = floatArrayOf(x1, y0, z0)
-            val c = floatArrayOf(x1, y0, z1); val d = floatArrayOf(x0, y0, z1)
-            val e = floatArrayOf(x0, y1, z0); val f = floatArrayOf(x1, y1, z0)
-            val g = floatArrayOf(x1, y1, z1); val h = floatArrayOf(x0, y1, z1)
-            face(e, f, g, h)
-            face(a, d, c, b)
-            face(a, b, f, e)
-            face(d, h, g, c)
-            face(a, e, h, d)
-            face(b, c, g, f)
-        }
-
-        /** A box laid along a direction in the ground plane: an arm, or a wing. */
-        fun arm(dirX: Float, dirZ: Float, from: Float, to: Float,
-                halfWidth: Float, y0: Float, y1: Float, alongZ: Float = 0f) {
-            val px = -dirZ
-            val pz = dirX
-            fun at(along: Float, side: Float, y: Float) = floatArrayOf(
-                dirX * along + px * side, y, dirZ * along + pz * side + alongZ)
-            val a = at(from, -halfWidth, y0); val b = at(to, -halfWidth, y0)
-            val c = at(to, halfWidth, y0);    val d = at(from, halfWidth, y0)
-            val e = at(from, -halfWidth, y1); val f = at(to, -halfWidth, y1)
-            val g = at(to, halfWidth, y1);    val h = at(from, halfWidth, y1)
-            face(e, f, g, h)
-            face(a, d, c, b)
-            face(a, b, f, e)
-            face(d, h, g, c)
-            face(a, e, h, d)
-            face(b, c, g, f)
-        }
-
-        /** A short many sided post: a motor, or a propeller when it is flat. */
-        fun post(cx: Float, cz: Float, radius: Float, y0: Float, y1: Float, sides: Int) {
-            val spokes = (1 shl 1) or (1 shl 2)
-            for (i in 0 until sides) {
-                val a0 = 2.0 * Math.PI * i / sides
-                val a1 = 2.0 * Math.PI * (i + 1) / sides
-                val x0 = cx + (radius * Math.cos(a0)).toFloat()
-                val z0 = cz + (radius * Math.sin(a0)).toFloat()
-                val x1 = cx + (radius * Math.cos(a1)).toFloat()
-                val z1 = cz + (radius * Math.sin(a1)).toFloat()
-                face(floatArrayOf(x0, y0, z0), floatArrayOf(x1, y0, z1),
-                     floatArrayOf(x1, y1, z1), floatArrayOf(x0, y1, z0))
-                // flat caps, drawn as a fan from the centre. Only the rim is an
-                // edge — the spokes would draw a cartwheel on every motor.
-                tri(floatArrayOf(cx, y1, cz), floatArrayOf(x0, y1, z0),
-                    floatArrayOf(x1, y1, z1), spokes)
-                tri(floatArrayOf(cx, y0, cz), floatArrayOf(x1, y0, z1),
-                    floatArrayOf(x0, y0, z0), spokes)
-            }
-        }
-
-        fun build(): FloatArray {
-            val array = FloatArray(out.size)
-            for (i in out.indices) array[i] = out[i]
-            return array
-        }
-    }
-
-    /** A quad: four arms out to motors, propeller discs, a body with a nose. */
-    private fun quad(): FloatArray {
-        val s = Solid()
-        val d = 0.7071f
-        for (c in arrayOf(floatArrayOf(d, -d), floatArrayOf(-d, -d),
-                          floatArrayOf(d, d), floatArrayOf(-d, d))) {
-            s.arm(c[0], c[1], 0.15f, 1f, 0.07f, -0.03f, 0.05f)
-            // into the arm, not resting on it: two faces at one height are a
-            // coin toss for the depth buffer, and it comes down differently
-            // from one frame to the next
-            s.post(c[0], c[1], 0.13f, 0.01f, 0.22f, 8)
-            s.post(c[0], c[1], 0.42f, 0.23f, 0.25f, 10)
-        }
-        s.box(-0.28f, -0.10f, -0.30f, 0.28f, 0.20f, 0.42f)
-        s.box(-0.16f, -0.05f, -0.62f, 0.16f, 0.10f, -0.28f)
-        s.box(-0.18f, 0.15f, -0.18f, 0.18f, 0.32f, 0.20f)
-        return s.build()
-    }
-
-    /** A plane: fuselage, swept wings, a fin and a tailplane. */
-    private fun plane(): FloatArray {
-        val s = Solid()
-        s.box(-0.11f, -0.08f, -0.95f, 0.11f, 0.12f, 0.75f)
-        s.box(-0.07f, -0.05f, -1.25f, 0.07f, 0.07f, -0.90f)
-        s.box(-0.16f, 0.07f, -0.35f, 0.16f, 0.26f, 0.15f)
-        s.arm(1f, 0f, 0.10f, 1.35f, 0.28f, -0.02f, 0.04f)
-        s.arm(-1f, 0f, 0.10f, 1.35f, 0.28f, -0.02f, 0.04f)
-        // the tailplane belongs at the tail. It was built in the middle, inside
-        // the wing and sharing its top face, which both hid it and left the two
-        // fighting over which was in front.
-        s.arm(1f, 0f, 0.05f, 0.5f, 0.13f, 0f, 0.03f, 0.60f)
-        s.arm(-1f, 0f, 0.05f, 0.5f, 0.13f, 0f, 0.03f, 0.60f)
-        s.box(-0.04f, 0.10f, 0.45f, 0.04f, 0.55f, 0.78f)
-        return s.build()
-    }
-
-
-
 
     private var arrowBuffer: FloatBuffer? = null
     private var arrowCount = 0
@@ -726,7 +586,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val right = floatArrayOf(1f, 0f, 1f)
         val tail = floatArrayOf(0f, 0f, 0.4f)
         val spine = floatArrayOf(0f, 0.8f, 0.1f)
-        val solid = Solid()
+        val solid = ModelMeshes.Solid()
         solid.tri(nose, left, spine)
         solid.tri(nose, spine, right)
         solid.tri(left, tail, spine)
@@ -738,7 +598,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
 
     /** A low marker for a known place whose direction was not recorded. */
     private fun puckMesh(): FloatArray {
-        val solid = Solid()
+        val solid = ModelMeshes.Solid()
         solid.post(0f, 0f, 0.8f, 0f, 0.22f, 16)
         return solid.build()
     }
