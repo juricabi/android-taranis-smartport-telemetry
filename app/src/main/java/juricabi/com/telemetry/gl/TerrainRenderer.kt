@@ -165,9 +165,14 @@ class TerrainRenderer : GLSurfaceView.Renderer {
      *
      * Leaving the app throws away the GL context and everything in it; without
      * this the view came back black, because what had been uploaded was gone
-     * and nothing was left to upload.
+     * and nothing was left to upload. Only the geometry comes back from here
+     * now: the pictures are recycled as they reach the card, and a lost
+     * context gets them again through [onPicturesLost] and the disk cache.
      */
     private val submitted = ArrayList<TerrainScene.TileMesh>()
+
+    /** Told when a new context finds its pictures recycled; runs on the GL thread. */
+    @Volatile var onPicturesLost: (() -> Unit)? = null
 
     /** The tiles still wanted, once the scene has said. Null means all of them. */
     private var keep: HashSet<Long>? = null
@@ -988,11 +993,17 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         lineProgram = program(LINE_VERTEX, LINE_FRAGMENT)
         // a new context throws away every texture and buffer we had, so put
         // the meshes back in the queue to be uploaded again
+        var picturesLost = false
         synchronized(this) {
             tiles.clear()
             pending.clear()
             pending.addAll(submitted)
+            // The geometry re-uploads from the meshes, but their pictures were
+            // recycled the moment they first reached the card. Say so, and the
+            // view fetches them back from the disk they were stitched from.
+            picturesLost = submitted.any { it.texture?.isRecycled == true }
         }
+        if (picturesLost) onPicturesLost?.invoke()
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -1092,7 +1103,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
      * Upload what is new and throw away what has gone.
      *
      * Extending the ground hands back the tiles already on screen along with
-     * the new one. Uploading the lot meant deleting and re-sending nine 16MB
+     * the new one. Uploading the lot meant deleting and re-sending nine 8MB
      * textures in a single frame, which is a freeze of the better part of a
      * second — and it happened every time the flight neared the edge of what
      * was loaded.
@@ -1178,6 +1189,10 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
         GLES20.glGenerateMipmap(GLES20.GL_TEXTURE_2D)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
+        // The picture now lives on the card, and the heap copy was held only
+        // against a lost context — half the ground's memory, kept for a rare
+        // event. Let it go; a lost context asks the disk cache instead.
+        bitmap.recycle()
         return ids[0]
     }
 

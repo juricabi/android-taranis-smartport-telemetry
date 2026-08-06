@@ -108,7 +108,10 @@ object Imagery {
             val extra = extraZoom.coerceIn(0, min(MAX_EXTRA_ZOOM, MAX_ZOOM - z))
             val side = 1 shl extra
             val childZoom = z + extra
-            mosaic = Bitmap.createBitmap(side * TILE_SIZE, side * TILE_SIZE, Bitmap.Config.ARGB_8888)
+            // Half the memory of ARGB_8888, and the ground has no use for an
+            // alpha channel. The slight banding 565 can put into a smooth
+            // gradient is invisible in aerial photography.
+            mosaic = Bitmap.createBitmap(side * TILE_SIZE, side * TILE_SIZE, Bitmap.Config.RGB_565)
             val canvas = Canvas(mosaic)
             canvas.drawColor(MISSING_COLOR)
             val drawn = AtomicInteger(0)
@@ -221,7 +224,9 @@ object Imagery {
     private fun decode(bytes: ByteArray): Bitmap? {
         try {
             val options = BitmapFactory.Options()
-            options.inPreferredConfig = Bitmap.Config.ARGB_8888
+            // the children live only long enough to be drawn onto the 565
+            // mosaic, so decoding them any deeper is memory for nothing
+            options.inPreferredConfig = Bitmap.Config.RGB_565
             return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
         } catch (e: Exception) {
             return null

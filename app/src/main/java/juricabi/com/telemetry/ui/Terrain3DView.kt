@@ -206,6 +206,18 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // the context survives leaving the app on most devices, which avoids a
         // rebuild; the renderer can put the meshes back either way
         surface.preserveEGLContextOnPause = true
+
+        // A context that did not survive lost its pictures — their heap copies
+        // go the moment they are first uploaded. Fetch them back from disk.
+        renderer.onPicturesLost = {
+            postFromTerrain {
+                scene.dropRecycledPictures()
+                val points = LiveFlightPath.snapshot()
+                val at = points.lastOrNull()
+                extendTerrainIfNeeded(points, at?.lat ?: scene.originLat,
+                    at?.lon ?: scene.originLon, force = true)
+            }
+        }
     }
 
     /**
@@ -1302,6 +1314,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         onGroundReady = null
         onFollowingLost = null
         onBearingChanged = null
+        renderer.onPicturesLost = null
         // and the ground: the thread loading it holds this view, and its
         // pictures are the largest thing the app ever has in its hands
         scene.abandon()

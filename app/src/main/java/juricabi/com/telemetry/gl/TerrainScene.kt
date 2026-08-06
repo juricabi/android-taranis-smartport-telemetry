@@ -50,8 +50,8 @@ class TerrainScene {
          *
          * A tile at zoom 15 is about 850m across, so three levels in is a
          * 2048-pixel picture of it: roughly 0.42m per pixel, which is sharp
-         * enough to pick out a track through a field. It is also sixteen
-         * megabytes, which is why so few tiles are held at once.
+         * enough to pick out a track through a field. It is also eight
+         * megabytes even at 565, which is why so few tiles are held at once.
          */
         private const val IMAGERY_DETAIL = 3
 
@@ -59,9 +59,10 @@ class TerrainScene {
         private const val PREFERRED_ZOOM = 15
 
         /**
-         * A 2048px texture is 16MB, so this is a memory budget before it is
-         * anything else. The window needs nine; the rest is slack, so ground
-         * the model has just left is still there if it turns back.
+         * A 2048px texture is 8MB on the card, so this is a memory budget
+         * before it is anything else. The window needs nine; the rest is
+         * slack, so ground the model has just left is still there if it
+         * turns back.
          */
         private const val MAX_TILES = 12
 
@@ -223,7 +224,7 @@ class TerrainScene {
             tiles = emptyList()
             held
         }
-        // The pictures, which are nearly all of it: sixteen megabytes each. The
+        // The pictures, which are nearly all of it: eight megabytes each. The
         // drawing thread checks for a recycled picture before it uploads one,
         // so letting them go while it is still finishing a frame is safe.
         recyclePictures(leaving)
@@ -232,6 +233,25 @@ class TerrainScene {
     private fun recyclePictures(meshes: Iterable<TileMesh>) {
         for (mesh in meshes) mesh.texture?.let {
             if (!it.isRecycled) it.recycle()
+        }
+    }
+
+    /**
+     * Strip pictures a lost GL context took with it.
+     *
+     * They are recycled once uploaded, so a rebuilt context cannot upload them
+     * again — and the loader skips any tile whose picture looks present. Made
+     * absent here, the next load pass stitches them back from the disk cache.
+     */
+    fun dropRecycledPictures() {
+        synchronized(this) {
+            for ((key, mesh) in built) {
+                val picture = mesh.texture
+                if (picture != null && picture.isRecycled) {
+                    built[key] = TileMesh(mesh.key, mesh.vertices, mesh.indices, null)
+                }
+            }
+            tiles = ArrayList(built.values)
         }
     }
 
@@ -543,7 +563,7 @@ class TerrainScene {
         //
         // Building a tile once the heights are in memory is local work and
         // quick; its picture is sixty-four images fetched and stitched into
-        // sixteen megabytes, which is seconds. Showing the shape as soon as it
+        // eight megabytes, which is seconds. Showing the shape as soon as it
         // exists puts ground under the model almost at once, and the photograph
         // arrives over it tile by tile instead of everything appearing at the
         // end together.
