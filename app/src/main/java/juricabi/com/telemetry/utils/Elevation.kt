@@ -85,8 +85,22 @@ object Elevation {
         })
     }
 
-    /** Tiles that could not be had, so a redraw does not report "not ready" forever. */
+    /** Tiles the server has said are not there, so they are asked for once only. */
     private val failed = HashSet<Long>()
+
+    /**
+     * Tiles that could not be fetched just now, and when to ask again.
+     *
+     * Long enough that one load pass never retries a tile it has already
+     * waited fifteen seconds on — with no signal, a pass that retried every
+     * miss ground through the whole window a timeout at a time — and short
+     * enough that the pass after the signal returns gets them all.
+     */
+    private val retryAt = HashMap<Long, Long>()
+    private const val RETRY_AFTER_MS = 30_000L
+
+    /** [download]'s way of saying the server answered no, against not answering. */
+    private val ABSENT = ByteArray(0)
 
     @Volatile
     private var cacheDir: File? = null
@@ -169,12 +183,7 @@ object Elevation {
                 for (x in box.x0..box.x1) {
                     for (y in box.y0..box.y1) {
                         jobs.add(pool.submit {
-                            val key = key(zoom, x, y)
-                            if (load(zoom, x, y)) {
-                                usable.incrementAndGet()
-                            } else {
-                                synchronized(memory) { failed.add(key) }
-                            }
+                            if (load(zoom, x, y)) usable.incrementAndGet()
                             onProgress(done.incrementAndGet(), total)
                         })
                     }
@@ -261,17 +270,46 @@ object Elevation {
         return neighbour[wrapY * TILE_SIZE + wrapX]
     }
 
+    /**
+     * Have this tile in memory if it can be had, back from disk where it has
+     * been evicted. The memory holds two dozen tiles and is shared with the
+     * altitude profile and with a load still finishing on a scene already left
+     * behind, so a tile put there by [prefetch] may be gone again by the time
+     * the ground is built from it.
+     */
+    fun ensure(zoom: Int, x: Int, y: Int): Boolean = load(zoom, x, y)
+
     /** Memory, then disk, then the network. Returns true if the tile is now in memory. */
     private fun load(zoom: Int, x: Int, y: Int): Boolean {
         if (cached(zoom, x, y) != null) return true
-        // Asked for before and not there. Without this the same missing tile is
-        // fetched again on every load, and a fetch that is going to fail takes
-        // fifteen seconds to find out.
-        if (synchronized(memory) { failed.contains(key(zoom, x, y)) }) return false
+        val key = key(zoom, x, y)
+        // Known not to be there, or tried a moment ago. Without this the same
+        // missing tile is fetched again on every load, and a fetch that is
+        // going to fail takes fifteen seconds to find out.
+        val skip = synchronized(memory) {
+            failed.contains(key) ||
+                android.os.SystemClock.elapsedRealtime() < (retryAt[key] ?: 0L)
+        }
+        if (skip) return false
         var bytes = readDisk(zoom, x, y)
         val fromDisk = bytes != null
-        if (bytes == null) bytes = download(zoom, x, y)
-        if (bytes == null) return false
+        if (bytes == null) {
+            bytes = download(zoom, x, y)
+            // Only the server saying no is remembered for good. A timeout or a
+            // dropped connection was remembered the same way, and one bad
+            // moment during a load left holes in the ground for the rest of
+            // the process — reopening the view retried nothing.
+            if (bytes === ABSENT) {
+                synchronized(memory) { failed.add(key) }
+                return false
+            }
+            if (bytes == null) {
+                synchronized(memory) {
+                    retryAt[key] = android.os.SystemClock.elapsedRealtime() + RETRY_AFTER_MS
+                }
+                return false
+            }
+        }
         val heights = decode(bytes)
         if (heights == null) {
             // a half-written cache entry would otherwise be a permanent hole
@@ -279,10 +317,9 @@ object Elevation {
             return false
         }
         if (!fromDisk) writeDisk(zoom, x, y, bytes)
-        val key = key(zoom, x, y)
         synchronized(memory) {
             memory[key] = heights
-            failed.remove(key)
+            retryAt.remove(key)
         }
         return true
     }
@@ -324,7 +361,13 @@ object Elevation {
             connection = URL("$TILE_URL/$zoom/$x/$y.png").openConnection() as HttpURLConnection
             connection.connectTimeout = 15000
             connection.readTimeout = 15000
-            if (connection.responseCode != HttpURLConnection.HTTP_OK) return null
+            val code = connection.responseCode
+            // 403 as well as 404: S3 answers 403 for a key that is not there.
+            // Anything else the server may be saying — throttled, down — is a
+            // bad moment, not a missing tile.
+            if (code == HttpURLConnection.HTTP_NOT_FOUND ||
+                code == HttpURLConnection.HTTP_FORBIDDEN) return ABSENT
+            if (code != HttpURLConnection.HTTP_OK) return null
             val out = ByteArrayOutputStream()
             connection.inputStream.use { input ->
                 val buffer = ByteArray(8192)
@@ -364,8 +407,11 @@ object Elevation {
             val file = tileFile(zoom, x, y) ?: return
             val dir = file.parentFile ?: return
             if (!dir.isDirectory && !dir.mkdirs()) return
-            // written aside and renamed, so a cut-off download is never read back
-            val temp = File(dir, file.name + ".tmp")
+            // Written aside and renamed, so a cut-off download is never read
+            // back — under a name of this thread's own, as the imagery cache
+            // already does, so two loads wanting the same tile cannot
+            // interleave writes into one temp file and rename the mixture.
+            val temp = File(dir, "${file.name}.${Thread.currentThread().id}.tmp")
             FileOutputStream(temp).use { it.write(bytes) }
             if (!temp.renameTo(file)) temp.delete()
         } catch (e: Exception) {

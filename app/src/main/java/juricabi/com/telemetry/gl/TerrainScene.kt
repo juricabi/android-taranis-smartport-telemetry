@@ -478,6 +478,12 @@ class TerrainScene {
         // The datum, once, from the ground itself rather than from anything the
         // model has said about where it is.
         if (!datumFromGround) {
+            // The origin can sit outside the first window — a replay opens with
+            // the window at the start of the flight and the origin at its
+            // centre. One tile fetched for it settles the datum now, instead of
+            // every tile being thrown away and built again the moment the
+            // window happens to reach the origin mid-flight.
+            Elevation.ensure(z, Elevation.tileX(originLon, z), Elevation.tileY(originLat, z))
             val here = Elevation.elevationAt(originLat, originLon, z)
             if (here != null) {
                 // Every tile already built has this baked into every one of its
@@ -727,6 +733,13 @@ class TerrainScene {
     }
 
     private fun buildTile(z: Int, tx: Int, ty: Int): TileMesh? {
+        // The heights were prefetched, but into a memory shared with the
+        // altitude profile and with a load still finishing on a scene already
+        // left behind, either of which may have pushed this tile out again.
+        // Read it back — from disk, nearly always — rather than sample thirty-
+        // seven thousand nulls and hand back no tile, which is how a switch to
+        // this view sometimes came up with holes in the ground.
+        Elevation.ensure(z, tx, ty)
         val westLon = tileLon(tx, z)
         val eastLon = tileLon(tx + 1, z)
         val northLat = tileLat(ty, z)

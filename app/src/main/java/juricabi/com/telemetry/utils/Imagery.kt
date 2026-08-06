@@ -55,9 +55,22 @@ object Imagery {
     /** An unfetched square: flat grey reads as haze rather than as a hole. */
     private val MISSING_COLOR = Color.rgb(128, 128, 128)
 
-    /** Shared, so a dozen neighbouring terrain tiles cannot spawn four threads each. */
-    /** Squares that are not there, so they are asked for once and not again. */
+    /** Squares the server has said are not there, so they are asked for once only. */
     private val failed = HashSet<Long>()
+
+    /**
+     * Squares that could not be fetched just now, and when to ask again.
+     *
+     * Long enough that one mosaic never retries a square it has already waited
+     * fifteen seconds on — with no signal, every mosaic otherwise ground
+     * through its sixty-four squares to its deadline — and short enough that
+     * the pass after the signal returns gets them all.
+     */
+    private val retryAt = HashMap<Long, Long>()
+    private const val RETRY_AFTER_MS = 30_000L
+
+    /** [download]'s way of saying the server answered no, against not answering. */
+    private val ABSENT = ByteArray(0)
 
     private val pool by lazy {
         Executors.newFixedThreadPool(POOL_THREADS, ThreadFactory { runnable ->
@@ -165,13 +178,30 @@ object Imagery {
             // gap in its imagery paid the full fifteen second wait for that gap
             // again on every visit.
             val key = (zoom.toLong() shl 58) or (x.toLong() shl 29) or (y.toLong() and 0x1FFFFFFF)
-            if (synchronized(failed) { failed.contains(key) }) return null
+            val skip = synchronized(failed) {
+                failed.contains(key) ||
+                    android.os.SystemClock.elapsedRealtime() < (retryAt[key] ?: 0L)
+            }
+            if (skip) return null
             var bytes = readDisk(zoom, x, y)
             val fromDisk = bytes != null
-            if (bytes == null) bytes = download(zoom, x, y)
             if (bytes == null) {
-                synchronized(failed) { failed.add(key) }
-                return null
+                bytes = download(zoom, x, y)
+                // Only the server saying no is remembered for good. A timeout
+                // or a dropped connection was remembered the same way —
+                // including the fetches interrupted when a mosaic hit its
+                // deadline — and those squares stayed grey for the rest of the
+                // process.
+                if (bytes === ABSENT) {
+                    synchronized(failed) { failed.add(key) }
+                    return null
+                }
+                if (bytes == null) {
+                    synchronized(failed) {
+                        retryAt[key] = android.os.SystemClock.elapsedRealtime() + RETRY_AFTER_MS
+                    }
+                    return null
+                }
             }
             val bitmap = decode(bytes)
             if (bitmap == null) {
@@ -207,7 +237,12 @@ object Imagery {
             connection.connectTimeout = HTTP_TIMEOUT_MS
             connection.readTimeout = HTTP_TIMEOUT_MS
             connection.setRequestProperty("User-Agent", USER_AGENT)
-            if (connection.responseCode != HttpURLConnection.HTTP_OK) return null
+            val code = connection.responseCode
+            // Only a plain "no such tile". ESRI uses 403 for auth and rate
+            // decisions, which pass; treating those as missing would grey the
+            // square for good over a moment's throttling.
+            if (code == HttpURLConnection.HTTP_NOT_FOUND) return ABSENT
+            if (code != HttpURLConnection.HTTP_OK) return null
             val out = ByteArrayOutputStream()
             connection.inputStream.use { input ->
                 val buffer = ByteArray(8192)
