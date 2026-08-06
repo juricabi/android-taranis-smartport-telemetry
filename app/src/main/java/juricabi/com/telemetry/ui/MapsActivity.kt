@@ -2319,6 +2319,15 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private class NetworkPreset(
         val label: String,
+        /**
+         * The stored identity: remembered ports, hosts and the last-used
+         * preset are saved under this number, never under the list position —
+         * so presets can be ordered for the eye without handing anyone's
+         * settings to a neighbour. Keys match the positions of the releases
+         * that stored them; a new preset takes the next unused number,
+         * wherever it sits in the list.
+         */
+        val key: Int,
         val useTcp: Boolean,
         val port: Int,
         val useGateway: Boolean,
@@ -2334,28 +2343,25 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     // whether an address is needed at all. The port does not: it lands in the
     // port field the moment the preset is picked.
     private val networkPresets = listOf(
-        NetworkPreset("ExpressLRS backpack (UDP)", false, 14550, false),
-        NetworkPreset("TBS Crossfire / Tracer (TCP)", true, 8888, true),
-        NetworkPreset("TBS Crossfire / Tracer (UDP)", false, 8888, false),
-        NetworkPreset("MAVLink router / ground station (UDP)", false, 14550, false),
-        NetworkPreset("Serial to Wi-Fi bridge (TCP)", true, 23, true),
+        NetworkPreset("ExpressLRS backpack (UDP)", 0, false, 14550, false),
+        NetworkPreset("TBS Crossfire / Tracer (TCP)", 1, true, 8888, true),
+        NetworkPreset("TBS Crossfire / Tracer (UDP)", 2, false, 8888, false),
+        NetworkPreset("MAVLink router / ground station (UDP)", 3, false, 14550, false),
+        // A satellite- or LoRa-class link: one HIGH_LATENCY2 message per five
+        // seconds. The autopilot boots with that stream off, so this preset
+        // also sends the command that turns it on — to the typed address, and
+        // to whoever speaks to us.
+        NetworkPreset("MAVLink High Latency (UDP)", 7, false, 14550, false,
+            highLatency = true),
+        NetworkPreset("Serial to Wi-Fi bridge (TCP)", 4, true, 23, true),
         // The one path into a Crossfire WiFi module that every firmware
         // serves: its own phone app uses MQTT, which needs a broker in the app
         // and is broken on the newest firmware, while this carries plain CRSF.
         NetworkPreset(
-            "TBS Crossfire WiFi (WebSocket)", true, 80, true,
+            "TBS Crossfire WiFi (WebSocket)", 5, true, 80, true,
             mode = NetworkDataPoller.MODE_WEBSOCKET
         ),
-        NetworkPreset("Custom", false, 14550, false),
-        // A satellite- or LoRa-class link: one HIGH_LATENCY2 message per five
-        // seconds. The autopilot boots with that stream off, so this preset
-        // also sends the command that turns it on — to the typed address, and
-        // to whoever speaks to us. Last, and every new preset after it: the
-        // remembered port and host of each preset are keyed by its index, so
-        // inserting higher up hands every older preset's memory to its
-        // neighbour.
-        NetworkPreset("MAVLink High Latency (UDP)", false, 14550, false,
-            highLatency = true)
+        NetworkPreset("Custom", 6, false, 14550, false)
     )
 
     private fun connectNetwork() {
@@ -2460,7 +2466,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // the port this preset was last used with, not the documented one:
             // modules do get moved off their default
             portField.setText(
-                preferenceManager.getNetworkPortFor(index, preset.port).toString())
+                preferenceManager.getNetworkPortFor(preset.key, preset.port).toString())
             if (preset.host != null) {
                 hostField.setText(preset.host)
             } else if (preset.useGateway) {
@@ -2470,7 +2476,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             updateHostEnabled()
         }
 
-        // restore what was used last
+        // restore what was used last; the saved value is a preset key, which
+        // by construction equals the list position it had when it was stored
         val savedPreset = preferenceManager.getNetworkPreset()
         transportSpinner.setSelection(preferenceManager.getNetworkMode())
         // Reopening is restoring the last session, so the fallback is the port
@@ -2491,7 +2498,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             network, savedPreset, preferenceManager.getNetworkHost()
         )
         hostField.setText(if (savedHost.isEmpty()) (binder.gatewayAddress() ?: "") else savedHost)
-        if (savedPreset in networkPresets.indices) presetSpinner.setSelection(savedPreset)
+        val savedPosition = networkPresets.indexOfFirst { it.key == savedPreset }
+        if (savedPosition >= 0) presetSpinner.setSelection(savedPosition)
         if (!preferenceManager.getNetworkPinWifi() && interfaces.isNotEmpty()) {
             // reopen on the interface the user picked last time, where it still exists
             val hotspotIndex = interfaces.indexOfFirst { it.likelyHotspot }
@@ -2653,23 +2661,24 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
                     // "Automatic" is position 0; anything else is an explicit
                     // interface, which means do not force the socket onto Wi-Fi
+                    // stored under the preset's key, not its list position:
+                    // the list is ordered for the eye and may be reordered
+                    val chosenPreset = networkPresets[presetSpinner.selectedItemPosition]
                     preferenceManager.setNetworkPinWifi(
                         interfaceSpinner.selectedItemPosition == 0)
-                    preferenceManager.setNetworkPreset(presetSpinner.selectedItemPosition)
+                    preferenceManager.setNetworkPreset(chosenPreset.key)
                     preferenceManager.setNetworkUseTcp(useTcp)
                     preferenceManager.setNetworkMode(mode)
                     preferenceManager.setNetworkHost(host)
                     preferenceManager.setNetworkHostFor(
-                        binder.ssid() ?: "", presetSpinner.selectedItemPosition, host)
+                        binder.ssid() ?: "", chosenPreset.key, host)
                     preferenceManager.setNetworkPort(port)
-                    preferenceManager.setNetworkPortFor(
-                        presetSpinner.selectedItemPosition, port)
+                    preferenceManager.setNetworkPortFor(chosenPreset.key, port)
 
                     // Only from the preset that means it, and only over UDP —
                     // switching the transport away from what the preset set is
                     // choosing a different thing.
-                    val highLatency = networkPresets.getOrNull(
-                        presetSpinner.selectedItemPosition)?.highLatency == true &&
+                    val highLatency = chosenPreset.highLatency &&
                         mode == NetworkDataPoller.MODE_UDP
                     connectToNetwork(host, port, mode, highLatency)
                 }
