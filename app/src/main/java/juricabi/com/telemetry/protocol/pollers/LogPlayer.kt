@@ -59,6 +59,9 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
         val at = Math.max(0, Math.min(position, offsets.size - 1))
         return offsets[at]
     }
+
+    /** How many packets the recording decoded to, for estimating its pace. */
+    fun packetCount(): Int = cachedData.size
     private var decodedCoordinates = ArrayList<Position>()
     private var hasGPSFix = false
     private var satellites = 0;

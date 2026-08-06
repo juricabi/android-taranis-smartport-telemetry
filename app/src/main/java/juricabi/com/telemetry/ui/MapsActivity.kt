@@ -98,10 +98,31 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         private val GHST_RF_PROFILES = arrayOf(
             "Auto", "Norm", "Race", "Pure", "Long", "Unused", "Race2", "Pure2"
         )
-        /** What a replay may be asked to last, in seconds, and by what step. */
-        private const val SECONDS_LEAST = 15
-        private const val SECONDS_MOST = 500
-        private const val SECONDS_STEP = 5
+        /**
+         * The speed slider's stops: 3x slower to 10x faster, in halves both
+         * ways. One list, because the two sides mean different arithmetic —
+         * a stop of 2.5 on the slow side is 1/2.5, not 0.4 met somewhere.
+         */
+        private val SPEED_STOPS = FloatArray(23) { i ->
+            if (i < 4) 1f / (3f - 0.5f * i) else 1f + 0.5f * (i - 4)
+        }
+        private const val SPEED_STOP_AS_FLOWN = 4
+
+        /**
+         * The least a sped-up replay may be squeezed into. A long flight at
+         * ten times is fine; ten times a minute of flight is a blur nobody
+         * can follow — never quicker than this, unless the flight itself was
+         * shorter, which plays as flown.
+         */
+        private const val REPLAY_FLOOR_SECONDS = 10
+
+        /**
+         * Packets a second a telemetry link broadly runs at, standing in for
+         * the clock a recording did not keep. Links range from tens to over a
+         * hundred, so this is a pace to start from, not a measurement — the
+         * speed slider is the correction.
+         */
+        private const val TELEMETRY_PACKETS_PER_SECOND = 50
         private const val REQUEST_ENABLE_BT: Int = 0
         private const val REQUEST_LOCATION_PERMISSION: Int = 1
         private const val REQUEST_WRITE_PERMISSION: Int = 2
@@ -953,13 +974,16 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 operatorTrack = track
                 showTime()
                 showOperator()
-                // A replay set to run at the speed it happened, and started
-                // before this arrived, was running to the fallback length. Now
-                // that the recording's own clock is here, it runs to that.
-                if (preferenceManager.isPlaybackRealTime() &&
-                    logPlayer?.isPlaying() == true) {
-                    logPlayer?.stop()
-                    logPlayer?.startPlayback()
+                // A replay started before this arrived was running to a length
+                // estimated from its packets. Now that the recording's own
+                // clock is here, it runs to that. Not one at its end, though:
+                // its timer marks itself stopped a tick after the last packet,
+                // and a restart in that window plays the whole flight again.
+                val player = logPlayer
+                if (player != null && player.isPlaying() &&
+                    player.currentPosition < player.packetCount()) {
+                    player.stop()
+                    player.startPlayback()
                 }
             }
         })
@@ -1451,15 +1475,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
                 override fun getTotalPlaybackDurationSec() : Int
                 {
-                    val asked = preferenceManager.getPlaybackDuration()
-                    if (!preferenceManager.isPlaybackRealTime()) return asked
-                    // Real time: however long the flight itself took. Only the
-                    // CSV recorded beside it knows that — the recording is of
-                    // what came off the link, and nothing on a link carries the
-                    // date — so a log with no CSV beside it falls back to the
-                    // length a replay had before this was offered.
-                    val ran = operatorTrack?.lengthMillis ?: 0L
-                    return if (ran > 0L) (ran / 1000L).toInt() else asked
+                    return Math.max(1L, Math.round(playbackSeconds(
+                        realFlightSeconds(), preferenceManager.getPlaybackSpeed()
+                    ))).toInt()
                 }
 
                 override fun getPlaybackAutostart() : Boolean
@@ -4513,40 +4531,52 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * different screen away from the replay they change.
      *
      * They are answered by looking at the replay, so they are shown on top of
-     * it, and each says what it will do: a duration of forty-five seconds means
-     * nothing without knowing that the flight took eighteen minutes.
+     * it, and each says what it will do: "4× faster" means little without
+     * seeing that it plays eighteen minutes of flight in four and a half.
      */
     private fun showPlaybackActions() {
         val view = layoutInflater.inflate(R.layout.dialog_playback, null)
         val liveArrow = view.findViewById<SwitchCompat>(R.id.playback_live_arrow)
-        val realTime = view.findViewById<SwitchCompat>(R.id.playback_real_time)
-        val realTimeNote = view.findViewById<TextView>(R.id.playback_real_time_note)
-        val durationRow = view.findViewById<View>(R.id.playback_duration_row)
-        val bar = view.findViewById<SeekBar>(R.id.playback_seconds)
-        val secondsShown = view.findViewById<TextView>(R.id.playback_seconds_value)
+        val bar = view.findViewById<SeekBar>(R.id.playback_speed)
+        val speedShown = view.findViewById<TextView>(R.id.playback_speed_value)
         val note = view.findViewById<TextView>(R.id.playback_note)
 
-        // How long the flight ran, where the CSV beside the log says so. Real
-        // time is not offered without it, and there is nothing to measure a
-        // duration against either.
-        val flightMs = operatorTrack?.lengthMillis ?: 0L
+        fun speedAt(step: Int) = SPEED_STOPS[step.coerceIn(0, SPEED_STOPS.size - 1)]
 
-        fun seconds() = SECONDS_LEAST + bar.progress * SECONDS_STEP
+        // From the step, not the stored float: the slow stops are divisions,
+        // and printing 1/1.5 back as "1.5" through a float is how a label
+        // comes out "1.5000001× slower".
+        fun times(v: Float): String =
+            if (v == Math.round(v).toFloat()) "${Math.round(v)}" else String.format("%.1f", v)
 
-        fun say() {
-            val secs = seconds()
-            secondsShown.text = "$secs s"
-            note.text = if (flightMs > 0L) {
-                "${spanOf(flightMs)} of flight in $secs s — ${timesFaster(flightMs, secs)}"
-            } else {
-                "How long this log takes to play"
-            }
+        fun labelAt(step: Int): String = when {
+            step < SPEED_STOP_AS_FLOWN -> "${times(3f - 0.5f * step)}× slower"
+            step == SPEED_STOP_AS_FLOWN -> "1× — as flown"
+            else -> "${times(1f + 0.5f * (step - SPEED_STOP_AS_FLOWN))}× faster"
         }
 
-        fun fadeDuration() {
-            val on = realTime.isChecked
-            durationRow.alpha = if (on) 0.4f else 1f
-            bar.isEnabled = !on
+        fun say() {
+            speedShown.text = labelAt(bar.progress)
+            // Read on every change, not captured: the CSV clock can arrive
+            // while this dialog is open, and the preview must say what the
+            // playback will actually do.
+            val flightMs = operatorTrack?.lengthMillis ?: 0L
+            val real = realFlightSeconds()
+            val speed = speedAt(bar.progress)
+            val seconds = playbackSeconds(real, speed)
+            val plays = spanOf(Math.round(seconds * 1000.0))
+            // Sped past the floor, the slider still moves but the time cannot.
+            // Said outright, rather than a control that changes nothing.
+            val quickest = if (speed > 1f && seconds > real / speed + 0.5) {
+                " — its quickest"
+            } else {
+                ""
+            }
+            note.text = if (flightMs > 0L) {
+                "${spanOf(flightMs)} of flight — plays in $plays$quickest"
+            } else {
+                "No clock recorded — pace estimated; plays in about $plays$quickest"
+            }
         }
 
         liveArrow.isChecked = preferenceManager.isLiveShownInReplay()
@@ -4557,17 +4587,15 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             tellViewsWhereIAm()
         }
 
-        realTimeNote.text = if (flightMs > 0L) {
-            "This flight ran for ${spanOf(flightMs)}"
-        } else {
-            "No clock recorded beside this log"
+        bar.max = SPEED_STOPS.size - 1
+        var nearest = SPEED_STOP_AS_FLOWN
+        for (i in SPEED_STOPS.indices) {
+            if (Math.abs(SPEED_STOPS[i] - preferenceManager.getPlaybackSpeed()) <
+                Math.abs(SPEED_STOPS[nearest] - preferenceManager.getPlaybackSpeed())) {
+                nearest = i
+            }
         }
-        realTime.isEnabled = flightMs > 0L
-        realTime.isChecked = preferenceManager.isPlaybackRealTime() && flightMs > 0L
-
-        bar.max = (SECONDS_MOST - SECONDS_LEAST) / SECONDS_STEP
-        bar.progress = Math.max(0, Math.min(bar.max,
-            (preferenceManager.getPlaybackDuration() - SECONDS_LEAST) / SECONDS_STEP))
+        bar.progress = nearest
         bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             // as it moves, not once it is let go: a number that changes only
             // afterwards is a number chosen blind
@@ -4576,18 +4604,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             }
             override fun onStartTrackingTouch(sb: SeekBar) {}
             override fun onStopTrackingTouch(sb: SeekBar) {
-                preferenceManager.setPlaybackDuration(seconds())
+                preferenceManager.setPlaybackSpeed(speedAt(bar.progress))
                 restartPlayback()
             }
         })
-        realTime.setOnCheckedChangeListener { _, on ->
-            preferenceManager.setPlaybackRealTime(on)
-            fadeDuration()
-            restartPlayback()
-        }
 
         say()
-        fadeDuration()
 
         // No title of its own: the two headings inside say what this is, and a
         // third word above them said it again.
@@ -4599,8 +4621,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // moved by hand. A value changed some other way — a key, a tap that
         // never became a drag — is kept here instead of being lost.
         dialog.setOnDismissListener {
-            if (preferenceManager.getPlaybackDuration() != seconds()) {
-                preferenceManager.setPlaybackDuration(seconds())
+            if (preferenceManager.getPlaybackSpeed() != speedAt(bar.progress)) {
+                preferenceManager.setPlaybackSpeed(speedAt(bar.progress))
                 restartPlayback()
             }
         }
@@ -4619,6 +4641,33 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         showDialog(dialog)
     }
 
+    /**
+     * The flight's real length in seconds: measured, or estimated.
+     *
+     * The CSV beside the recording measured it. Without one the length is
+     * estimated from how many packets the recording holds and the pace a link
+     * broadly runs at — so a log with no clock still plays at roughly the
+     * speed it happened, rather than to a fixed length that flattened every
+     * flight to the same minute.
+     */
+    private fun realFlightSeconds(): Double {
+        val ran = operatorTrack?.lengthMillis ?: 0L
+        if (ran > 0L) return ran / 1000.0
+        return (logPlayer?.packetCount() ?: 0).toDouble() / TELEMETRY_PACKETS_PER_SECOND
+    }
+
+    /**
+     * How long the replay takes at this speed, floor and all. The dialog's
+     * preview and the playback itself both ask here, so they cannot disagree.
+     */
+    private fun playbackSeconds(realSeconds: Double, speed: Float): Double {
+        var seconds = realSeconds / speed
+        if (speed > 1f) {
+            seconds = Math.max(seconds, Math.min(realSeconds, REPLAY_FLOOR_SECONDS.toDouble()))
+        }
+        return Math.max(1.0, seconds)
+    }
+
     /** A stretch of time as a clock reads it. */
     private fun spanOf(millis: Long): String {
         val all = millis / 1000L
@@ -4627,17 +4676,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             String.format("%d:%02d:%02d", minutes / 60L, minutes % 60L, all % 60L)
         } else {
             String.format("%d:%02d", minutes, all % 60L)
-        }
-    }
-
-    /** What a duration does to the flight it is playing. */
-    private fun timesFaster(flightMs: Long, seconds: Int): String {
-        val times = (flightMs / 1000.0) / seconds
-        return when {
-            times >= 10.0 -> "${Math.round(times)}× faster"
-            times > 1.05 -> String.format("%.1f× faster", times)
-            times < 0.95 -> String.format("%.1f× slower", 1.0 / times)
-            else -> "about the speed it was flown"
         }
     }
 

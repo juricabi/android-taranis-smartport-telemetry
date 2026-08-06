@@ -8,21 +8,6 @@ class PreferenceManager(context: Context) {
 
     private val sharedPreferences = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
-    init {
-        // How long a replay takes was five choices kept as text, and is a
-        // slider of seconds now. Whatever was chosen comes across once.
-        val chosen = sharedPreferences.getString("playback_duration", null)?.toIntOrNull()
-        if (chosen != null) {
-            val moved = sharedPreferences.edit().remove("playback_duration")
-            if (chosen > 0 && !sharedPreferences.contains("playback_seconds")) {
-                // The same range the slider offers, so a value carried across
-                // from the old five choices cannot land outside what can be
-                // chosen now.
-                moved.putInt("playback_seconds", Math.max(15, Math.min(500, chosen)))
-            }
-            moved.apply()
-        }
-    }
     private val defaultHeadlineColor = context.resources.getColor(R.color.colorHeadline)
     private val defaultPlaneColor = context.resources.getColor(R.color.colorPlane)
     private val defaultRouteColor = context.resources.getColor(R.color.colorRoute)
@@ -267,21 +252,13 @@ class PreferenceManager(context: Context) {
         return sharedPreferences.getBoolean("playback_autostart", true)
     }
 
-    fun getPlaybackDuration() : Int {
-        return sharedPreferences.getInt("playback_seconds", 30)
+    /** 1 is the flight at the pace it was flown; above is faster, below slower. */
+    fun getPlaybackSpeed() : Float {
+        return sharedPreferences.getFloat("playback_speed", 1f).coerceIn(1f / 3f, 10f)
     }
 
-    fun setPlaybackDuration(seconds: Int) {
-        sharedPreferences.edit().putInt("playback_seconds", seconds).apply()
-    }
-
-    /** Played at the speed it was flown, whatever the duration says. */
-    fun isPlaybackRealTime() : Boolean {
-        return sharedPreferences.getBoolean("playback_real_time", false)
-    }
-
-    fun setPlaybackRealTime(on: Boolean) {
-        sharedPreferences.edit().putBoolean("playback_real_time", on).apply()
+    fun setPlaybackSpeed(speed: Float) {
+        sharedPreferences.edit().putFloat("playback_speed", speed).apply()
     }
 
     fun getLastSelectedDataPooler() : String {

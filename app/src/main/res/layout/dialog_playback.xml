@@ -2,8 +2,8 @@
 <!-- Everything playback is asked for, in one place: how fast it runs, whether
      this phone is drawn beside where it stood at the time, and the three things
      that can be made out of the log. One tap, not a list that opens more lists —
-     and each control says what it will do, since "45 s" means nothing without
-     knowing the flight was eighteen minutes. -->
+     and each control says what it will do, since "4× faster" means little
+     without seeing what that plays eighteen minutes of flight in. -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
@@ -72,45 +72,7 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingLeft="24dp"
-            android:paddingRight="24dp">
-
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical"
-                android:paddingRight="16dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Real time"
-                    android:textColor="?android:attr/textColorPrimary"
-                    android:textSize="16sp"/>
-
-                <TextView
-                    android:id="@+id/playback_real_time_note"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="13sp"/>
-            </LinearLayout>
-
-            <androidx.appcompat.widget.SwitchCompat
-                android:id="@+id/playback_real_time"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"/>
-        </LinearLayout>
-
-        <LinearLayout
-            android:id="@+id/playback_duration_row"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:layout_marginTop="18dp"
             android:paddingLeft="24dp"
             android:paddingRight="24dp">
 
@@ -124,12 +86,12 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="Duration"
+                    android:text="Speed"
                     android:textColor="?android:attr/textColorPrimary"
                     android:textSize="16sp"/>
 
                 <TextView
-                    android:id="@+id/playback_seconds_value"
+                    android:id="@+id/playback_speed_value"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:textColor="?android:attr/textColorPrimary"
@@ -137,7 +99,7 @@
             </LinearLayout>
 
             <SeekBar
-                android:id="@+id/playback_seconds"
+                android:id="@+id/playback_speed"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"/>
