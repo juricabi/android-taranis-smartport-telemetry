@@ -433,6 +433,45 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
         }
     }
 
+    /**
+     * Where the recording's first fix is, found without playing any of it.
+     *
+     * The ground for a replay is built around the flight, and building it
+     * before playback starts needs the flight's first place. The replay's own
+     * decoder cannot be asked — walking it fires every reading at the screen
+     * and moves the replay — so the packets are walked through a decoder of
+     * their own, and the walk stops at the first coordinate held with a fix.
+     */
+    fun firstPosition(): Position? {
+        if (cachedData.isEmpty() || !::protocol.isInitialized) return null
+        var found: Position? = null
+        var fix = false
+        val probe = object : DataDecoder.Companion.DefaultDecodeListener() {
+            override fun onGPSState(satellites: Int, gpsFix: Boolean) {
+                fix = gpsFix
+            }
+            override fun onGPSData(latitude: Double, longitude: Double) {
+                if (found == null && fix && (latitude != 0.0 || longitude != 0.0)) {
+                    found = Position(latitude, longitude)
+                }
+            }
+        }
+        val decoder = when (protocol) {
+            is FrSkySportProtocol -> FrSkySportProtocol(probe)
+            is CrsfProtocol -> CrsfProtocol(probe)
+            is GhstProtocol -> GhstProtocol(probe)
+            is LTMProtocol -> LTMProtocol(probe)
+            is MAVLinkProtocol -> MAVLinkProtocol(probe)
+            is MAVLink2Protocol -> MAVLink2Protocol(probe)
+            else -> return null
+        }.dataDecoder
+        for (data in cachedData) {
+            decoder.decodeData(data)
+            found?.let { return it }
+        }
+        return null
+    }
+
     /** Permanently abandon this replay, including a log that is still loading. */
     fun dispose() {
         dataReadyListener = null

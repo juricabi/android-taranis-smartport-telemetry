@@ -1306,6 +1306,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     private fun startReplay(file: File?) {
+        // A hold belonging to the replay being closed. Left set, tearing down
+        // the old 3D view below released it — onto a player just disposed.
+        replayWaitingForGround = false
         logPlayer?.dispose()
         GhstProtocol.forgetLaunchAltitude()
         juricabi.com.telemetry.gl.AltitudeFrame.forget()
@@ -1314,6 +1317,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         cellsAsked = false
         cellsAnswered = false
         forgetFlight()
+        // In replay mode before the ground is begun again: the 3D view decides
+        // at birth whether its ground follows the phone, and a view born for a
+        // replay that still read as live built the phone's world first, only
+        // to throw it away when the flight arrived from the log.
+        replayFileString = file?.name
         startFlightIn3D()
         file?.also {
             val progressDialog = ProgressDialog(this)
@@ -1336,7 +1344,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
             switchToReplayMode()
 
-            replayFileString = it.name
             readOperatorTrack(file)
 
             if (ContextCompat.checkSelfPermission(
@@ -1357,9 +1364,17 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
                 override fun onDataReady(size: Int) {
                     progressDialog.dismiss()
+                    // The log is decoded, so the flight's first place is known
+                    // before a packet of it is played. Begun here, the ground
+                    // is loading by the time the autostart hold asks about it,
+                    // and the replay opens over a finished world.
+                    logPlayer?.firstPosition()?.let { first ->
+                        terrain3D?.beginAt(first.lat, first.lon)
+                    }
                     seekBar.max = size
                     seekBar.visibility = View.VISIBLE
                     playButton.visibility = View.VISIBLE
+                    var resumeAfterScrub = false
                     seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                         override fun onProgressChanged(
                             seekbar: SeekBar,
@@ -1378,10 +1393,23 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                         }
 
                         override fun onStartTrackingTouch(p0: SeekBar?) {
+                            // A hand-controlled seek is a placement. Stop the
+                            // replay clock while the thumb is moving so every
+                            // progress callback takes the exact paused path.
+                            resumeAfterScrub = logPlayer?.isPlaying() == true
+                            if (resumeAfterScrub) logPlayer?.stop()
                         }
 
                         override fun onStopTrackingTouch(p0: SeekBar?) {
-
+                            if (resumeAfterScrub) {
+                                resumeAfterScrub = false
+                                // Not from the very end: startPlayback treats a
+                                // finished replay as one to play again, so
+                                // letting go there would wrap to the start.
+                                if (p0 == null || p0.progress < p0.max) {
+                                    logPlayer?.startPlayback()
+                                }
+                            }
                         }
                     })
 
@@ -1438,7 +1466,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 {
                     if (!preferenceManager.getPlaybackAutostart()) return false
                     val view = terrain3D
-                    if (view != null && !view.groundReady()) {
+                    // Held only for ground already on its way. A replay-bound
+                    // view waits for the flight's first fix before loading any
+                    // ground, and that fix comes from playback — held here,
+                    // the two waited on each other and nothing ever started.
+                    if (view != null && view.groundBegun() && !view.groundReady()) {
                         replayWaitingForGround = true
                         return false
                     }
@@ -3136,9 +3168,16 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // Meanwhile the map keeps showing a flight after the link drops, and
         // this view was coming up empty beside it.
         val flown = juricabi.com.telemetry.gl.LiveFlightPath.snapshot()
+        // A replay's ground belongs to its flight. With the flight not decoded
+        // yet there is nowhere honest to build, and offering where the phone
+        // or the last link stood built the wrong field's world — thrown away,
+        // all of it, the moment the flight arrived from the log. The view
+        // waits instead: for beginAt with the log's own first fix, or for the
+        // flight itself.
+        val fallback = if (isInReplayMode() && flown.size < 2) null else where
         view.start(
             flown,
-            where?.lat ?: Double.NaN, where?.lon ?: Double.NaN,
+            fallback?.lat ?: Double.NaN, fallback?.lon ?: Double.NaN,
             if (showLiveArrow()) mine?.lat ?: Double.NaN else Double.NaN,
             if (showLiveArrow()) mine?.lon ?: Double.NaN else Double.NaN,
             if (showLiveArrow()) phoneAccuracy else Float.NaN
@@ -4262,7 +4301,19 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var gatheredHeight = Float.NaN
 
     private fun drawGathered() {
-        if (gatheredPoints.isEmpty()) return
+        // A paused seek publishes its decoded route immediately. A playback
+        // tick may still be waiting behind the presentation clock when pause
+        // is pressed; put those real points down first, or clearing that queue
+        // below would either lose them or append them after the seek target.
+        val timeVisualBatch = logPlayer == null || logPlayer?.isPlaying() == true
+        if (!timeVisualBatch) publishAllPendingVisualTrack()
+
+        if (gatheredPoints.isEmpty()) {
+            if (!timeVisualBatch && (lastGPS.lat != 0.0 || lastGPS.lon != 0.0)) {
+                settlePausedReplaySeek(lastGPS)
+            }
+            return
+        }
         val points = ArrayList(gatheredPoints)
         val heights = ArrayList(gatheredHeights)
         gatheredPoints.clear()
@@ -4273,8 +4324,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // They still belong in the recorded flight, but revealing all of them
         // before the delayed model has reached them is the purple lead. The
         // trace candidate timestamps the whole batch at its arrival instead.
-        val timeVisualBatch = logPlayer == null || logPlayer?.isPlaying() == true
-
         if (points.size >= 2) {
             //all but the last one, which goes through the single-fix path below
             if (!timeVisualBatch) {
@@ -4300,6 +4349,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         } finally {
             gatheredVisualBatch = null
         }
+        if (!timeVisualBatch) settlePausedReplaySeek(last)
     }
 
     override fun onGPSData(list: List<Position>, addToEnd: Boolean) {
@@ -4988,12 +5038,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         var released = 0
         while (pendingVisualTrack.isNotEmpty() && pendingVisualTrack.first.at <= moment) {
             val batch = pendingVisualTrack.removeFirst()
-            polyLine?.submitPoints(batch.points)
-            publishedVisualTrack.addAll(batch.points)
-            for (point in batch.points) {
-                recentVisualTrack.addLast(point)
-                while (recentVisualTrack.size > 96) recentVisualTrack.removeFirst()
-            }
+            publishVisualTrack(batch.points)
             released += batch.points.size
         }
         if (released > 0) {
@@ -5005,6 +5050,59 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         if (head.isEmpty() || head.last() != where) head.add(where)
         if (head.size == 1) head.add(where)
         flightHeadLine?.setPoints(head)
+    }
+
+    /** Put decoded points onto both halves of the overlapping 2D flight line. */
+    private fun publishVisualTrack(points: List<Position>) {
+        if (points.isEmpty()) return
+        polyLine?.submitPoints(points)
+        publishedVisualTrack.addAll(points)
+        for (point in points) {
+            recentVisualTrack.addLast(point)
+            while (recentVisualTrack.size > REPLAY_TRACK_HEAD_POINTS) {
+                recentVisualTrack.removeFirst()
+            }
+        }
+    }
+
+    /** Publish every real fix already decoded before a paused seek starts. */
+    private fun publishAllPendingVisualTrack() {
+        while (pendingVisualTrack.isNotEmpty()) {
+            publishVisualTrack(pendingVisualTrack.removeFirst().points)
+        }
+    }
+
+    /**
+     * A seek is a placement, not motion between the old and new bar positions.
+     *
+     * The long GeoJSON line already received every decoded point through the
+     * seek. Its immediate overlapping head used to retain the pre-seek tail and
+     * append the new model position to it, drawing a straight purple shortcut
+     * over ground that was never flown. Rebuild that small head from the route
+     * itself and put the presentation clock exactly at its endpoint.
+     */
+    private fun settlePausedReplaySeek(target: Position) {
+        pendingVisualTrack.clear()
+
+        val tail = replayTrackTail(publishedVisualTrack, target, REPLAY_TRACK_HEAD_POINTS)
+        recentVisualTrack.clear()
+        for (point in tail) recentVisualTrack.addLast(point)
+
+        val now = android.os.SystemClock.uptimeMillis()
+        seenFixes.clear()
+        seenFixes.add(SeenFix(now, target.lat, target.lon))
+        shownLat = target.lat
+        shownLon = target.lon
+        presentedLat = target.lat
+        presentedLon = target.lon
+        submittedLat = target.lat
+        submittedLon = target.lon
+        presentedMoment = now - walkDelayMs
+
+        val head = ArrayList(tail)
+        if (head.size == 1) head.add(target)
+        flightHeadLine?.setPoints(head)
+        keepSmoothing()
     }
 
     private fun keepSmoothing() {
