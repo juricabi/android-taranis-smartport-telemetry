@@ -48,6 +48,7 @@ class MAVLinkProtocol : Protocol {
         private const val MAV_PACKET_GPS_ORIGIN_ID = 49
         private const val MAV_PACKET_HOME_POSITION_ID = 242
         private const val MAV_PACKET_STATUSTEXT_ID = 253
+        private const val MAV_PACKET_HIGH_LATENCY2_ID = 235
 
         private const val MAV_PACKET_STATUS_LENGTH = 31
         private const val MAV_PACKET_HEARTBEAT_LENGTH = 9
@@ -60,6 +61,7 @@ class MAVLinkProtocol : Protocol {
         private const val MAV_PACKET_GPS_ORIGIN_LENGTH = 12
         private const val  MAV_PACKET_HOME_POSITION_LENGTH = 52
         private const val MAV_PACKET_STATUSTEXT_MIN_LENGTH = 51
+        private const val MAV_PACKET_HIGH_LATENCY2_LENGTH = 42
         private const val MAV_PACKET_TRANSMISSION_HANDSHAKE = 130
         private const val MAV_PACKET_ENCAPSULATED_DATA      = 131
     }
@@ -299,6 +301,20 @@ class MAVLinkProtocol : Protocol {
             this.processHomeLatitude(lat / 10000000.toDouble())
             dataDecoder.decodeData(Protocol.Companion.TelemetryData(GPS_HOME_LONGITUDE, lon))
             this.processHomeLongitude(lon / 10000000.toDouble())
+        } else if (
+            messageId == MAV_PACKET_HIGH_LATENCY2_ID &&
+            packetLength == MAV_PACKET_HIGH_LATENCY2_LENGTH
+        ) {
+            // The whole message in one piece: its fields are packed tightly
+            // enough that pulling them apart belongs beside the unit
+            // conversions, not here. Position at the protocol level as well,
+            // for the distance the base class keeps.
+            val lat = byteBuffer.getInt(4)
+            val lon = byteBuffer.getInt(8)
+            this.processLatitude(lat / 10000000.toDouble())
+            this.processLongitude(lon / 10000000.toDouble())
+            dataDecoder.decodeData(
+                Protocol.Companion.TelemetryData(HIGH_LATENCY, 0, byteBuffer.array()))
         } else if (messageId == MAVLinkProtocol.MAV_PACKET_TRANSMISSION_HANDSHAKE) {
             dataDecoder.decodeData(Protocol.Companion.TelemetryData(IMAGE_HANDSHAKE, 0, byteBuffer.array()))
         } else if (messageId == MAVLinkProtocol.MAV_PACKET_ENCAPSULATED_DATA) {

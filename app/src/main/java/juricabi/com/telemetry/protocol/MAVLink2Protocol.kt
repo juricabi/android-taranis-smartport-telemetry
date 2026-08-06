@@ -57,6 +57,7 @@ class MAVLink2Protocol : Protocol {
         private const val MAV_PACKET_GPS_ORIGIN_ID = 49
         private const val MAV_PACKET_HOME_POSITION_ID = 242
         private const val MAV_PACKET_STATUSTEXT_ID = 253
+        private const val MAV_PACKET_HIGH_LATENCY2_ID = 235
 
         private const val MAV_PACKET_STATUS_LENGTH = 31
         private const val MAV_PACKET_HEARTBEAT_LENGTH = 9
@@ -374,6 +375,16 @@ class MAVLink2Protocol : Protocol {
             this.processHomeLatitude(lat / 10000000.toDouble())
             dataDecoder.decodeData(Protocol.Companion.TelemetryData(GPS_HOME_LONGITUDE, lon))
             this.processHomeLongitude(lon / 10000000.toDouble())
+        } else if (messageId == MAV_PACKET_HIGH_LATENCY2_ID) {
+            // No length gate: MAVLink 2 trims trailing zeros off the wire, and
+            // this buffer is already padded back out — exactly the zeros the
+            // sender removed. The whole message goes across in one piece.
+            val lat = byteBuffer.getInt(4)
+            val lon = byteBuffer.getInt(8)
+            this.processLatitude(lat / 10000000.toDouble())
+            this.processLongitude(lon / 10000000.toDouble())
+            dataDecoder.decodeData(
+                Protocol.Companion.TelemetryData(HIGH_LATENCY, 0, byteBuffer.array()))
         } else if (messageId == MAV_PACKET_TRANSMISSION_HANDSHAKE) {
             dataDecoder.decodeData(Protocol.Companion.TelemetryData(IMAGE_HANDSHAKE, 0, byteBuffer.array()))
         } else if (messageId == MAV_PACKET_ENCAPSULATED_DATA) {

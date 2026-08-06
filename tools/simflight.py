@@ -1,4 +1,4 @@
-"""Fly a make-believe quad, in CRSF, at a real place.
+"""Fly a make-believe quad, in CRSF or MAVLink, at a real place.
 
 Sends the frames a Crossfire link carries to a phone running the telemetry
 app: position, attitude, battery, link statistics, flight mode and the
@@ -9,6 +9,21 @@ terrain view with the model at its true attitude.
     python simflight.py --host <the phone> --port 8888 --lat <..> --lon <..>
 
 The app listens: Connect -> Network -> TBS Crossfire / Tracer (UDP), same port.
+
+Two additions ride on the same flight model:
+
+    --passthrough          weave ArduPilot passthrough words (0x80 frames,
+                           appids 0x5001-0x5006 plus status text) into the
+                           CRSF stream, the way ArduPilot over ELRS does
+    --protocol mavlink-hl  send MAVLink HIGH_LATENCY2 instead of CRSF: one
+                           42-byte message every --hl-period seconds, which
+                           is the whole of what a satellite link carries
+
+    --dump FILE --seconds N   write the byte stream to a file instead of the
+                              network, on a fixed clock — the app's unit
+                              tests replay these files through the real
+                              parsers, so the stream a phone receives is the
+                              stream the tests have proved out
 """
 import argparse
 import math
@@ -24,6 +39,13 @@ LINK = 0x14
 ATTITUDE = 0x1E
 FLIGHT_MODE = 0x21
 DEVICE_INFO = 0x29
+# ArduPilot passthrough over CRSF: 0x80 on ELRS and new TBS firmware, 0x7F on
+# old TBS firmware; identical payload, little-endian inside a big-endian
+# protocol because it is a packed struct copied straight off the autopilot.
+AP_CUSTOM = 0x80
+AP_SINGLE = 0xF0
+AP_TEXT = 0xF1
+AP_MULTI = 0xF2
 
 
 def crc8(data):
@@ -87,9 +109,149 @@ def device_info_frame(name):
                  + struct.pack(">III", 0, 0, 0) + bytes([0, 0]))
 
 
+# ------------------------- ArduPilot passthrough words, as the FC packs them
+
+def prep_number(value, mantissa_bits):
+    """ArduPilot's mantissa/exponent packing: value * 10^exp, exp in 2 bits at
+    the bottom for the (x,2) forms and 1 bit for the (x,1) forms."""
+    exp = 0
+    limit = (1 << mantissa_bits) - 1
+    while value > limit and exp < 3:
+        value //= 10
+        exp += 1
+    return value, exp
+
+
+def ap_status_word(mode_plus_one, armed, throttle_pct):
+    word = mode_plus_one & 0x1F
+    if armed:
+        word |= 1 << 8
+    word |= (int(throttle_pct * 63 / 100) & 0x3F) << 19
+    return word
+
+
+def gps_status_word(satellites, fix3d, alt_msl_m):
+    word = min(15, satellites) | ((3 if fix3d else 1) << 4)
+    hdop_dm, hdop_exp = prep_number(12, 7)  # a fixed, healthy 1.2
+    word |= (hdop_exp << 6) | (hdop_dm << 7)
+    dm = abs(int(round(alt_msl_m * 10)))
+    mant, exp = prep_number(dm, 7)
+    word |= (exp << 22) | (mant << 24)
+    if alt_msl_m < 0:
+        word |= 1 << 31
+    return word
+
+
+def battery_word(volts, amps, used_mah):
+    word = int(round(volts * 10)) & 0x1FF
+    da = int(round(amps * 10))
+    mant, exp = prep_number(da, 7)
+    word |= (exp << 9) | (mant << 10)
+    word |= (min(32767, int(round(used_mah))) & 0x7FFF) << 17
+    return word
+
+
+def home_word(distance_m, alt_above_home_m, bearing_deg):
+    mant, exp = prep_number(int(round(distance_m)), 10)
+    word = (exp & 0x3) | (mant << 2)
+    dm = abs(int(round(alt_above_home_m * 10)))
+    mant, exp = prep_number(dm, 10)
+    word |= (exp << 12) | (mant << 14)
+    if alt_above_home_m < 0:
+        word |= 1 << 24
+    word |= (int(bearing_deg % 360 / 3) & 0x7F) << 25
+    return word
+
+
+def vel_yaw_word(vspeed_ms, hspeed_ms, yaw_deg):
+    dm = abs(int(round(vspeed_ms * 10)))
+    mant, exp = prep_number(dm, 7)
+    word = (exp & 1) | (mant << 1)
+    if vspeed_ms < 0:
+        word |= 1 << 8
+    dm = int(round(hspeed_ms * 10))
+    mant, exp = prep_number(dm, 7)
+    word |= (exp << 9) | (mant << 10)
+    word |= (int(yaw_deg % 360 / 0.2) & 0x7FF) << 17
+    return word
+
+
+def attitude_word(roll_deg, pitch_deg):
+    word = (int(round(roll_deg * 5)) + 900) & 0x7FF
+    word |= ((int(round(pitch_deg * 5)) + 450) & 0x3FF) << 11
+    return word
+
+
+def ap_single_frame(appid, word):
+    return frame(AP_CUSTOM, struct.pack("<BHI", AP_SINGLE, appid, word & 0xFFFFFFFF))
+
+
+def ap_multi_frame(tuples):
+    payload = struct.pack("<BB", AP_MULTI, len(tuples))
+    for appid, word in tuples:
+        payload += struct.pack("<HI", appid, word & 0xFFFFFFFF)
+    return frame(AP_CUSTOM, payload)
+
+
+def ap_text_frame(severity, text):
+    return frame(AP_CUSTOM, struct.pack("<BB", AP_TEXT, severity)
+                 + text.encode("ascii")[:49] + b"\x00")
+
+
+# ------------------------------------------- MAVLink HIGH_LATENCY2 framing
+
+HL2_ID = 235
+HL2_CRC_EXTRA = 179
+
+
+def x25_crc(data, extra):
+    crc = 0xFFFF
+    for b in data + bytes([extra]):
+        tmp = b ^ (crc & 0xFF)
+        tmp = (tmp ^ (tmp << 4)) & 0xFF
+        crc = ((crc >> 8) ^ (tmp << 8) ^ (tmp << 3) ^ (tmp >> 4)) & 0xFFFF
+    return crc
+
+
+def hl2_payload(t_ms, lat, lon, custom_mode, alt_msl_m, heading_deg,
+                throttle_pct, airspeed_ms, groundspeed_ms, battery_pct,
+                mav_type, armed):
+    base_mode = 0x01 | (0x80 if armed else 0)  # custom-mode enabled; armed bit
+    return struct.pack(
+        "<IiiHhhHHH" + "B" * 12 + "bbb" + "B" + "bb",
+        t_ms & 0xFFFFFFFF,
+        int(round(lat * 1e7)), int(round(lon * 1e7)),
+        custom_mode & 0xFFFF,
+        int(round(alt_msl_m)), int(round(alt_msl_m)),   # altitude, target
+        0, 0, 0,                                        # distance, wp, failures
+        mav_type, 3,                                    # type, ArduPilotMega
+        int(heading_deg % 360 / 2) & 0xFF, 0,
+        int(throttle_pct) & 0xFF,
+        min(255, int(airspeed_ms * 5)), 0,
+        min(255, int(groundspeed_ms * 5)),
+        0, 0, 0, 0,                                     # wind, eph, epv
+        -128, 0,                                        # no thermometer, climb
+        int(battery_pct),
+        base_mode, 0, 0)
+
+
+def mav2_frame(seq, payload):
+    header = struct.pack("<BBBBBBBBBB", 0xFD, len(payload), 0, 0, seq & 0xFF,
+                         1, 1, HL2_ID & 0xFF, (HL2_ID >> 8) & 0xFF,
+                         (HL2_ID >> 16) & 0xFF)
+    crc = x25_crc(header[1:] + payload, HL2_CRC_EXTRA)
+    return header + payload + struct.pack("<H", crc)
+
+
+def mav1_frame(seq, payload):
+    header = struct.pack("<BBBBBB", 0xFE, len(payload), seq & 0xFF, 1, 1, HL2_ID)
+    crc = x25_crc(header[1:] + payload, HL2_CRC_EXTRA)
+    return header + payload + struct.pack("<H", crc)
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--host", required=True, help="the phone")
+    parser.add_argument("--host", help="the phone (not needed with --dump)")
     parser.add_argument("--port", type=int, default=8888)
     parser.add_argument("--lat", type=float, required=True)
     parser.add_argument("--lon", type=float, required=True)
@@ -104,28 +266,65 @@ def main():
     parser.add_argument("--above-launch", action="store_true",
                         help="report height above the launch point, as an armed "
                              "Betaflight does, instead of above sea level")
+    parser.add_argument("--passthrough", action="store_true",
+                        help="weave ArduPilot passthrough frames into the CRSF "
+                             "stream, as ArduPilot over ELRS sends them")
+    parser.add_argument("--protocol", choices=("crsf", "mavlink-hl"),
+                        default="crsf")
+    parser.add_argument("--mavlink-version", type=int, choices=(1, 2), default=2)
+    parser.add_argument("--hl-period", type=float, default=5.0,
+                        help="seconds between HIGH_LATENCY2 messages; ArduPilot "
+                             "sends one per five")
+    parser.add_argument("--dump", help="write the byte stream to this file "
+                                       "instead of the network, on a fixed clock")
+    parser.add_argument("--seconds", type=float, default=20.0,
+                        help="how much stream to write with --dump")
     args = parser.parse_args()
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    target = (args.host, args.port)
+    if args.dump is None and args.host is None:
+        parser.error("--host is required unless --dump is given")
+
+    dump = open(args.dump, "wb") if args.dump else None
+    sock = None
+    target = None
+    if dump is None:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        target = (args.host, args.port)
+
+    def send(data):
+        if dump is not None:
+            dump.write(data)
+        else:
+            sock.sendto(data, target)
 
     metres_per_deg_lat = 111320.0
     metres_per_deg_lon = 111320.0 * math.cos(math.radians(args.lat))
 
-    started = time.time()
-    last = {"gps": 0.0, "battery": 0.0, "link": 0.0, "mode": 0.0, "info": 0.0}
+    started = 0.0 if dump is not None else time.time()
+    ticks = 0
+    last = {"gps": 0.0, "battery": 0.0, "link": 0.0, "mode": 0.0, "info": 0.0,
+            "pass": 0.0, "multi": 0.0, "text": 0.0, "hl": -1e9}
     previous = None
     used_mah = 0.0
+    passthrough_turn = 0
+    hl_seq = 0
 
-    print("flying %s at %.6f, %.6f -> %s:%d   heights %s   (ctrl-c to land)"
-          % (args.style, args.lat, args.lon, args.host, args.port,
-             "above launch" if args.above_launch else "above sea level"))
+    if dump is None:
+        print("flying %s at %.6f, %.6f -> %s:%d   heights %s   (ctrl-c to land)"
+              % (args.style, args.lat, args.lon, args.host, args.port,
+                 "above launch" if args.above_launch else "above sea level"))
 
     while True:
-        now = time.time()
+        if dump is not None:
+            now = started + ticks * 0.04
+            ticks += 1
+            if now > args.seconds:
+                break
+        else:
+            now = time.time()
         t = now - started
-        if t > args.minutes * 60:
+        if dump is None and t > args.minutes * 60:
             break
 
         if args.style == "acro":
@@ -160,11 +359,13 @@ def main():
         heading = 0.0
         roll = 0.0 if previous is None else previous["roll"]
         pitch = 0.0
+        vspeed = 0.0
         if previous is not None:
             dt = max(0.02, t - previous["t"])
             de = (east - previous["east"]) / dt
             dn = (north - previous["north"]) / dt
             dh = (altitude - previous["alt"]) / dt
+            vspeed = dh
             speed = math.hypot(de, dn)
             heading = math.degrees(math.atan2(de, dn)) % 360
             turn = ((heading - previous["heading"] + 540) % 360) - 180
@@ -192,32 +393,84 @@ def main():
         up_rssi = int(-40 - distance / 12)
         up_lq = int(max(60, 100 - distance / 30))
 
+        if args.protocol == "mavlink-hl":
+            # The whole of a high-latency link: one message per period,
+            # nothing else. ArduPilot marks the port MAVLink 2, but the
+            # message exists in both framings and the app takes either.
+            if now - last["hl"] >= args.hl_period:
+                last["hl"] = now
+                payload = hl2_payload(
+                    int(t * 1000), lat, lon, 5, altitude, heading,
+                    38, speed, speed, int(remaining), 2, t > 8)
+                framed = mav2_frame(hl_seq, payload) \
+                    if args.mavlink_version == 2 else mav1_frame(hl_seq, payload)
+                send(framed)
+                hl_seq += 1
+            if dump is None:
+                time.sleep(0.04)
+            continue
+
         if now - last["gps"] >= 0.1:
             last["gps"] = now
             reported = climb if args.above_launch else altitude
-            sock.sendto(gps_frame(lat, lon, speed * 3.6, heading, reported, 14), target)
+            send(gps_frame(lat, lon, speed * 3.6, heading, reported, 14))
         # attitude fastest, since it is what the horizon and the model ride on
         # yaw goes on the wire in radians as a signed 16 bit value, so it has
         # to be given as plus or minus 180: sending 0 to 360 overflowed past
         # about 187 degrees and the heading pinned itself there
-        sock.sendto(attitude_frame(pitch, roll, ((heading + 180) % 360) - 180), target)
+        send(attitude_frame(pitch, roll, ((heading + 180) % 360) - 180))
         if now - last["battery"] >= 0.5:
             last["battery"] = now
-            sock.sendto(battery_frame(volts, amps, used_mah, remaining), target)
+            send(battery_frame(volts, amps, used_mah, remaining))
         if now - last["link"] >= 0.1:
             last["link"] = now
-            sock.sendto(link_frame(up_rssi, up_lq, 12, 2, 3, up_rssi - 6, up_lq - 4, 9), target)
+            send(link_frame(up_rssi, up_lq, 12, 2, 3, up_rssi - 6, up_lq - 4, 9))
         if now - last["mode"] >= 1.0:
             last["mode"] = now
-            sock.sendto(mode_frame("ACRO" if t > 8 else "ACRO*"), target)
+            send(mode_frame("ACRO" if t > 8 else "ACRO*"))
         if now - last["info"] >= 5.0:
             last["info"] = now
             # so the app can tell it is a Crossfire and use its rate table
-            sock.sendto(device_info_frame("XF Micro TX"), target)
+            send(device_info_frame("XF Micro TX"))
 
-        time.sleep(0.04)
+        if args.passthrough:
+            # single-packet words at 8Hz as a fast link sends them, each
+            # appid taking its turn; a multi frame and a status text at the
+            # slower cadences ArduPilot uses
+            if now - last["pass"] >= 0.125:
+                last["pass"] = now
+                words = [
+                    (0x5001, ap_status_word(5, t > 8, 38)),
+                    (0x5002, gps_status_word(14, True, altitude)),
+                    (0x5003, battery_word(volts, amps, used_mah)),
+                    (0x5005, vel_yaw_word(vspeed, speed, heading)),
+                    (0x5006, attitude_word(roll, pitch)),
+                ]
+                appid, word = words[passthrough_turn % len(words)]
+                passthrough_turn += 1
+                send(ap_single_frame(appid, word))
+            if now - last["multi"] >= 2.0:
+                last["multi"] = now
+                bearing = (math.degrees(math.atan2(-east, -north))) % 360
+                send(ap_multi_frame([
+                    (0x5004, home_word(distance, climb, bearing)),
+                    (0x5001, ap_status_word(5, t > 8, 38)),
+                    (0x5003, battery_word(volts, amps, used_mah)),
+                ]))
+            if now - last["text"] >= 5.0:
+                last["text"] = now
+                send(ap_text_frame(6, "SimFlight passthrough alive"))
 
-    print("landed after %.1f minutes" % args.minutes)
+        if dump is None:
+            time.sleep(0.04)
+
+    if dump is not None:
+        dump.close()
+        print("wrote %.0f seconds of %s to %s"
+              % (args.seconds, args.protocol +
+                 ("+passthrough" if args.passthrough else ""), args.dump))
+    else:
+        print("landed after %.1f minutes" % args.minutes)
 
 
 main()

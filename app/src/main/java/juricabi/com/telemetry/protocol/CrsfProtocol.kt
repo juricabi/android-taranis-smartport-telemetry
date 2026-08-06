@@ -1,6 +1,7 @@
 package juricabi.com.telemetry.protocol
 
 import juricabi.com.telemetry.protocol.crc.CRC8
+import juricabi.com.telemetry.protocol.decoder.ArduPassthroughDecoder
 import juricabi.com.telemetry.protocol.decoder.CrsfDataDecoder
 import juricabi.com.telemetry.protocol.decoder.DataDecoder
 import java.nio.ByteBuffer
@@ -46,6 +47,21 @@ class CrsfProtocol : Protocol {
         private const val ATTITUDE_TYPE = 0x1E
         private const val FLIGHT_MODE = 0x21
         private const val RC_CHANNELS_PACKED = 0x16
+
+        /**
+         * ArduPilot passthrough words wrapped in CRSF. TBS reserved 0x80 for
+         * firmware 4.06 up and ExpressLRS; older TBS firmware sends 0x7F with
+         * the identical payload, so both are one frame here.
+         */
+        private const val AP_CUSTOM_TELEM = 0x80
+        private const val AP_CUSTOM_TELEM_LEGACY = 0x7F
+        private const val AP_SINGLE_PACKET = 0xF0
+        private const val AP_STATUS_TEXT = 0xF1
+        private const val AP_MULTI_PACKET = 0xF2
+        /** subtype + appid + word */
+        private const val AP_SINGLE_PACKET_LEN = 7
+        /** ArduPilot never packs more tuples than this into one multi frame. */
+        private const val AP_MULTI_PACKET_MOST = 9
 
         private const val MAX_BUFFER_FILL_LIMIT = 128
         private const val MAX_PAYLOAD_SIZE = 62
@@ -330,7 +346,65 @@ class CrsfProtocol : Protocol {
                         }
                     }
                 }
+                AP_CUSTOM_TELEM.toByte(), AP_CUSTOM_TELEM_LEGACY.toByte() -> {
+                    // The payload is a packed struct copied from a little-endian
+                    // autopilot, inside a protocol that is otherwise big-endian —
+                    // so the words are read out by hand rather than through the
+                    // buffer's order. Frames may carry trailing bytes beyond
+                    // what the subtype needs; they are ignored, as the spec asks.
+                    if (inputData.size >= 2) {
+                        when (data.get().toInt() and 0xFF) {
+                            AP_SINGLE_PACKET -> {
+                                if (inputData.size >= 1 + AP_SINGLE_PACKET_LEN) {
+                                    emitPassthrough(data)
+                                }
+                            }
+                            AP_MULTI_PACKET -> {
+                                if (inputData.size >= 3) {
+                                    val count = Math.min(
+                                        data.get().toInt() and 0xFF,
+                                        Math.min(AP_MULTI_PACKET_MOST, (inputData.size - 3) / 6)
+                                    )
+                                    for (i in 0 until count) emitPassthrough(data)
+                                }
+                            }
+                            AP_STATUS_TEXT -> {
+                                if (inputData.size >= 4) {
+                                    // severity, then a null-terminated string.
+                                    // Handed on in the MAVLink status-text
+                                    // shape, since that is the one the app
+                                    // already displays.
+                                    val severity = data.get().toInt() and 0xFF
+                                    val text = ByteArray(51)
+                                    var at = 1
+                                    while (data.hasRemaining() && at <= 50) {
+                                        val c = data.get().toInt() and 0xFF
+                                        if (c == 0) break
+                                        text[at++] = c.toByte()
+                                    }
+                                    if (at > 1) {
+                                        text[0] = severity.toByte()
+                                        dataDecoder.decodeData(Protocol.Companion.TelemetryData(
+                                            STATUSTEXT, severity, text))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
+    }
+
+    /** One appid+word pair, little-endian, handed on under its telemetry type. */
+    private fun emitPassthrough(data: ByteBuffer) {
+        val appId = (data.get().toInt() and 0xFF) or
+            ((data.get().toInt() and 0xFF) shl 8)
+        val word = (data.get().toInt() and 0xFF) or
+            ((data.get().toInt() and 0xFF) shl 8) or
+            ((data.get().toInt() and 0xFF) shl 16) or
+            ((data.get().toInt() and 0xFF) shl 24)
+        val type = ArduPassthroughDecoder.typeFor(appId) ?: return
+        dataDecoder.decodeData(Protocol.Companion.TelemetryData(type, word))
     }
 }

@@ -2,6 +2,7 @@ package juricabi.com.telemetry.protocol.decoder
 
 import android.util.Log
 import juricabi.com.telemetry.protocol.Protocol
+import juricabi.com.telemetry.protocol.SourceFreshness
 
 const val MAX_RSSI = -30
 const val MIN_RSSI = -120
@@ -13,6 +14,27 @@ class CrsfDataDecoder(listener: Listener) : DataDecoder(listener) {
     private var latitude: Double = 0.0
     private var longitude: Double = 0.0
     private var rcChannels = IntArray(16) {1500};
+
+    /** The ArduPilot passthrough words, decoded where S.Port decodes them. */
+    private val ardu = ArduPassthroughDecoder(listener)
+
+    /**
+     * Which of two streams answers, when both carry the same value.
+     *
+     * ArduPilot with passthrough enabled sends its native CRSF frames as well,
+     * at a higher rate, so those stay authoritative for what they carry and
+     * the passthrough word fills in only when they stop. The passthrough side
+     * wins the other way round for what it alone knows properly: the real GPS
+     * fix, the real armed bit, and the distance to the real home.
+     */
+    private val nativeGps = SourceFreshness()
+    private val nativeBattery = SourceFreshness()
+    private val nativeVario = SourceFreshness()
+    private val nativeAttitude = SourceFreshness()
+    private val nativeAltitude = SourceFreshness()
+    private val passthroughStatus = SourceFreshness()
+    private val passthroughGps = SourceFreshness()
+    private val passthroughHome = SourceFreshness()
 
     private fun sq(v : Int) : Int {
         return v*v;
@@ -57,8 +79,14 @@ class CrsfDataDecoder(listener: Listener) : DataDecoder(listener) {
                 newLatitude = true
             }
             Protocol.GPS_SATELLITES -> {
+                // First word of the native GPS frame, so the frame is counted
+                // here once. The satellite-count guess at a fix stands back
+                // while the passthrough stream carries the receiver's real one.
+                nativeGps.arrived()
                 val satellites = data.data
-                listener.onGPSState(satellites, satellites > 6)
+                if (!passthroughGps.fresh()) {
+                    listener.onGPSState(satellites, satellites > 6)
+                }
             }
             Protocol.HEADING -> {
                 val heading = data.data / 100f
@@ -109,6 +137,7 @@ https://github.com/iNavFlight/inav/blob/135456936834ab4129e6ed540038b2e88dcb3c44
                 // Metres by the time it reaches here. Two frames feed this —
                 // the GPS one and the barometric one — and only the protocol
                 // knows which, so each unpacks its own encoding before sending.
+                nativeAltitude.arrived()
                 listener.onAltitudeData(data.data.toFloat())
             }
             Protocol.GSPEED -> {
@@ -118,6 +147,7 @@ https://github.com/iNavFlight/inav/blob/135456936834ab4129e6ed540038b2e88dcb3c44
             Protocol.VSPEED -> {
                 // centimetres a second, as everywhere else here — a two metre
                 // climb was being reported as twenty
+                nativeVario.arrived()
                 val speed = data.data / 100f
                 listener.onVSpeedData(speed)
             }
@@ -146,7 +176,10 @@ https://github.com/iNavFlight/inav/blob/135456936834ab4129e6ed540038b2e88dcb3c44
                 listener.onFuelData(data.data)
             }
             Protocol.FLYMODE -> {
-                data.rawData?.let {
+                // The passthrough AP status carries the real armed bit; this
+                // frame's mode string marks disarmed with an asterisk that
+                // ArduPilot never sends, so while that stream runs it answers.
+                data.rawData?.takeIf { !passthroughStatus.fresh() }?.let {
                     val stringLength = it.indexOfFirst { it == 0x00.toByte() }
                     // A frame with no terminator is malformed; reading past it
                     // would throw, and an exception here takes the link down.
@@ -233,6 +266,8 @@ https://github.com/iNavFlight/inav/blob/135456936834ab4129e6ed540038b2e88dcb3c44
                 }
             }
             Protocol.PITCH -> {
+                // first word of the native attitude frame: counted once here
+                nativeAttitude.arrived()
                 val pitch = Math.toDegrees(data.data.toDouble() / 10000)
                 listener.onPitchData(pitch.toFloat())
             }
@@ -271,14 +306,59 @@ https://github.com/iNavFlight/inav/blob/135456936834ab4129e6ed540038b2e88dcb3c44
                 listener.onRssiDbmdData(data.data)
             }
             Protocol.VBAT_OR_CELL -> {
+                nativeBattery.arrived()
                 val value = data.data / 10f
                 listener.onVBATOrCellData(value)
             }
             Protocol.DISTANCE -> {
-                listener.onDistanceData(data.data)
+                // Computed from wherever the model armed, which is a stand-in.
+                // While the passthrough home word is arriving, the distance to
+                // the real home is already being reported from it.
+                if (!passthroughHome.fresh()) {
+                    listener.onDistanceData(data.data)
+                }
             }
             Protocol.ASPEED -> {
                 listener.onAirSpeedData(data.data / 10f)
+            }
+            //ardupilot passthrough over CRSF, decoded where S.Port decodes it.
+            //Native frames stay authoritative for what they carry at a higher
+            //rate; the passthrough words answer for what only they know.
+            Protocol.ARDU_AP_STATUS -> {
+                passthroughStatus.arrived()
+                ardu.apStatus(data.data, withMode = true)
+            }
+            Protocol.ARDU_GPS_STATUS -> {
+                passthroughGps.arrived()
+                ardu.gpsStatus(data.data, withAltitude = !nativeGps.fresh())
+            }
+            Protocol.ARDU_BATT_1 -> {
+                if (!nativeBattery.fresh()) {
+                    ardu.battery(data.data)
+                }
+            }
+            Protocol.ARDU_HOME -> {
+                passthroughHome.arrived()
+                ardu.home(data.data, withAltitude = !nativeAltitude.fresh())
+            }
+            Protocol.ARDU_VEL_YAW -> {
+                val nativeAttitudeFresh = nativeAttitude.fresh()
+                ardu.velocityAndYaw(data.data,
+                    withVSpeed = !nativeVario.fresh(),
+                    withGSpeed = !nativeGps.fresh(),
+                    withYaw = !nativeAttitudeFresh)
+            }
+            Protocol.ARDU_ATTITUDE -> {
+                ardu.attitude(data.data, wanted = !nativeAttitude.fresh())
+            }
+            Protocol.STATUSTEXT -> {
+                if (data.rawData != null) {
+                    val terminator = data.rawData.indexOfFirst { it == 0.toByte() }
+                    val end = if (terminator > 0) terminator else data.rawData.size
+                    if (end > 1) {
+                        listener.onStatusText(String(data.rawData, 1, end - 1))
+                    }
+                }
             }
             else -> {
                 decoded = false

@@ -86,6 +86,53 @@ class MAVLinkDataDecoder(listener: Listener) : DataDecoder(listener) {
         this.restart()
     }
 
+    /**
+     * The vehicle's own mode number as a [FlyMode], keyed by what it is.
+     *
+     * The same tables serve HEARTBEAT and HIGH_LATENCY2: ArduPilot puts the
+     * identical number in both, merely truncated to sixteen bits in the
+     * second, and mode numbers are all small.
+     * INAV's mapping: https://github.com/iNavFlight/inav/blob/2.6.0/src/main/telemetry/mavlink.c
+     */
+    private fun customModeToFlyMode(
+        customMode: Int, aircraftType: Int, isFailsafe: Boolean
+    ): DataDecoder.Companion.FlyMode? {
+        if ((aircraftType == MAV_TYPE_FIXED_WING) ||
+            (aircraftType == MAV_TYPE_GROUND_ROVER) ||
+            (aircraftType == MAV_TYPE_SURFACE_BOAT)
+        ) {
+            return when (customMode) {
+                PLANE_MODE_MANUAL -> DataDecoder.Companion.FlyMode.MANUAL
+                PLANE_MODE_ACRO -> DataDecoder.Companion.FlyMode.ACRO
+                PLANE_MODE_FLY_BY_WIRE_A -> DataDecoder.Companion.FlyMode.ANGLE
+                PLANE_MODE_STABILIZE -> DataDecoder.Companion.FlyMode.HORIZON
+                PLANE_MODE_FLY_BY_WIRE_B -> DataDecoder.Companion.FlyMode.ALTHOLD
+                PLANE_MODE_LOITER -> DataDecoder.Companion.FlyMode.LOITER
+                PLANE_MODE_RTL -> DataDecoder.Companion.FlyMode.RTH
+                //Can not decode Waypoint or RTH after mission - use Mission. Can not decode Landing or Mission on failsafe - show nothing.
+                PLANE_MODE_AUTO -> if (isFailsafe) null else DataDecoder.Companion.FlyMode.MISSION
+                PLANE_MODE_CRUISE -> DataDecoder.Companion.FlyMode.CRUISE  //can not decode Cruise or Cruise3D, not enough data
+                PLANE_MODE_TAKEOFF -> DataDecoder.Companion.FlyMode.TAKEOFF
+                else -> null
+            }
+        }
+        return when (customMode) {
+            COPTER_MODE_ACRO -> DataDecoder.Companion.FlyMode.ACRO
+            COPTER_MODE_STABILIZE -> DataDecoder.Companion.FlyMode.STABILIZE  //can not decode Angle or Horizon, not enough data
+            COPTER_MODE_ALT_HOLD -> DataDecoder.Companion.FlyMode.ALTHOLD
+            COPTER_MODE_POSHOLD -> DataDecoder.Companion.FlyMode.HOLD
+            COPTER_MODE_GUIDED -> DataDecoder.Companion.FlyMode.GUIDED
+            // was never in the table, and it is the commonest copter mode
+            // there is — every LOITER flight showed no mode at all
+            COPTER_MODE_LOITER -> DataDecoder.Companion.FlyMode.LOITER
+            COPTER_MODE_RTL -> DataDecoder.Companion.FlyMode.RTH
+            COPTER_MODE_AUTO -> if (isFailsafe) null else DataDecoder.Companion.FlyMode.MISSION
+            COPTER_MODE_THROW -> DataDecoder.Companion.FlyMode.TAKEOFF
+            COPTER_MODE_LAND -> DataDecoder.Companion.FlyMode.LANDING
+            else -> null
+        }
+    }
+
     override fun restart() {
         this.newLatitude = false
         this.newLongitude = false
@@ -186,38 +233,7 @@ class MAVLinkDataDecoder(listener: Listener) : DataDecoder(listener) {
                 }
 
                 if ((rawMode and MAV_MODE_FLAG_CUSTOM_MODE_ENABLED) == MAV_MODE_FLAG_CUSTOM_MODE_ENABLED) {
-                    //try to decode specific flight mode for INAV
-                    //https://github.com/iNavFlight/inav/blob/2.6.0/src/main/telemetry/mavlink.c
-                    flyMode = null
-                    if ( ( aircraftType == MAV_TYPE_FIXED_WING ) ||
-                        ( aircraftType == MAV_TYPE_GROUND_ROVER) ||
-                        ( aircraftType == MAV_TYPE_SURFACE_BOAT)){
-                        when (customMode) {
-                            PLANE_MODE_MANUAL -> flyMode = DataDecoder.Companion.FlyMode.MANUAL
-                            PLANE_MODE_ACRO -> flyMode = DataDecoder.Companion.FlyMode.ACRO
-                            PLANE_MODE_FLY_BY_WIRE_A -> flyMode = DataDecoder.Companion.FlyMode.ANGLE
-                            PLANE_MODE_STABILIZE -> flyMode = DataDecoder.Companion.FlyMode.HORIZON
-                            PLANE_MODE_FLY_BY_WIRE_B -> flyMode = DataDecoder.Companion.FlyMode.ALTHOLD
-                            PLANE_MODE_LOITER -> flyMode = DataDecoder.Companion.FlyMode.LOITER
-                            PLANE_MODE_RTL -> flyMode = DataDecoder.Companion.FlyMode.RTH
-                            PLANE_MODE_AUTO -> if ( isFailsafe ) flyMode = null else flyMode = DataDecoder.Companion.FlyMode.MISSION //Can not decode Waypoint or RTH after mission - use Mission. Can not decode Landing or Mission on failsafe - show nothing.
-                            PLANE_MODE_CRUISE -> flyMode = DataDecoder.Companion.FlyMode.CRUISE  //can not decode Cruise or Cruise3D, not enough data
-                            PLANE_MODE_TAKEOFF -> flyMode = DataDecoder.Companion.FlyMode.TAKEOFF
-                        }
-                    }
-                    else {
-                        when (customMode) {
-                            COPTER_MODE_ACRO -> flyMode = DataDecoder.Companion.FlyMode.ACRO
-                            COPTER_MODE_STABILIZE -> flyMode = DataDecoder.Companion.FlyMode.STABILIZE  //can not decode Angle or Horizon, not enough data
-                            COPTER_MODE_ALT_HOLD -> flyMode = DataDecoder.Companion.FlyMode.ALTHOLD
-                            COPTER_MODE_POSHOLD -> flyMode = DataDecoder.Companion.FlyMode.HOLD
-                            COPTER_MODE_GUIDED -> flyMode = DataDecoder.Companion.FlyMode.GUIDED
-                            COPTER_MODE_RTL -> flyMode = DataDecoder.Companion.FlyMode.RTH
-                            COPTER_MODE_AUTO -> if ( isFailsafe ) flyMode = null else flyMode = DataDecoder.Companion.FlyMode.MISSION
-                            COPTER_MODE_THROW -> flyMode = DataDecoder.Companion.FlyMode.TAKEOFF
-                            COPTER_MODE_LAND -> flyMode = DataDecoder.Companion.FlyMode.LANDING
-                        }
-                    }
+                    flyMode = customModeToFlyMode(customMode, aircraftType, isFailsafe)
                 }
 
                 if ( isFailsafe ) {
@@ -233,6 +249,66 @@ class MAVLinkDataDecoder(listener: Listener) : DataDecoder(listener) {
                     val message = String( byteBuffer )
                     listener.onStatusText(message)
                 }
+            }
+            Protocol.HIGH_LATENCY -> {
+                // HIGH_LATENCY2, all of it. One of these per five seconds is
+                // the whole of what a satellite-class link carries, so every
+                // usable field is published — and none that ArduPilot only
+                // pads: eph, epv and climb rate are always sent as zero, and
+                // decoding a zero as data would draw a lie.
+                val b = ByteBuffer.wrap(data.rawData).order(ByteOrder.LITTLE_ENDIAN)
+                val timestamp = b.int
+                val lat = b.int
+                val lon = b.int
+                val customMode = b.short.toInt() and 0xFFFF
+                val altitudeMsl = b.short.toInt()
+                val targetAltitude = b.short
+                val targetDistance = b.short
+                val wpNum = b.short
+                val failureFlags = b.short.toInt() and 0xFFFF
+                val aircraftType = b.get().toInt() and 0xFF
+                val autopilot = b.get()
+                val heading = (b.get().toInt() and 0xFF) * 2
+                val targetHeading = b.get()
+                val throttle = b.get().toInt() and 0xFF
+                val airspeed = (b.get().toInt() and 0xFF) / 5f
+                val airspeedSetpoint = b.get()
+                val groundspeed = (b.get().toInt() and 0xFF) / 5f
+                val windspeed = b.get()
+                val windHeading = b.get()
+                val eph = b.get()
+                val epv = b.get()
+                val temperature = b.get()
+                val climbRate = b.get()
+                val battery = b.get().toInt()
+                // custom0 carries the HEARTBEAT base mode on ArduPilot — and
+                // it sits in a signed byte, where the armed flag is the sign
+                // bit. Masked first, or every armed flight read as disarmed.
+                val baseMode = b.get().toInt() and 0xFF
+
+                latitude = lat / 10000000.toDouble()
+                newLatitude = true
+                longitude = lon / 10000000.toDouble()
+                newLongitude = true
+                // No satellite count exists in this message; the fix flag is
+                // the inverse of the GPS failure bit, for a position that is
+                // actually being reported.
+                val gpsFailed = (failureFlags and 1) != 0
+                listener.onGPSState(0, !gpsFailed && (lat != 0 || lon != 0))
+                listener.onGPSAltitudeData(altitudeMsl.toFloat())
+                // Metres above the sea — the altitude frame settles what
+                // heights mean exactly as it does for links that only send MSL.
+                listener.onAltitudeData(altitudeMsl.toFloat())
+                listener.onHeadingData(heading.toFloat())
+                listener.onThrottleData(throttle)
+                listener.onGSpeedData(groundspeed * 3.6f)
+                listener.onAirSpeedData(airspeed * 3.6f)
+                if (battery >= 0) {
+                    listener.onFuelData(battery)
+                }
+                val armed = (baseMode and MAV_MODE_FLAG_SAFETY_ARMED) != 0
+                listener.onFlyModeData(armed, false,
+                    customModeToFlyMode(customMode, aircraftType, false))
             }
             Protocol.ATTITUDE -> {
                 val byteBuffer = ByteBuffer.wrap(data.rawData).order(ByteOrder.LITTLE_ENDIAN)

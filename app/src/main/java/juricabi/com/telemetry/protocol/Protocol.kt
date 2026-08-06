@@ -76,6 +76,8 @@ abstract class Protocol(val dataDecoder: DataDecoder) {
         const val VBAT_OR_CELL = 65
         const val THROTTLE = 66
         const val ORIGIN = 67
+        /** MAVLink HIGH_LATENCY2: the whole 42-byte message, decoded in one piece. */
+        const val HIGH_LATENCY = 68
 
         const val RC_CHANNEL_0 = 100
         const val RC_CHANNEL_1 = 101
