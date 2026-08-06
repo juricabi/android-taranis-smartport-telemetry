@@ -51,6 +51,24 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     /** Whether there is ground with a photograph on it to watch a flight over. */
     fun groundReady(): Boolean = terrainReady
 
+    /**
+     * Whether the ground has begun loading at all. A replay-bound view waits
+     * for its flight before it builds anything, and holding playback for a
+     * ground that is itself waiting for playback's first fix held both
+     * forever.
+     */
+    fun groundBegun(): Boolean = started
+
+    /**
+     * Begin the ground at the flight's own first place, read from the log
+     * before any of it is played — so a held replay starts over a finished
+     * world instead of the world finishing around a started replay.
+     */
+    fun beginAt(lat: Double, lon: Double) {
+        if (released || started || lat.isNaN() || lon.isNaN()) return
+        start(emptyList(), lat, lon, myLat, myLon, myAccuracy)
+    }
+
     /** Called once, when there is. A replay waits on this before it runs. */
     var onGroundReady: (() -> Unit)? = null
 
@@ -61,9 +79,50 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
      */
     private var flightShown = false
 
+    /**
+     * A plan laid over the ground, remembering which points have found it.
+     *
+     * The ground arrives in pieces — the window loads around the model, and a
+     * plan can reach well past it — so points still standing at the datum are
+     * settled as ground turns up beneath them. A point already settled is
+     * never read again: the tile it was read from may have left the small
+     * shared height memory since, and reading it again would drop the point
+     * back to the datum while the ground it settled onto is still on screen.
+     */
+    private class DrapedPlan(
+        val lats: DoubleArray,
+        val lons: DoubleArray,
+        val points: FloatArray,
+        val color: FloatArray
+    ) {
+        val known = BooleanArray(lats.size)
+        var unknown = lats.size
+        var set = TerrainRenderer.LineSet(
+            points.copyOf(), color[0], color[1], color[2], color[3], true, 4f, true)
+    }
+
     /** Plans already laid on the ground, by the plan they were laid from. */
     private val drapedPlans =
-        HashMap<Pair<List<juricabi.com.telemetry.maps.Position>, Int>, TerrainRenderer.LineSet>()
+        HashMap<Pair<List<juricabi.com.telemetry.maps.Position>, Int>, DrapedPlan>()
+
+    /** Settle onto ground any point of the plan still waiting for it. */
+    private fun settleDrape(draped: DrapedPlan) {
+        var changed = false
+        for (i in draped.lats.indices) {
+            if (draped.known[i]) continue
+            val ground = scene.groundAt(draped.lats[i], draped.lons[i]) ?: continue
+            draped.points[i * 3 + 1] = ground - scene.originAltitude
+            draped.known[i] = true
+            draped.unknown--
+            changed = true
+        }
+        // a copy, because the renderer reads the one it holds on its own thread
+        if (changed) {
+            draped.set = TerrainRenderer.LineSet(
+                draped.points.copyOf(), draped.color[0], draped.color[1],
+                draped.color[2], draped.color[3], true, 4f, true)
+        }
+    }
     private var started = false
 
     private var myLat = Double.NaN
@@ -114,7 +173,9 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
                 when {
                     live != null -> start(LiveFlightPath.snapshot(), live.lat, live.lon,
                         myLat, myLon, myAccuracy)
-                    !myLat.isNaN() && !myLon.isNaN() ->
+                    // the same guard as start's: a replay's ground belongs to
+                    // its flight, not to the sofa the phone is on
+                    groundFollowsPhone && !myLat.isNaN() && !myLon.isNaN() ->
                         start(emptyList(), myLat, myLon, myLat, myLon, myAccuracy)
                 }
             }
@@ -168,7 +229,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         if (hasFlight) flightShown = true
         if (!hasFlight) {
             if (fallbackLat.isNaN() || fallbackLon.isNaN()) {
-                status.text = "No position yet"
+                if (groundFollowsPhone) status.text = "No position yet"
                 // Not started, so nothing is loading and nothing will draw. The
                 // tick still runs: the first fix to arrive starts the ground.
                 started = false
@@ -277,8 +338,13 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         val first = !terrainReady && dressed
         if (dressed) terrainReady = true
         // The frame moved under ground that was already up: every tile has
-        // the old datum baked into it, so none of them is worth keeping.
-        if (scene.takeWorldMoved()) renderer.keepOnly(emptySet())
+        // the old datum baked into it, so none of them is worth keeping — and
+        // neither is a plan draped against it, which otherwise hung at the old
+        // world's heights over the rebuilt ground.
+        if (scene.takeWorldMoved()) {
+            renderer.keepOnly(emptySet())
+            drapedPlans.clear()
+        }
         val keys = HashSet<Long>()
         for (mesh in meshes) keys.add(mesh.key)
         renderer.keepOnly(keys)
@@ -763,22 +829,17 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         for (entry in flightPlans) {
             val plan = entry.first
             if (plan.size < 2) continue
-            val planColor = colorOf(entry.second)
             val already = drapedPlans[entry]
             if (already != null) {
-                sets.add(already)
+                if (already.unknown > 0) settleDrape(already)
+                sets.add(already.set)
                 continue
             }
-            val draped = ArrayList<Float>(plan.size * 30)
 
-            fun layOnGround(lat: Double, lon: Double) {
-                val ground = scene.groundAt(lat, lon)
-                draped.add(scene.east(lon))
-                draped.add((ground ?: scene.originAltitude) - scene.originAltitude)
-                draped.add(-scene.north(lat))
-            }
-
-            layOnGround(plan[0].lat, plan[0].lon)
+            val lats = ArrayList<Double>(plan.size * 8)
+            val lons = ArrayList<Double>(plan.size * 8)
+            lats.add(plan[0].lat)
+            lons.add(plan[0].lon)
             for (leg in 1 until plan.size) {
                 val from = plan[leg - 1]
                 val to = plan[leg]
@@ -790,19 +851,28 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
                 val steps = Math.min(128, Math.max(1, Math.round(length / 20.0).toInt()))
                 for (step in 1..steps) {
                     val part = step.toDouble() / steps
-                    layOnGround(from.lat + (to.lat - from.lat) * part,
-                        from.lon + (to.lon - from.lon) * part)
+                    lats.add(from.lat + (to.lat - from.lat) * part)
+                    lons.add(from.lon + (to.lon - from.lon) * part)
                 }
             }
 
-            val points = FloatArray(draped.size)
-            for (i in draped.indices) points[i] = draped[i]
-            // The ground it is laid on does not change between ticks, and
-            // walking every leg twice a second is work for nothing.
-            val set = TerrainRenderer.LineSet(points, planColor[0], planColor[1], planColor[2],
-                planColor[3], true, 4f, true)
-            drapedPlans[entry] = set
-            sets.add(set)
+            val count = lats.size
+            val points = FloatArray(count * 3)
+            for (i in 0 until count) {
+                points[i * 3] = scene.east(lons[i])
+                // at the datum until the ground under it arrives
+                points[i * 3 + 1] = 0f
+                points[i * 3 + 2] = -scene.north(lats[i])
+            }
+            val draped = DrapedPlan(
+                DoubleArray(count) { lats[it] },
+                DoubleArray(count) { lons[it] },
+                points,
+                colorOf(entry.second)
+            )
+            settleDrape(draped)
+            drapedPlans[entry] = draped
+            sets.add(draped.set)
         }
 
         // Traffic, at the height it is actually flying: a post from the ground
