@@ -609,7 +609,7 @@ class DataService : Service(), DataDecoder.Listener {
      * thread, because this runs on the UI thread and a socket call would throw
      * NetworkOnMainThreadException.
      */
-    fun connect(host: String, port: Int, mode: Int) {
+    fun connect(host: String, port: Int, mode: Int, highLatency: Boolean = false) {
         val listener = listenerForNewConnection()
 
         // A log that cannot be opened is worth saying so about, and worth
@@ -637,7 +637,8 @@ class DataService : Service(), DataDecoder.Listener {
             port,
             listener,
             logFile,
-            binder
+            binder,
+            highLatency
         )
         installPoller(listener, poller)
     }

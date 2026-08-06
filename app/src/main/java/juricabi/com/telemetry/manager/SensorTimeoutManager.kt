@@ -42,11 +42,21 @@ class SensorTimeoutManager(protected val listener: SensorTimeoutManager.Listener
         private const val SENSOR_COUNT = 26;
 
         private const val TIMER_INTERVAL_MS = 400;
-        private const val SENSOR_TIMEOUT_MS = 10000;
+        public const val DEFAULT_TIMEOUT_MS = 10000;
+        // A high-latency link sends one frame per five seconds, so ten
+        // seconds of quiet is one dropped frame. Grey out after three.
+        public const val HIGH_LATENCY_TIMEOUT_MS = 15000;
         private const val RATE_UPDATE_INTERVAL_MS = 2000;
     }
 
     private var timeoutMS: IntArray = IntArray(SENSOR_COUNT)
+
+    // how long a sensor may stay quiet before it counts as gone
+    private var windowMS = DEFAULT_TIMEOUT_MS
+
+    fun setTimeoutWindow(ms: Int) {
+        windowMS = ms
+    }
 
     private var mTimer: Timer? = null
 
@@ -75,9 +85,9 @@ class SensorTimeoutManager(protected val listener: SensorTimeoutManager.Listener
             this.mTimer?.scheduleAtFixedRate(object : TimerTask() {
                 override fun run() {
                     for( i in 0..SENSOR_COUNT-1){
-                        if ( ( timeoutMS[i] < SENSOR_TIMEOUT_MS )){
+                        if ( ( timeoutMS[i] < windowMS )){
                             timeoutMS[i]+=TIMER_INTERVAL_MS;
-                            if ( timeoutMS[i] >= SENSOR_TIMEOUT_MS )
+                            if ( timeoutMS[i] >= windowMS )
                             {
                                 if ( !disabled )
                                 {
@@ -101,7 +111,7 @@ class SensorTimeoutManager(protected val listener: SensorTimeoutManager.Listener
 
     public fun getSensorTimeout( sensorId : Int ) : Boolean {
         if ( this.disabled ) return false;
-        return this.timeoutMS[sensorId]>=SensorTimeoutManager.SENSOR_TIMEOUT_MS;
+        return this.timeoutMS[sensorId]>=windowMS;
     }
 
     public fun pause() {
@@ -132,7 +142,7 @@ class SensorTimeoutManager(protected val listener: SensorTimeoutManager.Listener
 
         var v = this.timeoutMS[sensorId];
         this.timeoutMS[sensorId] = 0;
-        if ( v >= SENSOR_TIMEOUT_MS ) {
+        if ( v >= windowMS ) {
             this.listener.onSensorData(sensorId);
         }
     }

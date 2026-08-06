@@ -447,6 +447,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var lastNetworkHost = ""
     private var lastNetworkPort = 0
     private var lastNetworkMode = 0
+    private var lastNetworkHighLatency = false
 
     private val serviceConnection: ServiceConnection = object : ServiceConnection {
         override fun onServiceDisconnected(p0: ComponentName?) {
@@ -2285,7 +2286,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         dataService?.let {
             connectButton.text = getString(R.string.reconnecting)
             connectButton.isEnabled = false
-            it.connect(lastNetworkHost, lastNetworkPort, lastNetworkMode)
+            sensorTimeoutManager.setTimeoutWindow(
+                if (lastNetworkHighLatency) SensorTimeoutManager.HIGH_LATENCY_TIMEOUT_MS
+                else SensorTimeoutManager.DEFAULT_TIMEOUT_MS)
+            it.connect(lastNetworkHost, lastNetworkPort, lastNetworkMode,
+                lastNetworkHighLatency)
         }
     }
 
@@ -2320,7 +2325,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         /** a fixed address, where the preset knows it */
         val host: String? = null,
         /** transport, matching the order of the transport spinner */
-        val mode: Int = if (useTcp) NetworkDataPoller.MODE_TCP_CLIENT else NetworkDataPoller.MODE_UDP
+        val mode: Int = if (useTcp) NetworkDataPoller.MODE_TCP_CLIENT else NetworkDataPoller.MODE_UDP,
+        /** MAVLink High Latency: pin the protocol and send the enable command */
+        val highLatency: Boolean = false
     )
 
     // The transport stays in the name because it is the thing that decides
@@ -2339,7 +2346,16 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             "TBS Crossfire WiFi (WebSocket)", true, 80, true,
             mode = NetworkDataPoller.MODE_WEBSOCKET
         ),
-        NetworkPreset("Custom", false, 14550, false)
+        NetworkPreset("Custom", false, 14550, false),
+        // A satellite- or LoRa-class link: one HIGH_LATENCY2 message per five
+        // seconds. The autopilot boots with that stream off, so this preset
+        // also sends the command that turns it on — to the typed address, and
+        // to whoever speaks to us. Last, and every new preset after it: the
+        // remembered port and host of each preset are keyed by its index, so
+        // inserting higher up hands every older preset's memory to its
+        // neighbour.
+        NetworkPreset("MAVLink High Latency (UDP)", false, 14550, false,
+            highLatency = true)
     )
 
     private fun connectNetwork() {
@@ -2410,26 +2426,31 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             val chosen = transportSpinner.selectedItemPosition
             val tcp = chosen == NetworkDataPoller.MODE_TCP_CLIENT ||
                 chosen == NetworkDataPoller.MODE_WEBSOCKET
-            hostField.isEnabled = tcp
-            hostLabel.isEnabled = tcp
+            // The high-latency preset needs somewhere to send its enable
+            // command even on a UDP listen: an autopilot with the stream off
+            // sends nothing, so there is no sender to learn an address from.
+            val highLatency = networkPresets.getOrNull(
+                presetSpinner.selectedItemPosition)?.highLatency == true
+            hostField.isEnabled = tcp || highLatency
+            hostLabel.isEnabled = tcp || highLatency
             // Greying the field out on its own only raises the question "why
             // can I not type here" — so the label answers it.
-            hostLabel.text = if (tcp) {
-                getString(R.string.network_host)
-            } else {
-                getString(R.string.network_host_unused)
+            hostLabel.text = when {
+                tcp -> getString(R.string.network_host)
+                highLatency -> getString(R.string.network_host_hl)
+                else -> getString(R.string.network_host_unused)
             }
-            hostField.hint = if (tcp) {
-                getString(R.string.network_host_hint)
-            } else {
-                getString(R.string.network_host_hint_udp)
+            hostField.hint = when {
+                tcp -> getString(R.string.network_host_hint)
+                highLatency -> getString(R.string.network_host_hint_hl)
+                else -> getString(R.string.network_host_hint_udp)
             }
             // nothing to find on loopback: it is a single address, this device
             findButton.isEnabled = tcp && !hostField.text.toString().trim().startsWith("127.")
-            hint.text = if (tcp) {
-                getString(R.string.network_hint_tcp)
-            } else {
-                getString(R.string.network_hint_udp)
+            hint.text = when {
+                tcp -> getString(R.string.network_hint_tcp)
+                highLatency -> getString(R.string.network_hint_hl)
+                else -> getString(R.string.network_hint_udp)
             }
         }
 
@@ -2644,7 +2665,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     preferenceManager.setNetworkPortFor(
                         presetSpinner.selectedItemPosition, port)
 
-                    connectToNetwork(host, port, mode)
+                    // Only from the preset that means it, and only over UDP —
+                    // switching the transport away from what the preset set is
+                    // choosing a different thing.
+                    val highLatency = networkPresets.getOrNull(
+                        presetSpinner.selectedItemPosition)?.highLatency == true &&
+                        mode == NetworkDataPoller.MODE_UDP
+                    connectToNetwork(host, port, mode, highLatency)
                 }
                 .create())
     }
@@ -2729,7 +2756,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         lastRfMode = null
     }
 
-    private fun connectToNetwork(host: String, port: Int, mode: Int) {
+    private fun connectToNetwork(host: String, port: Int, mode: Int,
+                                 highLatency: Boolean = false) {
         clearCrsfSystem()
         // connect() clears this before the chooser opens, so every transport
         // has to set it again or it becomes silently non-reconnectable
@@ -2737,14 +2765,22 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         lastNetworkHost = host
         lastNetworkPort = port
         lastNetworkMode = mode
+        lastNetworkHighLatency = highLatency
         reconnectionStartTime = 0;
         reconnectOnFailure = false;
+
+        // One message per five seconds against a ten second sensor window is
+        // one dropped frame from greying out — widen it; and set it every
+        // connect, so no ordinary link inherits the slack.
+        sensorTimeoutManager.setTimeoutWindow(
+            if (highLatency) SensorTimeoutManager.HIGH_LATENCY_TIMEOUT_MS
+            else SensorTimeoutManager.DEFAULT_TIMEOUT_MS)
 
         startDataService()
         dataService?.let {
             connectButton.text = getString(R.string.connecting)
             connectButton.isEnabled = false
-            it.connect(host, port, mode)
+            it.connect(host, port, mode, highLatency)
         }
     }
 
@@ -4059,6 +4095,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             connect()
         }
         this.sensorTimeoutManager.enableTimeouts()
+        // a high-latency link widened this; whatever connects next starts
+        // from the ordinary window
+        this.sensorTimeoutManager.setTimeoutWindow(
+            SensorTimeoutManager.DEFAULT_TIMEOUT_MS)
         this.tlmRate.setAlpha(1.0f);
         // The model and the flight both stay. A link that drops leaves the last
         // place the model was seen on the screen, which is the one thing worth

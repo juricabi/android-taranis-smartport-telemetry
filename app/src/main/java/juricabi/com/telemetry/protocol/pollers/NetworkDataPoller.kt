@@ -40,7 +40,15 @@ class NetworkDataPoller(
     private val port: Int,
     private val listener: DataDecoder.Listener,
     logFile: FileOutputStream?,
-    private val binder: WifiNetworkBinder?
+    private val binder: WifiNetworkBinder?,
+    /**
+     * MAVLink High Latency: the protocol is pinned to MAVLink 2 rather than
+     * detected — detection needs two decodes, which at one message per five
+     * seconds is ten seconds of staring at nothing — and the enable command
+     * is sent until the stream answers, since an autopilot boots with its
+     * high-latency port silent.
+     */
+    private val highLatency: Boolean = false
 ) : DataPoller {
 
     private val log = BestEffortLog(logFile)
@@ -68,6 +76,14 @@ class NetworkDataPoller(
         private const val HANDSHAKE_TIMEOUT_MS = 8000
         private const val ANNOUNCE_EVERY_MS = 1000L
         private const val MAX_PEERS = 4
+
+        /**
+         * How often and how long to keep asking for the high-latency stream:
+         * every second announce beat, up to fifteen asks — half a minute,
+         * which is several times the five second cadence of the answer.
+         */
+        private const val HL_ASK_EVERY_BEATS = 2
+        private const val HL_ASK_MOST = 15
 
         /** A datagram arrives whole or truncated, so hold the largest one. */
         private const val DATAGRAM_BUFFER = 65535
@@ -122,6 +138,29 @@ class NetworkDataPoller(
 
     @Volatile
     private var selectedProtocol: Protocol? = null
+
+    /** The stream has answered; the enable command has done its work. */
+    @Volatile
+    private var heardTelemetry = false
+
+    private var announceBeats = 0
+    private var enableAsks = 0
+
+    init {
+        if (highLatency) {
+            // Pinned, not detected, and said so at once. The wrapper is how
+            // this poller learns the stream is alive: onSuccessDecode fires
+            // for every message the pinned protocol understands.
+            val watching = object : DataDecoder.Listener by listener {
+                override fun onSuccessDecode() {
+                    heardTelemetry = true
+                    listener.onSuccessDecode()
+                }
+            }
+            selectedProtocol = juricabi.com.telemetry.protocol.MAVLink2Protocol(watching)
+            listener.onProtocolDetected("MAVLink High Latency")
+        }
+    }
 
     @Volatile
     private var connectedOnce = false
@@ -470,6 +509,7 @@ class NetworkDataPoller(
             if (now - lastAnnounce >= ANNOUNCE_EVERY_MS) {
                 lastAnnounce = now
                 announce()
+                askForHighLatency()
             }
             // The length has to be restored every time: receive() shrinks it to
             // the size of the datagram that arrived, and it is never grown back.
@@ -528,6 +568,15 @@ class NetworkDataPoller(
             return
         }
 
+        // Nobody to talk to yet is a perfectly ordinary state: it means nothing
+        // has arrived. Broadcasting a hello at the whole network to try to shake
+        // something loose is not this app's business — QGroundControl does not
+        // do it either, and every module we have met announces itself.
+        sendToTargets(socket, HEARTBEAT)
+    }
+
+    /** Everyone worth talking to: the typed address, then whoever spoke to us. */
+    private fun targets(): List<Pair<InetAddress, Int>> {
         val targets = ArrayList<Pair<InetAddress, Int>>()
         if (host.isNotEmpty() && !isLoopback(host)) {
             if (!announceHostResolved) {
@@ -542,17 +591,33 @@ class NetworkDataPoller(
             announceHost?.let { targets.add(Pair(it, port)) }
         }
         synchronized(peers) { targets.addAll(peers) }
-        // Nobody to talk to yet is a perfectly ordinary state: it means nothing
-        // has arrived. Broadcasting a hello at the whole network to try to shake
-        // something loose is not this app's business — QGroundControl does not
-        // do it either, and every module we have met announces itself.
-        for (target in targets) {
+        return targets
+    }
+
+    private fun sendToTargets(socket: DatagramSocket, bytes: ByteArray) {
+        for (target in targets()) {
             try {
-                socket.send(DatagramPacket(HEARTBEAT, HEARTBEAT.size, target.first, target.second))
+                socket.send(DatagramPacket(bytes, bytes.size, target.first, target.second))
             } catch (e: IOException) {
                 // one unreachable peer must not stop the others
             }
         }
+    }
+
+    /**
+     * The autopilot boots with its high-latency port silent, and somebody has
+     * to say start. Asked on every second announce beat until the stream
+     * answers — the data itself is the acknowledgement — and given up after
+     * half a minute rather than shouting at a link that is not there.
+     */
+    private fun askForHighLatency() {
+        if (!highLatency || heardTelemetry || enableAsks >= HL_ASK_MOST) return
+        val socket = udpSocket ?: return
+        announceBeats++
+        if (announceBeats % HL_ASK_EVERY_BEATS != 0) return
+        enableAsks++
+        sendToTargets(socket,
+            juricabi.com.telemetry.protocol.MavCommands.controlHighLatency(true, enableAsks))
     }
 
     // ---------------------------------------------------------------- shared
@@ -613,6 +678,25 @@ class NetworkDataPoller(
 
     /** Main thread, so it must not block: closing the socket unblocks the reader. */
     override fun disconnect() {
+        // The farewell first, for its head start: a courtesy disable so the
+        // modem is not left streaming at nobody. Its own thread, because this
+        // runs on the main thread where a socket write throws — and
+        // best-effort by nature, since the teardown below races it for the
+        // socket and UDP owes no answer either way.
+        if (highLatency && heardTelemetry) {
+            val socket = udpSocket
+            Thread({
+                try {
+                    socket?.let {
+                        sendToTargets(it,
+                            juricabi.com.telemetry.protocol.MavCommands
+                                .controlHighLatency(false, 0))
+                    }
+                } catch (e: Exception) {
+                    // a closed socket is the race lost, and that is fine
+                }
+            }, "hl-farewell").start()
+        }
         stopping = true
         thread.interrupt()
         // Closing is what unblocks a thread parked in receive() or read(); the

@@ -249,6 +249,43 @@ def mav1_frame(seq, payload):
     return header + payload + struct.pack("<H", crc)
 
 
+COMMAND_LONG_ID = 76
+COMMAND_LONG_CRC_EXTRA = 152
+MAV_CMD_CONTROL_HIGH_LATENCY = 2600
+
+
+def parse_control_high_latency(data):
+    """True to start the stream, False to stop it, None for anything else.
+
+    Checks the checksum rather than trusting the sender: the point of
+    --wait-enable is to prove the app's frame is one an autopilot would
+    accept, and a wrong CRC_EXTRA is exactly the mistake that check catches.
+    """
+    if len(data) >= 12 and data[0] == 0xFD:
+        length = data[1]
+        msgid = data[7] | (data[8] << 8) | (data[9] << 16)
+        head, payload = data[1:10], data[10:10 + length]
+        tail = 10 + length
+    elif len(data) >= 8 and data[0] == 0xFE:
+        length = data[1]
+        msgid = data[5]
+        head, payload = data[1:6], data[6:6 + length]
+        tail = 6 + length
+    else:
+        return None
+    if msgid != COMMAND_LONG_ID or len(data) < tail + 2:
+        return None
+    crc = x25_crc(bytes(head + payload), COMMAND_LONG_CRC_EXTRA)
+    if crc != struct.unpack_from("<H", data, tail)[0]:
+        print("ignoring a COMMAND_LONG with a bad checksum")
+        return None
+    # MAVLink 2 truncates trailing zero bytes off the payload
+    payload = payload.ljust(33, b"\x00")
+    if struct.unpack_from("<H", payload, 28)[0] != MAV_CMD_CONTROL_HIGH_LATENCY:
+        return None
+    return struct.unpack_from("<f", payload, 0)[0] >= 0.5
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", help="the phone (not needed with --dump)")
@@ -275,13 +312,25 @@ def main():
     parser.add_argument("--hl-period", type=float, default=5.0,
                         help="seconds between HIGH_LATENCY2 messages; ArduPilot "
                              "sends one per five")
+    parser.add_argument("--wait-enable", action="store_true",
+                        help="behave as an ArduPilot high-latency port: bind "
+                             "the port, stay silent until "
+                             "MAV_CMD_CONTROL_HIGH_LATENCY arrives, stop when "
+                             "asked to; the stream goes to whoever asked")
     parser.add_argument("--dump", help="write the byte stream to this file "
                                        "instead of the network, on a fixed clock")
     parser.add_argument("--seconds", type=float, default=20.0,
                         help="how much stream to write with --dump")
     args = parser.parse_args()
 
-    if args.dump is None and args.host is None:
+    if args.wait_enable:
+        if args.protocol != "mavlink-hl":
+            parser.error("--wait-enable is a high-latency port; "
+                         "it needs --protocol mavlink-hl")
+        if args.dump is not None:
+            parser.error("--wait-enable needs a network to be asked on, "
+                         "not --dump")
+    if args.dump is None and args.host is None and not args.wait_enable:
         parser.error("--host is required unless --dump is given")
 
     dump = open(args.dump, "wb") if args.dump else None
@@ -290,7 +339,13 @@ def main():
     if dump is None:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        target = (args.host, args.port)
+        if args.host is not None:
+            target = (args.host, args.port)
+        if args.wait_enable:
+            # the phone sends the command to this port, and the sender of
+            # that command is where the stream goes back to
+            sock.bind(("", args.port))
+            sock.setblocking(False)
 
     def send(data):
         if dump is not None:
@@ -310,10 +365,15 @@ def main():
     passthrough_turn = 0
     hl_seq = 0
 
+    enabled = not args.wait_enable
     if dump is None:
-        print("flying %s at %.6f, %.6f -> %s:%d   heights %s   (ctrl-c to land)"
-              % (args.style, args.lat, args.lon, args.host, args.port,
-                 "above launch" if args.above_launch else "above sea level"))
+        if args.wait_enable:
+            print("high-latency port on %d: silent until asked  (ctrl-c to quit)"
+                  % args.port)
+        else:
+            print("flying %s at %.6f, %.6f -> %s:%d   heights %s   (ctrl-c to land)"
+                  % (args.style, args.lat, args.lon, args.host, args.port,
+                     "above launch" if args.above_launch else "above sea level"))
 
     while True:
         if dump is not None:
@@ -393,11 +453,29 @@ def main():
         up_rssi = int(-40 - distance / 12)
         up_lq = int(max(60, 100 - distance / 30))
 
+        if args.wait_enable:
+            while True:
+                try:
+                    data, sender = sock.recvfrom(2048)
+                except OSError:
+                    # nothing waiting — or Windows reporting a port it could
+                    # not deliver to earlier, which changes nothing here
+                    break
+                want = parse_control_high_latency(data)
+                if want is None:
+                    continue
+                target = sender
+                if want != enabled:
+                    enabled = want
+                    print("stream %s by %s:%d"
+                          % ("enabled" if want else "disabled",
+                             sender[0], sender[1]))
+
         if args.protocol == "mavlink-hl":
             # The whole of a high-latency link: one message per period,
             # nothing else. ArduPilot marks the port MAVLink 2, but the
             # message exists in both framings and the app takes either.
-            if now - last["hl"] >= args.hl_period:
+            if enabled and now - last["hl"] >= args.hl_period:
                 last["hl"] = now
                 payload = hl2_payload(
                     int(t * 1000), lat, lon, 5, altitude, heading,

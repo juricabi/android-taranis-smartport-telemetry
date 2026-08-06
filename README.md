@@ -1,4 +1,4 @@
-# Android Telemetry Viewer 2.2.0
+# Android Telemetry Viewer 2.2.1
 
 Live and recorded RC telemetry on a smooth 2D map or real 3D terrain.
 
@@ -14,24 +14,28 @@ Bluetooth, BLE, USB serial and network connections.
 
 ## Current state
 
-Version 2.2.0 is the first release with the complete synchronized 2D renderer and
-the subsequent reliability audit.
+Version 2.2.1 adds low-bandwidth telemetry on top of 2.2.0's synchronized 2D
+renderer and reliability audit.
 
-- The aircraft, flight-line head, home line, heading line and tracking camera
-  are committed as one MapLibre render scene. They stay attached during chase,
-  rotation, zoom and fast replay instead of arriving from separate tiled sources.
-- The complete historical track and flight plans remain GPU-rendered beneath the
-  live attachments.
-- The 3D view draws satellite imagery over elevation terrain, the model at its
-  true attitude, flight plans, traffic, track shadow and altitude curtain.
-- Live flights and replays share one flight path and one per-flight altitude
-  reference. Old terrain work cannot modify a newer flight.
-- Bluetooth, BLE, USB and network links have single-owner cleanup. BLE setup is
-  serialized and keeps the existing automatic reconnect behavior.
-- Replay loading, telemetry logging, CSV logging and FlightRadar failures no
-  longer take down a healthy telemetry connection.
-- Ghost, CRSF, FrSky, LTM and MAVLink decoding have regression tests for the
-  corrected packet lengths, signedness and units.
+- ArduPilot passthrough over CRSF/ExpressLRS: flight mode and the true armed
+  bit, GPS status, battery, distance and direction to the actual home,
+  velocity, attitude, throttle and status texts over a plain ELRS link with no
+  FrSky hardware.
+- MAVLink High Latency: the one HIGH_LATENCY2 message per five seconds a
+  satellite- or LoRa-class link carries, with a network preset that sends the
+  enable command an autopilot boots waiting for.
+- Model type offers Quad, Plane and Helicopter, built in one design language
+  and drawn the same in 2D and 3D.
+- Replay is paced by a speed control, 3× slower to 10× faster, instead of a
+  chosen duration.
+- The 3D view draws satellite imagery over elevation terrain at roughly half
+  the memory it used, with the model at its true attitude, flight plans,
+  traffic, track shadow and altitude curtain.
+- The 2D aircraft, flight-line head, home line, heading line and tracking
+  camera are committed as one MapLibre render scene, with the historical track
+  and flight plans GPU-rendered beneath them.
+- Every protocol decoder, including the simulator's own byte streams, is
+  covered by regression tests.
 
 ## Supported telemetry
 
@@ -42,8 +46,12 @@ the subsequent reliability audit.
 | Ghost (GHST) | GPS, battery and Ghost link statistics/profile |
 | LTM | GPS, attitude, status and battery |
 | MAVLink 1 and 2 | GPS, global position, attitude, battery, radio, flight mode and status text |
+| ArduPilot passthrough over CRSF | flight mode and armed state, GPS status, battery, home distance and direction, velocity, attitude, throttle and status texts (`RC_OPTIONS += 256`, receiver serial on protocol 23) |
+| MAVLink High Latency | HIGH_LATENCY2 — position, altitude, heading, speeds, throttle, battery, mode and armed state, one 42-byte message per five seconds (`SERIALn_PROTOCOL = 43`) |
 
-Protocol detection is automatic and latches after the first valid match. Ghost
+Protocol detection is automatic and latches after the first valid match. The
+High Latency preset pins MAVLink 2 instead, since detection would spend ten
+seconds waiting for a second frame. Ghost
 does not provide attitude, flight mode, vario or airspeed; those fields stay
 empty by design.
 
@@ -61,8 +69,12 @@ For Ghost telemetry mirror use EdgeTX with the fix from
 - TBS Crossfire Wi-Fi WebSocket (`/ws`)
 
 Network presets cover ExpressLRS backpack, Crossfire/Tracer, MAVLink routers,
-serial-to-Wi-Fi bridges and localhost. Wi-Fi sockets are bound to Wi-Fi so a
-telemetry access point without internet does not lose to mobile data.
+serial-to-Wi-Fi bridges, localhost and MAVLink High Latency. The High Latency
+preset listens over UDP and sends `MAV_CMD_CONTROL_HIGH_LATENCY` to the typed
+modem address until the stream answers, since an autopilot boots with that
+stream off; sensor timeouts stretch to match the five-second cadence. Wi-Fi
+sockets are bound to Wi-Fi so a telemetry access point without internet does
+not lose to mobile data.
 
 ## Maps, 3D and replay
 
@@ -72,8 +84,9 @@ terrain. No API key is required. Tiles are cached as they are used.
 Tracking follows position; chase also follows heading. Both use the same eased
 model state in 2D and 3D. Manual gestures remain available while tracking.
 
-Recordings can replay at real time or a chosen duration. When CSV companion data
-exists, replay restores the original phone position, accuracy, heading and clock.
+Recordings replay at real time or a chosen speed, 3× slower to 10× faster. When
+CSV companion data exists, replay restores the original phone position,
+accuracy, heading and clock.
 The altitude profile compares the flight with terrain and marks minimum clearance.
 
 Altitude notes:
@@ -106,7 +119,12 @@ python tools/simflight.py --host <phone-ip> --port 8888 \
 
 In the app choose **Network → TBS Crossfire / Tracer (UDP)** on port 8888.
 Use `--style acro` for faster turns, climbs and dives, or `--above-launch` to
-exercise relative-altitude handling.
+exercise relative-altitude handling. `--passthrough` weaves ArduPilot
+passthrough frames into the CRSF stream. `--protocol mavlink-hl` sends
+HIGH_LATENCY2 instead; add `--wait-enable` and it behaves like a real
+autopilot port — silent until the app's enable command arrives, streaming to
+whoever asked, stopping when asked to (use the **MAVLink High Latency (UDP)**
+preset with the PC's address).
 
 ## Building and testing
 
