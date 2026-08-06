@@ -935,7 +935,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         renderer.trackColor = floatArrayOf(c[0], c[1], c[2], 1f)
     }
 
-    /** Quad or plane, from the setting; the map marker follows the same one. */
+    /** Quad, plane or heli, from the setting; the map marker follows it too. */
     fun setModelShape(shape: String) {
         if (renderer.modelShape == shape) return
         renderer.modelShape = shape

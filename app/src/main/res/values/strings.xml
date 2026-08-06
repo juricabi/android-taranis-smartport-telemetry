@@ -117,10 +117,12 @@
     <string-array name="ModelTypes">
         <item>Quad</item>
         <item>Plane or wing</item>
+        <item>Helicopter</item>
     </string-array>
     <string-array name="ModelTypeValues">
         <item>quad</item>
         <item>plane</item>
+        <item>heli</item>
     </string-array>
 
     <string-array name="BatteryCells">

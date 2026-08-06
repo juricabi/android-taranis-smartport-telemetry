@@ -3334,12 +3334,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     /** The height the last remembered point was given, to climb from. */
     private var lastRememberedHeight = Float.NaN
 
-    /** The marker for whatever is being flown, quad or fixed wing. */
+    /** The marker for whatever is being flown: quad, fixed wing or heli. */
     private fun modelIcon(): Int {
-        return if (preferenceManager.getModelType() == "plane") {
-            R.drawable.ic_fixedwing
-        } else {
-            R.drawable.ic_plane
+        return when (preferenceManager.getModelType()) {
+            "plane" -> R.drawable.ic_fixedwing
+            "heli" -> R.drawable.ic_heli
+            else -> R.drawable.ic_plane
         }
     }
 

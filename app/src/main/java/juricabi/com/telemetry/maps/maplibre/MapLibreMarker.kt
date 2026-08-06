@@ -151,6 +151,7 @@ class MapLibreMarker(
         val outlineIcon = when (icon) {
             R.drawable.ic_plane -> R.drawable.ic_plane_outline
             R.drawable.ic_fixedwing -> R.drawable.ic_fixedwing_outline
+            R.drawable.ic_heli -> R.drawable.ic_heli_outline
             else -> return body
         }
         // dark silhouette underneath, so a light marker stays readable on

@@ -1,0 +1,31 @@
+<!-- Dark silhouette drawn under the tinted marker so it stays visible on
+     satellite imagery. Kept as a separate drawable because the marker itself
+     is tinted, and a tint would recolour an outline baked into the same file.
+     Mitred joins, not round: a rounded join bulges past sharp corners, and
+     the border read thicker at every blade tip than along its sides. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+        android:width="22dp"
+        android:height="22dp"
+        android:viewportWidth="24.0"
+        android:viewportHeight="24.0">
+    <path
+        android:fillColor="#C0000000"
+        android:strokeColor="#C0000000"
+        android:strokeWidth="3"
+        android:pathData="M5.0,3.0L6.0,2.0L19.0,15.0L18.0,16.0Z"/>
+    <path
+        android:fillColor="#C0000000"
+        android:strokeColor="#C0000000"
+        android:strokeWidth="3"
+        android:pathData="M5.0,15.0L6.0,16.0L19.0,3.0L18.0,2.0Z"/>
+    <path
+        android:fillColor="#C0000000"
+        android:strokeColor="#C0000000"
+        android:strokeWidth="3"
+        android:pathData="M12,3.6L9.7,6.4L9.4,10.0L10.5,13.0L11.1,13.0L11.1,19.0L12.9,19.0L12.9,13.0L13.5,13.0L14.6,10.0L14.3,6.4Z"/>
+    <path
+        android:fillColor="#C0000000"
+        android:strokeColor="#C0000000"
+        android:strokeWidth="3"
+        android:pathData="M12,20.2m-2.6,0a2.6,2.6 0,1 1,5.2 0a2.6,2.6 0,1 1,-5.2 0"/>
+</vector>
