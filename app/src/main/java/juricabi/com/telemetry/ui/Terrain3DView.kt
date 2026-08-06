@@ -593,14 +593,60 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
      * Not the camera, deliberately. Panning across the county would pull tiles
      * for wherever it was pointed and evict the ones the flight is on.
      */
+    /**
+     * Where the model was a moment ago, so a fast traverse can be led.
+     *
+     * The window used to be centred on wherever the model stood when a load
+     * began, which on a long straight run spent half of every load buying
+     * ground already behind it — and a surf along a ridge outran the loads
+     * entirely, flying off the edge into nothing. Led by the motion, the
+     * model rides at the back of the window and the whole budget buys ground
+     * it is about to reach.
+     */
+    private var motionLat = 0.0
+    private var motionLon = 0.0
+    private var motionAt = 0L
+    private var motionMetresPerSec = 0.0
+    private var motionBearing = 0.0
+
+    private fun noteMotion(lat: Double, lon: Double) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        val dt = (now - motionAt) / 1000.0
+        if (motionAt == 0L || dt >= 0.5) {
+            if (motionAt != 0L && dt <= 10.0) {
+                val north = (lat - motionLat) * scene.metresUp()
+                val east = (lon - motionLon) * scene.metresAcross(lat)
+                val speed = Math.hypot(east, north) / dt
+                // a replay seek is a jump, not a flight; do not lead into it
+                if (speed <= 150.0) {
+                    motionMetresPerSec = speed
+                    motionBearing = Math.atan2(east, north)
+                } else {
+                    motionMetresPerSec = 0.0
+                }
+            }
+            motionLat = lat
+            motionLon = lon
+            motionAt = now
+        }
+    }
+
     private fun extendTerrainIfNeeded(points: List<TerrainScene.TrackPoint>,
                                       lat: Double, lon: Double, force: Boolean = false) {
-        if (!released && !loadingTerrain && (force || scene.nearEdge(lat, lon))) {
+        noteMotion(lat, lon)
+        // Both capped so they can never meet across the window: the lead puts
+        // the model at most 450m from the trailing edge, and the margin stays
+        // 100m inside that, or every load would retrigger off its own tail.
+        val lead = Math.min(450.0, motionMetresPerSec * 15.0)
+        val margin = Math.min(350.0, Math.max(200.0, motionMetresPerSec * 12.0))
+        val aheadLat = lat + lead * Math.cos(motionBearing) / scene.metresUp()
+        val aheadLon = lon + lead * Math.sin(motionBearing) / scene.metresAcross(lat)
+        if (!released && !loadingTerrain && (force || scene.nearEdge(lat, lon, margin))) {
             loadingTerrain = true
             status.text = ""
             val worker = Thread(Runnable {
                 try {
-                    scene.loadTerrain(points, lat, lon,
+                    scene.loadTerrain(points, aheadLat, aheadLon,
                         { postFromTerrain { groundArrived() } },
                         { postFromTerrain {
                             groundArrived(true)

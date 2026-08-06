@@ -1,0 +1,19 @@
+# The Velebit crest, north to south: Zavizan down to Tulove grede,
+# about 60 km over Satorina, Visocica, Vaganski vrh and Sveto brdo.
+# lat, lon, approximate crest altitude MSL in metres — the sim rides
+# this with its own clearance, so being tens of metres off is fine.
+44.810, 14.980, 1590
+44.782, 15.023, 1650
+44.750, 15.070, 1550
+44.720, 15.100, 1450
+44.690, 15.130, 1560
+44.650, 15.170, 1500
+44.610, 15.210, 1350
+44.570, 15.240, 1300
+44.530, 15.290, 1500
+44.500, 15.320, 1600
+44.460, 15.370, 1350
+44.420, 15.430, 1500
+44.390, 15.480, 1700
+44.365, 15.530, 1720
+44.330, 15.590, 1150

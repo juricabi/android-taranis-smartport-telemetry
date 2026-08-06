@@ -760,6 +760,16 @@ class TerrainScene {
         // seven thousand nulls and hand back no tile, which is how a switch to
         // this view sometimes came up with holes in the ground.
         Elevation.ensure(z, tx, ty)
+        // The east column and south row of the grid lie exactly on the tile
+        // boundary, and a boundary coordinate resolves in the next tile over —
+        // so the very edge of every tile is sampled from its neighbours. When
+        // a neighbour was not loaded, the border came back NaN, fillGaps
+        // swapped it for the tile-wide average, and that baked a wall of
+        // stretched texture along the join — with a black crack beside it once
+        // the honest neighbour tile was built against it.
+        Elevation.ensure(z, tx + 1, ty)
+        Elevation.ensure(z, tx, ty + 1)
+        Elevation.ensure(z, tx + 1, ty + 1)
         val westLon = tileLon(tx, z)
         val eastLon = tileLon(tx + 1, z)
         val northLat = tileLat(ty, z)
@@ -871,13 +881,13 @@ class TerrainScene {
      * worth fetching more. Half a kilometre of warning, so the tiles are there
      * before the model needs them rather than after it has flown off the end.
      */
-    fun nearEdge(lat: Double, lon: Double): Boolean {
+    fun nearEdge(lat: Double, lon: Double, marginM: Double = 200.0): Boolean {
         if (loadedMaxLat == loadedMinLat) return true
         // Well inside the half kilometre the loader pads by. They were within
         // a metre of each other, so the first fix that moved at all asked for
         // more ground, and went on asking on every fix for the whole flight.
-        val marginLat = 200.0 / METRES_PER_DEGREE_LAT
-        val marginLon = 200.0 / metresPerDegreeLon(lat)
+        val marginLat = marginM / METRES_PER_DEGREE_LAT
+        val marginLon = marginM / metresPerDegreeLon(lat)
         return lat < loadedMinLat + marginLat || lat > loadedMaxLat - marginLat ||
             lon < loadedMinLon + marginLon || lon > loadedMaxLon - marginLon
     }

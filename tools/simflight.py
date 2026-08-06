@@ -286,12 +286,63 @@ def parse_control_high_latency(data):
     return struct.unpack_from("<f", payload, 0)[0] >= 0.5
 
 
+# ------------------------------------------------------------ route surfing
+
+def load_route(path):
+    """lat,lon,altitude-MSL per line; # lines are comments."""
+    points = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split(",")
+            points.append((float(parts[0]), float(parts[1]), float(parts[2])))
+    if len(points) < 2:
+        raise SystemExit("a route needs at least two points")
+    return points
+
+
+def route_legs(points):
+    """Each leg with its start distance, so a distance finds its leg."""
+    legs = []
+    total = 0.0
+    for a, b in zip(points, points[1:]):
+        mid = math.radians((a[0] + b[0]) / 2)
+        dn = (b[0] - a[0]) * 111320.0
+        de = (b[1] - a[1]) * 111320.0 * math.cos(mid)
+        length = math.hypot(dn, de)
+        legs.append((total, length, a, b))
+        total += length
+    return legs, total
+
+
+def route_position(legs, total, s):
+    """The point s metres along the route, riding it out and back again."""
+    k = s % (2 * total)
+    if k > total:
+        k = 2 * total - k
+    for start, length, a, b in legs:
+        if k <= start + length or (start, length, a, b) is legs[-1]:
+            f = 0.0 if length == 0 else max(0.0, min(1.0, (k - start) / length))
+            return (a[0] + (b[0] - a[0]) * f,
+                    a[1] + (b[1] - a[1]) * f,
+                    a[2] + (b[2] - a[2]) * f)
+    return legs[-1][3]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", help="the phone (not needed with --dump)")
     parser.add_argument("--port", type=int, default=8888)
-    parser.add_argument("--lat", type=float, required=True)
-    parser.add_argument("--lon", type=float, required=True)
+    parser.add_argument("--lat", type=float)
+    parser.add_argument("--lon", type=float)
+    parser.add_argument("--route", help="fly a CSV of lat,lon,altitude points "
+                                        "instead of circling --lat/--lon; the "
+                                        "flight surfs along it and back again. "
+                                        "Try tools/velebit-surf.csv")
+    parser.add_argument("--speed", type=float, default=30.0,
+                        help="metres per second along a --route")
     parser.add_argument("--ground", type=float, default=120.0,
                         help="height of the field above sea level, metres")
     parser.add_argument("--radius", type=float, default=220.0)
@@ -333,6 +384,17 @@ def main():
     if args.dump is None and args.host is None and not args.wait_enable:
         parser.error("--host is required unless --dump is given")
 
+    route = None
+    route_cache = None
+    if args.route:
+        route = load_route(args.route)
+        route_cache = route_legs(route)
+        # launch is the start of the ridge unless said otherwise
+        if args.lat is None:
+            args.lat, args.lon = route[0][0], route[0][1]
+    elif args.lat is None or args.lon is None:
+        parser.error("--lat and --lon are required without --route")
+
     dump = open(args.dump, "wb") if args.dump else None
     sock = None
     target = None
@@ -370,6 +432,10 @@ def main():
         if args.wait_enable:
             print("high-latency port on %d: silent until asked  (ctrl-c to quit)"
                   % args.port)
+        elif route is not None:
+            print("surfing %s: %.1f km at %.0f m/s -> %s:%d   (ctrl-c to land)"
+                  % (args.route, route_cache[1] / 1000.0, args.speed,
+                     args.host, args.port))
         else:
             print("flying %s at %.6f, %.6f -> %s:%d   heights %s   (ctrl-c to land)"
                   % (args.style, args.lat, args.lon, args.host, args.port,
@@ -387,7 +453,17 @@ def main():
         if dump is None and t > args.minutes * 60:
             break
 
-        if args.style == "acro":
+        if route is not None:
+            # Surfing the ridge: along the route at a soaring pace, close over
+            # the crests with a breathing clearance, banking falls out of the
+            # frame-to-frame motion like everywhere else.
+            legs, total = route_cache
+            rlat, rlon, ralt = route_position(legs, total, t * args.speed)
+            north = (rlat - args.lat) * metres_per_deg_lat
+            east = (rlon - args.lon) * metres_per_deg_lon
+            phase = 2 * math.pi * t / 60.0
+            climb = (ralt - args.ground) + 70 + 45 * math.sin(2 * math.pi * t / 23.0)
+        elif args.style == "acro":
             # A racer rather than a tourist: a lap every eighteen seconds, the
             # track wandering as three turns of different rates beat against
             # each other, and height thrown about far faster than the eight
@@ -450,7 +526,9 @@ def main():
         remaining = max(0, min(100, 100 - used_mah / 22.0))
 
         distance = math.hypot(east, north)
-        up_rssi = int(-40 - distance / 12)
+        # floored: a route is tens of kilometres and the link, being make
+        # believe, holds to the end of it
+        up_rssi = int(max(-105, -40 - distance / 12))
         up_lq = int(max(60, 100 - distance / 30))
 
         if args.wait_enable:

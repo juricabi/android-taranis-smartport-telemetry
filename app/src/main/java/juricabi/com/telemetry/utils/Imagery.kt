@@ -48,7 +48,12 @@ object Imagery {
     /** 3 is 8x8 children and a 2048px texture; past that no mesh shows the detail. */
     private const val MAX_EXTRA_ZOOM = 3
 
-    private const val POOL_THREADS = 4
+    // Eight, because this is the pace the ground keeps up with a fast
+    // traverse: a mosaic is sixty-four fetches, and at four threads that is
+    // sixteen round trips in a row — seconds per tile, tens of seconds per
+    // window, which a model at thirty metres a second flew clean off. The
+    // server does its own throttling and answers eight as happily as four.
+    private const val POOL_THREADS = 8
     private const val MOSAIC_TIMEOUT_MS = 120000L
     private const val HTTP_TIMEOUT_MS = 15000
 
