@@ -494,7 +494,12 @@ class DataService : Service(), DataDecoder.Listener {
     private fun stopListeningForPhone() {
         if (!listening) return
         listening = false
-        phoneFix = null
+        // The fix is kept. It does not stop being true because nobody is
+        // listening — and thrown away here, a screen coming back from the
+        // settings drew the system's stale answer and waited seconds for the
+        // satellites, over a fix this service had held moments before.
+        // worthBelieving already ages it: past twenty seconds anything
+        // fresher wins, so keeping it cannot pin the arrow to the past.
         try {
             (getSystemService(LOCATION_SERVICE) as LocationManager)
                 .removeUpdates(phoneLocationListener)
