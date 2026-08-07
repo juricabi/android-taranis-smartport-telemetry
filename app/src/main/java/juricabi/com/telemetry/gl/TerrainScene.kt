@@ -29,52 +29,16 @@ class TerrainScene {
         val key: Long,
         val vertices: FloatArray,   // x, y, z, u, v, nx, ny, nz
         val indices: ShortArray,
-        val texture: Bitmap?
+        val texture: Bitmap?,
+        /** The box the tile fits in, for the renderer to cull against. */
+        val minX: Float = 0f, val maxX: Float = 0f,
+        val minY: Float = 0f, val maxY: Float = 0f,
+        val minZ: Float = 0f, val maxZ: Float = 0f,
+        /** False when a rim was built blind; the pager rebuilds it later. */
+        val rimComplete: Boolean = true
     )
 
     companion object {
-        /**
-         * Vertices across one tile: 193 gives about 9m between them at zoom 14.
-         *
-         * Not the thing to trim for speed. Two thirds of a million triangles a
-         * frame is a fraction of what the phone can draw, and what actually
-         * cost time was uploading the textures and rebuilding the flight, not
-         * this. It does set how long a tile takes to build, though — one height
-         * lookup per vertex — so it is the place to look if the first load ever
-         * feels slow.
-         */
-        private const val GRID = 193
-
-        /**
-         * How many levels finer than the ground tile its photograph is.
-         *
-         * A tile at zoom 15 is about 850m across, so three levels in is a
-         * 2048-pixel picture of it: roughly 0.42m per pixel, which is sharp
-         * enough to pick out a track through a field. It is also eight
-         * megabytes even at 565, which is why so few tiles are held at once.
-         */
-        private const val IMAGERY_DETAIL = 3
-
-        /** Preferred ground detail, dropped a level at a time if that is too many tiles. */
-        private const val PREFERRED_ZOOM = 15
-
-        /**
-         * A 2048px texture is 8MB on the card, so this is a memory budget
-         * before it is anything else. The window needs nine; the rest is
-         * slack, so ground the model has just left is still there if it
-         * turns back.
-         */
-        private const val MAX_TILES = 12
-
-        /**
-         * How far the ground reaches around the model, in metres.
-         *
-         * Nine hundred is a window of one and a three quarter kilometres, which
-         * at the finest zoom is nine tiles. From behind the model the camera
-         * sees well under a kilometre of it, so there is room to fly and room
-         * to look about before more is wanted.
-         */
-        private const val WINDOW_RADIUS_M = 900.0
 
         private const val METRES_PER_DEGREE_LAT = 111320.0
 
@@ -142,6 +106,31 @@ class TerrainScene {
             val aboveLaunch = lowestReported < lowestGround - 30f
             return Reference(aboveLaunch, if (aboveLaunch) groundAtStart else 0f)
         }
+
+        // ------------------------------------------------- tile arithmetic
+        //
+        // One key for a tile at any zoom, packed the way Elevation and
+        // Imagery pack theirs. The pager walks the tree with these; nothing
+        // else should invent its own.
+
+        fun tileKey(z: Int, x: Int, y: Int): Long =
+            (z.toLong() shl 58) or (x.toLong() shl 29) or (y.toLong() and 0x1FFFFFFF)
+
+        fun zoomOf(key: Long): Int = (key ushr 58).toInt()
+
+        fun tileXOf(key: Long): Int = ((key ushr 29) and 0x1FFFFFFF).toInt()
+
+        fun tileYOf(key: Long): Int = (key and 0x1FFFFFFF).toInt()
+
+        fun parentOf(key: Long): Long =
+            tileKey(zoomOf(key) - 1, tileXOf(key) shr 1, tileYOf(key) shr 1)
+
+        fun tileLon(x: Int, z: Int): Double = x.toDouble() / (1 shl z) * 360.0 - 180.0
+
+        fun tileLat(y: Int, z: Int): Double {
+            val n = Math.PI - 2.0 * Math.PI * y / (1 shl z)
+            return Math.toDegrees(Math.atan(Math.sinh(n)))
+        }
     }
 
     /**
@@ -185,89 +174,42 @@ class TerrainScene {
     @Volatile var shadow = FloatArray(0)
         private set
 
-    var tiles: List<TileMesh> = emptyList()
-        private set
-
     /**
-     * Whether this scene has been left behind.
-     *
-     * A load is a dozen tiles, each sixty-four pictures fetched over the
-     * network, and it runs on its own thread — which holds this scene, its
-     * pictures and the view that started it for as long as it takes. Switching
-     * to the map, connecting a link and opening a replay all build a new view,
-     * so without a way to say "stop, nobody is watching" two or three scenes
-     * ran at once, each holding a couple of hundred megabytes of imagery.
+     * Whether this scene has been left behind. The pager checks its own copy
+     * for its threads; this one guards the scene-side work.
      */
     @Volatile private var abandoned = false
 
-    /**
-     * Whether the frame moved under the ground already built.
-     *
-     * Taken rather than read: whoever acts on it has to hand the renderer an
-     * empty set of tiles to keep, and doing that twice would throw away the
-     * ground that has just been rebuilt.
-     */
-    @Volatile private var worldMoved = false
-
-    fun takeWorldMoved(): Boolean {
-        if (!worldMoved) return false
-        worldMoved = false
-        return true
-    }
-
     fun abandon() {
-        val leaving = synchronized(this) {
-            if (abandoned) return
-            abandoned = true
-            val held = ArrayList(built.values)
-            built.clear()
-            tiles = emptyList()
-            held
-        }
-        // The pictures, which are nearly all of it: eight megabytes each. The
-        // drawing thread checks for a recycled picture before it uploads one,
-        // so letting them go while it is still finishing a frame is safe.
-        recyclePictures(leaving)
+        abandoned = true
     }
 
-    private fun recyclePictures(meshes: Iterable<TileMesh>) {
-        for (mesh in meshes) mesh.texture?.let {
-            if (!it.isRecycled) it.recycle()
-        }
-    }
+    /** Whether the datum has been taken from the ground itself yet. */
+    val datumSettled: Boolean get() = datumFromGround
 
     /**
-     * Strip pictures a lost GL context took with it.
+     * Take the datum from the ground under the origin, once and for good.
      *
-     * They are recycled once uploaded, so a rebuilt context cannot upload them
-     * again — and the loader skips any tile whose picture looks present. Made
-     * absent here, the next load pass stitches them back from the disk cache.
+     * The height everything is drawn relative to used to come from the
+     * reported altitudes, so settling what those meant moved the whole world.
+     * From the ground it is settled the moment one tile of heights exists —
+     * and if that moment comes late (a view opened offline), the caller is
+     * told the world moved so it can rebuild what was framed the old way.
+     *
+     * Returns true when the datum was just settled to a different height
+     * than tiles were being built with.
      */
-    fun dropRecycledPictures() {
-        synchronized(this) {
-            for ((key, mesh) in built) {
-                val picture = mesh.texture
-                if (picture != null && picture.isRecycled) {
-                    built[key] = TileMesh(mesh.key, mesh.vertices, mesh.indices, null)
-                }
-            }
-            tiles = ArrayList(built.values)
-        }
+    fun settleDatumFromGround(): Boolean {
+        if (datumFromGround) return false
+        // A probe, not a fetch: the pager warms the tile and asks again each
+        // pass. Blocking here held the first mesh behind a network round trip
+        // that could just as well fly while the roots were being built.
+        val here = Elevation.elevationAt(originLat, originLon, 15) ?: return false
+        val moved = here != originAltitude
+        originAltitude = here
+        datumFromGround = true
+        return moved
     }
-
-    /** Drop meshes without waiting for the bitmap garbage collector. */
-    private fun clearBuilt() {
-        val leaving = synchronized(this) {
-            val held = ArrayList(built.values)
-            built.clear()
-            held
-        }
-        recyclePictures(leaving)
-    }
-
-    /** Kept between loads so extending the ground only builds what is new. */
-    private val built = LinkedHashMap<Long, TileMesh>()
-    private var builtZoom = -1
 
     /** Half the width of the flight, for placing the camera. */
     var extent = 500f
@@ -444,234 +386,6 @@ class TerrainScene {
         return true
     }
 
-    /**
-     * Fetch the ground and the imagery over it. Blocking, and slow the first
-     * time; afterwards it comes from the cache. [onProgress] reports tiles.
-     */
-    fun loadTerrain(points: List<TrackPoint>,
-                    focusLat: Double, focusLon: Double,
-                    onTile: () -> Unit,
-                    onDone: () -> Unit) {
-        if (abandoned) return
-        // Ground around the model, not ground around the whole flight.
-        //
-        // Covering everything flown meant the tiles had to span it, and since
-        // there is only ever a handful of them the detail dropped a level for
-        // every few kilometres: fifteen kilometres out and back left the ground
-        // under the model at thirteen metres a pixel — a blur — to keep a
-        // picture of somewhere it flew twenty minutes ago. A window that
-        // follows it stays sharp however far it goes.
-        val padLat = WINDOW_RADIUS_M / METRES_PER_DEGREE_LAT
-        val padLon = WINDOW_RADIUS_M / metresPerDegreeLon(focusLat)
-        val southEdge = focusLat - padLat
-        val northEdge = focusLat + padLat
-        val westEdge = focusLon - padLon
-        val eastEdge = focusLon + padLon
-
-        // What is loaded is the window, not everything ever loaded. A union
-        // would have the model believing there is ground under it long after
-        // that ground had been dropped.
-        loadedMinLat = southEdge
-        loadedMaxLat = northEdge
-        loadedMinLon = westEdge
-        loadedMaxLon = eastEdge
-
-        // As much detail as the budget allows. The window is always the same
-        // size, so this settles at the finest zoom and stays there — but it is
-        // still worked out rather than assumed.
-        var z = PREFERRED_ZOOM
-        while (z > 9 && tileCount(southEdge, westEdge, northEdge, eastEdge, z) > MAX_TILES) {
-            z--
-        }
-
-        // The heights first, for the whole window: they are a fraction of the
-        // size of the pictures, and the altitude reference cannot be worked out
-        // without them — which has to happen before a single tile is built,
-        // since every vertex is baked relative to it.
-        Elevation.prefetch(southEdge, westEdge, northEdge, eastEdge, z,
-            { _, _ -> }, { _, _ -> })
-        // prefetch is blocking. The view may have gone away while it was in a
-        // network request, in which case none of the expensive mesh or imagery
-        // work below belongs to anybody any more.
-        if (abandoned) return
-        zoom = z
-        // The datum, once, from the ground itself rather than from anything the
-        // model has said about where it is.
-        if (!datumFromGround) {
-            // The origin can sit outside the first window — a replay opens with
-            // the window at the start of the flight and the origin at its
-            // centre. One tile fetched for it settles the datum now, instead of
-            // every tile being thrown away and built again the moment the
-            // window happens to reach the origin mid-flight.
-            Elevation.ensure(z, Elevation.tileX(originLon, z), Elevation.tileY(originLat, z))
-            val here = Elevation.elevationAt(originLat, originLon, z)
-            if (here != null) {
-                // Every tile already built has this baked into every one of its
-                // vertices, so a datum that arrives after them leaves a step in
-                // the ground where the old ones meet the new. It only arrives
-                // late when the origin is outside the first window — a switch
-                // to the ground view halfway through a flight — and then it
-                // arrives for good, so the tiles built without it are thrown
-                // away and built again.
-                if (synchronized(this) { built.isNotEmpty() } && here != originAltitude) {
-                    clearBuilt()
-                    worldMoved = true
-                }
-                originAltitude = here
-                datumFromGround = true
-            }
-        }
-        resolveAltitudeReference(points)
-        // The whole path, not just its shadow. The screen builds both from the
-        // thinned path twice a second; building only the shadow here, from the
-        // unthinned one, left the two different lengths for as long as it took
-        // the screen to come round again — and a flight and a shadow of
-        // different lengths is a flight with no curtain under it and a line
-        // that stops short of the model.
-        buildTrack(points)
-
-        val x0 = Elevation.tileX(westEdge, z)
-        val x1 = Elevation.tileX(eastEdge, z)
-        val y0 = Elevation.tileY(northEdge, z)
-        val y1 = Elevation.tileY(southEdge, z)
-        // A change of detail makes every mesh the wrong shape, so start again;
-        // otherwise keep what is built and add only what is missing.
-        if (z != builtZoom) {
-            clearBuilt()
-            if (abandoned) return
-            builtZoom = z
-        }
-
-        // Nearest the model first, in both passes: whatever it is flying over
-        // is the tile worth having before any other.
-        val centreX = Elevation.tileX(focusLon, z)
-        val centreY = Elevation.tileY(focusLat, z)
-        val window = ArrayList<LongArray>()
-        for (tx in Math.min(x0, x1)..Math.max(x0, x1)) {
-            for (ty in Math.min(y0, y1)..Math.max(y0, y1)) {
-                val dx = (tx - centreX).toLong()
-                val dy = (ty - centreY).toLong()
-                window.add(longArrayOf(tx.toLong(), ty.toLong(), dx * dx + dy * dy))
-            }
-        }
-        window.sortBy { it[2] }
-
-        val keys = HashSet<Long>()
-        for (t in window) keys.add(tileKey(t[0].toInt(), t[1].toInt()))
-
-        // Shape first, picture second.
-        //
-        // Building a tile once the heights are in memory is local work and
-        // quick; its picture is sixty-four images fetched and stitched into
-        // eight megabytes, which is seconds. Showing the shape as soon as it
-        // exists puts ground under the model almost at once, and the photograph
-        // arrives over it tile by tile instead of everything appearing at the
-        // end together.
-        for (t in window) {
-            if (abandoned) return
-            val tx = t[0].toInt()
-            val ty = t[1].toInt()
-            val key = tileKey(tx, ty)
-            if (synchronized(this) { built.containsKey(key) }) continue
-            val mesh = buildTile(z, tx, ty)
-            if (mesh != null) {
-                var dropped: List<TileMesh> = emptyList()
-                val accepted = synchronized(this) {
-                    if (abandoned || built.containsKey(key)) {
-                        false
-                    } else {
-                        built[key] = mesh
-                        dropped = publishLocked(keys)
-                        true
-                    }
-                }
-                if (!accepted) {
-                    if (abandoned) return
-                    continue
-                }
-                recyclePictures(dropped)
-                onTile()
-            }
-        }
-
-        for (t in window) {
-            if (abandoned) return
-            val tx = t[0].toInt()
-            val ty = t[1].toInt()
-            val key = tileKey(tx, ty)
-            val standing = synchronized(this) { built[key] } ?: continue
-            if (standing.texture != null) continue
-            val picture = try {
-                Imagery.mosaic(z, tx, ty, IMAGERY_DETAIL)
-            } catch (e: Throwable) {
-                null
-            } ?: continue
-            // The shape is already worked out and has not moved: only the
-            // picture is new. Building the tile again to hang it on would mean
-            // another thirty-seven thousand height samples for nothing.
-            var dropped: List<TileMesh> = emptyList()
-            val accepted = synchronized(this) {
-                val current = built[key]
-                if (abandoned || current == null || current.texture != null) {
-                    false
-                } else {
-                    built[key] = TileMesh(
-                        current.key, current.vertices, current.indices, picture
-                    )
-                    dropped = publishLocked(keys)
-                    true
-                }
-            }
-            if (!accepted) {
-                picture.recycle()
-                if (abandoned) return
-                continue
-            }
-            recyclePictures(dropped)
-            onTile()
-        }
-
-        var finished = false
-        var dropped: List<TileMesh> = emptyList()
-        synchronized(this) {
-            if (!abandoned) {
-                dropped = publishLocked(keys)
-                finished = true
-            }
-        }
-        if (!finished) return
-        recyclePictures(dropped)
-        onDone()
-    }
-
-    /**
-     * Hand out what is built, and drop what the window has left behind.
-     *
-     * Anything outside it goes first; only if that is not enough does the
-     * oldest go. The old rule was oldest first regardless, which on a window
-     * that moves could throw away the tile the model was standing on.
-     */
-    /** Caller holds this scene's monitor. Returns pictures no longer retained. */
-    private fun publishLocked(window: Set<Long>): List<TileMesh> {
-        val dropped = ArrayList<TileMesh>()
-        while (built.size > MAX_TILES) {
-            var drop = -1L
-            for (key in built.keys) {
-                if (!window.contains(key)) { drop = key; break }
-            }
-            if (drop == -1L) {
-                val oldest = built.keys.iterator()
-                if (!oldest.hasNext()) break
-                drop = oldest.next()
-            }
-            built.remove(drop)?.let { dropped.add(it) }
-        }
-        tiles = ArrayList(built.values)
-        return dropped
-    }
-
-    private fun tileKey(x: Int, y: Int): Long = (x.toLong() shl 32) or (y.toLong() and 0xFFFFFFFFL)
-
     /** True when the altitudes turned out to be measured from the launch point. */
     var altitudeIsAboveLaunch = false
         private set
@@ -713,7 +427,22 @@ class TerrainScene {
     }
 
     private fun resolveAltitudeReference(points: List<TrackPoint>) {
-        val proposed = referenceOf(points, zoom) ?: return
+        // settled once and for good — no need to fetch anything again for it
+        if (altitudeResolved && altitudeIsAboveLaunch) return
+        // At the level the altitude profile samples, so the two views cannot
+        // be metres apart about the same flight — and fetched here, because
+        // the ground under the flight is not necessarily the ground the
+        // camera has loaded.
+        if (points.isNotEmpty()) {
+            var s = points[0].lat; var n = points[0].lat
+            var w = points[0].lon; var e = points[0].lon
+            for (p in points) {
+                if (p.lat < s) s = p.lat; if (p.lat > n) n = p.lat
+                if (p.lon < w) w = p.lon; if (p.lon > e) e = p.lon
+            }
+            Elevation.prefetch(s, w, n, e, Elevation.TILE_ZOOM)
+        }
+        val proposed = referenceOf(points, Elevation.TILE_ZOOM) ?: return
         val found = AltitudeFrame.settle(proposed, altitudeEpoch) ?: return
         val aboveLaunch = found.aboveLaunch
 
@@ -745,21 +474,26 @@ class TerrainScene {
     var launchGroundElevation = 0f
         private set
 
-    private fun tileLon(x: Int, z: Int): Double = x.toDouble() / (1 shl z) * 360.0 - 180.0
-
-    private fun tileLat(y: Int, z: Int): Double {
-        val n = Math.PI - 2.0 * Math.PI * y / (1 shl z)
-        return Math.toDegrees(Math.atan(Math.sinh(n)))
-    }
-
-    private fun buildTile(z: Int, tx: Int, ty: Int): TileMesh? {
+    internal fun buildTile(z: Int, tx: Int, ty: Int): TileMesh? {
+        // The heights end at zoom 15; a finer tile samples that same data
+        // over its quarter of the span, and earns its keep through the
+        // sharper photograph its size allows.
+        val ez = Math.min(z, 15)
+        val etx = tx shr (z - ez)
+        val ety = ty shr (z - ez)
         // The heights were prefetched, but into a memory shared with the
         // altitude profile and with a load still finishing on a scene already
         // left behind, either of which may have pushed this tile out again.
         // Read it back — from disk, nearly always — rather than sample thirty-
         // seven thousand nulls and hand back no tile, which is how a switch to
         // this view sometimes came up with holes in the ground.
-        Elevation.ensure(z, tx, ty)
+        // All four through the pool first, side by side; the serial ensures
+        // below then find them arriving rather than each paying its own
+        // round trip in a row — which was most of a cold view's first wait.
+        Elevation.warm(listOf(
+            intArrayOf(ez, etx, ety), intArrayOf(ez, etx + 1, ety),
+            intArrayOf(ez, etx, ety + 1), intArrayOf(ez, etx + 1, ety + 1)))
+        Elevation.ensure(ez, etx, ety)
         // The east column and south row of the grid lie exactly on the tile
         // boundary, and a boundary coordinate resolves in the next tile over —
         // so the very edge of every tile is sampled from its neighbours. When
@@ -767,50 +501,79 @@ class TerrainScene {
         // swapped it for the tile-wide average, and that baked a wall of
         // stretched texture along the join — with a black crack beside it once
         // the honest neighbour tile was built against it.
-        Elevation.ensure(z, tx + 1, ty)
-        Elevation.ensure(z, tx, ty + 1)
-        Elevation.ensure(z, tx + 1, ty + 1)
+        Elevation.ensure(ez, etx + 1, ety)
+        Elevation.ensure(ez, etx, ety + 1)
+        Elevation.ensure(ez, etx + 1, ety + 1)
         val westLon = tileLon(tx, z)
         val eastLon = tileLon(tx + 1, z)
         val northLat = tileLat(ty, z)
         val southLat = tileLat(ty + 1, z)
 
-        val heights = FloatArray(GRID * GRID)
+        // Fine at the leaf level, coarser above it: the sharpness lives where
+        // the camera can get close, and everything else is background. The
+        // middle levels stay dense enough that their borders agree with a
+        // finer neighbour's — sparse ones missed karst ridges by tens of
+        // metres, and every miss stood as a wall along the join.
+        // the z16 span is a quarter of z15's, so 65 samples already read the
+        // source twice per pixel — a denser grid there is triangles for nothing
+        val grid = if (z >= 16) 65 else if (z >= 15) 129 else if (z >= 12) 97 else 65
+        val heights = FloatArray(grid * grid)
         var any = false
-        for (row in 0 until GRID) {
-            val lat = northLat + (southLat - northLat) * row / (GRID - 1)
-            for (col in 0 until GRID) {
-                val lon = westLon + (eastLon - westLon) * col / (GRID - 1)
-                val h = Elevation.elevationAt(lat, lon, z)
+        var rimMissing = false
+        var lowest = Float.MAX_VALUE
+        var highest = -Float.MAX_VALUE
+        for (row in 0 until grid) {
+            val lat = northLat + (southLat - northLat) * row / (grid - 1)
+            for (col in 0 until grid) {
+                val lon = westLon + (eastLon - westLon) * col / (grid - 1)
+                val h = Elevation.elevationAt(lat, lon, ez)
                 if (h != null) {
-                    heights[row * GRID + col] = h - originAltitude
+                    val rel = h - originAltitude
+                    heights[row * grid + col] = rel
+                    if (rel < lowest) lowest = rel
+                    if (rel > highest) highest = rel
                     any = true
                 } else {
-                    heights[row * GRID + col] = Float.NaN
+                    heights[row * grid + col] = Float.NaN
+                    if (row == 0 || col == 0 || row == grid - 1 || col == grid - 1) {
+                        rimMissing = true
+                    }
                 }
             }
         }
         if (!any) return null
+        // A rim with no data means a neighbour tile has not arrived. Refusing
+        // to build was a storm: one failed fetch put a thirty second hole in
+        // the data, and every tile touching it failed on five second retries
+        // while the camera flew on. Built anyway, the world stays covered and
+        // the flag sends it back to be built right once the data lands.
         fillGaps(heights)
 
-        val vertices = FloatArray(GRID * GRID * 8)
-        val spacing = Math.abs(east(eastLon) - east(westLon)) / (GRID - 1)
+        // the rim again as a skirt ring, so the box and the buffers hold both
+        val rim = 4 * (grid - 1)
+        val vertexCount = grid * grid + rim
+        // Short indices: a finer grid must fail here, not as garbage triangles.
+        check(vertexCount <= 32767) { "grid $grid does not fit short indices" }
+
+        val vertices = FloatArray(vertexCount * 8)
+        val span = Math.abs(east(eastLon) - east(westLon))
+        val spacing = span / (grid - 1)
         var v = 0
-        for (row in 0 until GRID) {
-            val lat = northLat + (southLat - northLat) * row / (GRID - 1)
-            for (col in 0 until GRID) {
-                val lon = westLon + (eastLon - westLon) * col / (GRID - 1)
-                val h = heights[row * GRID + col]
+        for (row in 0 until grid) {
+            val lat = northLat + (southLat - northLat) * row / (grid - 1)
+            for (col in 0 until grid) {
+                val lon = westLon + (eastLon - westLon) * col / (grid - 1)
+                val h = heights[row * grid + col]
                 vertices[v++] = east(lon)
                 vertices[v++] = h
                 vertices[v++] = -north(lat)
-                vertices[v++] = col.toFloat() / (GRID - 1)
-                vertices[v++] = row.toFloat() / (GRID - 1)
+                vertices[v++] = col.toFloat() / (grid - 1)
+                vertices[v++] = row.toFloat() / (grid - 1)
                 // normal from the neighbouring heights, for a little relief
-                val hl = heights[row * GRID + Math.max(0, col - 1)]
-                val hr = heights[row * GRID + Math.min(GRID - 1, col + 1)]
-                val hu = heights[Math.max(0, row - 1) * GRID + col]
-                val hd = heights[Math.min(GRID - 1, row + 1) * GRID + col]
+                val hl = heights[row * grid + Math.max(0, col - 1)]
+                val hr = heights[row * grid + Math.min(grid - 1, col + 1)]
+                val hu = heights[Math.max(0, row - 1) * grid + col]
+                val hd = heights[Math.min(grid - 1, row + 1) * grid + col]
                 val nx = (hl - hr)
                 val nz = (hu - hd)
                 val ny = if (spacing > 0.01f) 2f * spacing else 1f
@@ -821,23 +584,61 @@ class TerrainScene {
             }
         }
 
-        val indices = ShortArray((GRID - 1) * (GRID - 1) * 6)
+        // The skirt: the rim dropped just far enough, wearing the rim's own
+        // texel and normal. Where a neighbour at another detail level meets
+        // this tile a hair apart, the eye sees a sliver of the tile's own
+        // picture instead of a crack of sky. Deep enough for the height a
+        // coarser neighbour can be wrong by, and no deeper — a twentieth of
+        // a coarse tile was a seven hundred metre curtain on the horizon.
+        val skirtDepth = Math.min(span * 0.02f, 120f)
+        val rimIndices = IntArray(rim)
+        var r = 0
+        for (col in 0 until grid - 1) rimIndices[r++] = col
+        for (row in 0 until grid - 1) rimIndices[r++] = row * grid + (grid - 1)
+        for (col in grid - 1 downTo 1) rimIndices[r++] = (grid - 1) * grid + col
+        for (row in grid - 1 downTo 1) rimIndices[r++] = row * grid
+        for (k in 0 until rim) {
+            val src = rimIndices[k] * 8
+            vertices[v++] = vertices[src]
+            vertices[v++] = vertices[src + 1] - skirtDepth
+            vertices[v++] = vertices[src + 2]
+            vertices[v++] = vertices[src + 3]
+            vertices[v++] = vertices[src + 4]
+            vertices[v++] = vertices[src + 5]
+            vertices[v++] = vertices[src + 6]
+            vertices[v++] = vertices[src + 7]
+        }
+
+        val indices = ShortArray((grid - 1) * (grid - 1) * 6 + rim * 6)
         var i = 0
-        for (row in 0 until GRID - 1) {
-            for (col in 0 until GRID - 1) {
-                val a = (row * GRID + col).toShort()
-                val b = (row * GRID + col + 1).toShort()
-                val c = ((row + 1) * GRID + col).toShort()
-                val d = ((row + 1) * GRID + col + 1).toShort()
+        for (row in 0 until grid - 1) {
+            for (col in 0 until grid - 1) {
+                val a = (row * grid + col).toShort()
+                val b = (row * grid + col + 1).toShort()
+                val c = ((row + 1) * grid + col).toShort()
+                val d = ((row + 1) * grid + col + 1).toShort()
                 indices[i++] = a; indices[i++] = c; indices[i++] = b
                 indices[i++] = b; indices[i++] = c; indices[i++] = d
             }
         }
+        val ringBase = grid * grid
+        for (k in 0 until rim) {
+            val kn = (k + 1) % rim
+            val a = rimIndices[k].toShort()
+            val b = rimIndices[kn].toShort()
+            val c = (ringBase + k).toShort()
+            val d = (ringBase + kn).toShort()
+            indices[i++] = a; indices[i++] = c; indices[i++] = b
+            indices[i++] = b; indices[i++] = c; indices[i++] = d
+        }
 
         // No picture: a tile is built for its shape, and its photograph is
         // hung on it afterwards by the pass that fetches them.
-        val texture = null
-        return TileMesh(tileKey(tx, ty), vertices, indices, texture)
+        return TileMesh(tileKey(z, tx, ty), vertices, indices, null,
+            east(westLon), east(eastLon),
+            lowest - skirtDepth, highest,
+            -north(northLat), -north(southLat),
+            rimComplete = !rimMissing)
     }
 
     /** A hole in the data becomes the average of what is around it, not a pit. */
@@ -857,42 +658,31 @@ class TerrainScene {
         }
     }
 
-    /** The detail the ground was built at, chosen from how much area it covers. */
-    @Volatile var zoom = PREFERRED_ZOOM
-        private set
-
-    private fun tileCount(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
-                          z: Int): Int {
-        val x0 = Elevation.tileX(minLon, z)
-        val x1 = Elevation.tileX(maxLon, z)
-        val y0 = Elevation.tileY(maxLat, z)
-        val y1 = Elevation.tileY(minLat, z)
-        return (Math.abs(x1 - x0) + 1) * (Math.abs(y1 - y0) + 1)
-    }
-
-    /** The area the ground was built for, so a live flight can tell when it leaves it. */
-    var loadedMinLat = 0.0; private set
-    var loadedMaxLat = 0.0; private set
-    var loadedMinLon = 0.0; private set
-    var loadedMaxLon = 0.0; private set
+    /** The level the last groundAt answer came from; nearly every call repeats it. */
+    @Volatile private var lastGroundZoom = 15
 
     /**
-     * Whether a position is close enough to the edge of the built ground to be
-     * worth fetching more. Half a kilometre of warning, so the tiles are there
-     * before the model needs them rather than after it has flown off the end.
+     * The finest ground anyone has in memory here, wherever "here" is.
+     *
+     * The ground is no longer one zoom: near the camera it is leaf tiles,
+     * far away it is coarse ones, and a question about a far corner of the
+     * flight deserves the best answer available rather than none. Walked
+     * from the level that answered last time, since consecutive questions
+     * are almost always about the same neighbourhood.
      */
-    fun nearEdge(lat: Double, lon: Double, marginM: Double = 200.0): Boolean {
-        if (loadedMaxLat == loadedMinLat) return true
-        // Well inside the half kilometre the loader pads by. They were within
-        // a metre of each other, so the first fix that moved at all asked for
-        // more ground, and went on asking on every fix for the whole flight.
-        val marginLat = marginM / METRES_PER_DEGREE_LAT
-        val marginLon = marginM / metresPerDegreeLon(lat)
-        return lat < loadedMinLat + marginLat || lat > loadedMaxLat - marginLat ||
-            lon < loadedMinLon + marginLon || lon > loadedMaxLon - marginLon
+    fun groundAt(lat: Double, lon: Double): Float? {
+        val first = lastGroundZoom
+        Elevation.elevationAt(lat, lon, first)?.let { return it }
+        for (level in 15 downTo 0) {
+            if (level == first) continue
+            val h = Elevation.elevationAt(lat, lon, level)
+            if (h != null) {
+                lastGroundZoom = level
+                return h
+            }
+        }
+        return null
     }
-
-    fun groundAt(lat: Double, lon: Double): Float? = Elevation.elevationAt(lat, lon, zoom)
 
     /** The half-width of everything flown, from the bounds gathered so far. */
     private fun measure() {
@@ -905,7 +695,7 @@ class TerrainScene {
         val out = FloatArray(points.size * 3)
         var i = 0
         for (p in points) {
-            val ground = Elevation.elevationAt(p.lat, p.lon, zoom)
+            val ground = groundAt(p.lat, p.lon)
             out[i++] = east(p.lon)
             out[i++] = if (ground != null) ground - originAltitude else 0f
             out[i++] = -north(p.lat)

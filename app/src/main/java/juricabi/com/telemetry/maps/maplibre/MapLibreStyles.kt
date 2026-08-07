@@ -57,11 +57,12 @@ object MapLibreStyles {
      */
     fun maxTileZoom(mapType: Int): Float = when (mapType) {
         MAP_TYPE_TOPO -> 17f
-        // Eighteen, which is what osmdroid was told and is the number that
-        // matters: ArcGIS does not refuse a tile it has no imagery for, it
-        // serves a white one. So a request past the end does not fail and get
-        // scaled up from what is there — it succeeds, and the ground is white.
-        MAP_TYPE_SATELLITE, MAP_TYPE_SATELLITE_HYBRID -> 18f
+        // Seventeen: the deepest level ArcGIS has pictures for everywhere.
+        // Its coverage past that is patchy, and it does not refuse a tile it
+        // lacks — it serves a "map data not yet available" watermark, which
+        // is white ground with writing on it. Seventeen everywhere, scaled
+        // up past it: blurry, never blank.
+        MAP_TYPE_SATELLITE, MAP_TYPE_SATELLITE_HYBRID -> 17f
         else -> 19f
     }
 

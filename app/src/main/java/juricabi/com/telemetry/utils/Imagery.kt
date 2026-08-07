@@ -48,12 +48,11 @@ object Imagery {
     /** 3 is 8x8 children and a 2048px texture; past that no mesh shows the detail. */
     private const val MAX_EXTRA_ZOOM = 3
 
-    // Eight, because this is the pace the ground keeps up with a fast
-    // traverse: a mosaic is sixty-four fetches, and at four threads that is
-    // sixteen round trips in a row — seconds per tile, tens of seconds per
-    // window, which a model at thirty metres a second flew clean off. The
-    // server does its own throttling and answers eight as happily as four.
-    private const val POOL_THREADS = 8
+    // Sixteen, because this pool now feeds several mosaics at once: the
+    // quadtree dresses four tiles in parallel, and at eight threads they
+    // starved each other back to the serial pace this was meant to cure.
+    // The server does its own throttling and answers sixteen as happily.
+    private const val POOL_THREADS = 16
     private const val MOSAIC_TIMEOUT_MS = 120000L
     private const val HTTP_TIMEOUT_MS = 15000
 
@@ -106,6 +105,7 @@ object Imagery {
      */
     fun mosaic(z: Int, x: Int, y: Int, extraZoom: Int): Bitmap? {
         var mosaic: Bitmap? = null
+        var sawPlaceholder = false
         try {
             if (z < 0 || z > MAX_ZOOM) return null
             val n = 1 shl z
@@ -131,6 +131,14 @@ object Imagery {
                         try {
                             val child = fetch(childZoom, childX, childY) ?: return@Runnable
                             try {
+                                // ArcGIS serves a "not yet available" watermark
+                                // where its imagery ends, not an error — baked
+                                // into the ground it is white squares with
+                                // writing on them.
+                                if (looksLikePlaceholder(child)) {
+                                    sawPlaceholder = true
+                                    return@Runnable
+                                }
                                 // Canvas is not thread safe and every child lands on this one
                                 synchronized(canvas) {
                                     canvas.drawBitmap(
@@ -158,6 +166,13 @@ object Imagery {
                 } catch (e: Exception) {
                     job.cancel(true)
                 }
+            }
+            // Watermarks mean this level does not exist here: step back one
+            // and let real pictures fill the whole square, scaled by the
+            // mesh rather than written on by the server.
+            if (sawPlaceholder && extra > 0) {
+                mosaic.recycle()
+                return mosaic(z, x, y, extra - 1)
             }
             // a missing square is only haze on the texture, but all of them means
             // there is no imagery here at all and the caller should not texture
@@ -224,6 +239,31 @@ object Imagery {
         } catch (e: OutOfMemoryError) {
             return null
         }
+    }
+
+    /**
+     * ArcGIS's "map data not yet available" square: near-uniform light grey
+     * with faint writing. Sixteen samples with a tight mean and no colour is
+     * that tile; a real photograph this uniform and this pale is snow, and
+     * snow at least varies more than paint.
+     */
+    private fun looksLikePlaceholder(bitmap: Bitmap): Boolean {
+        var lowest = 255
+        var highest = 0
+        for (sy in 0 until 4) {
+            for (sx in 0 until 4) {
+                val pixel = bitmap.getPixel(
+                    sx * (bitmap.width - 1) / 3, sy * (bitmap.height - 1) / 3)
+                val r = (pixel shr 16) and 0xFF
+                val g = (pixel shr 8) and 0xFF
+                val b = pixel and 0xFF
+                // colour disqualifies at once
+                if (Math.abs(r - g) > 8 || Math.abs(g - b) > 8) return false
+                if (r < lowest) lowest = r
+                if (r > highest) highest = r
+            }
+        }
+        return lowest > 180 && highest - lowest < 40
     }
 
     private fun decode(bytes: ByteArray): Bitmap? {

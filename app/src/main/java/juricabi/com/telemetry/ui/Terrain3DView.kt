@@ -11,6 +11,7 @@ import android.widget.FrameLayout
 import android.widget.TextView
 import juricabi.com.telemetry.gl.LiveFlightPath
 import juricabi.com.telemetry.gl.TerrainRenderer
+import juricabi.com.telemetry.gl.TerrainPager
 import juricabi.com.telemetry.gl.TerrainScene
 import juricabi.com.telemetry.utils.Elevation
 import juricabi.com.telemetry.utils.Imagery
@@ -34,6 +35,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private val surface = GLSurfaceView(context)
     private val renderer = TerrainRenderer()
     private val scene = TerrainScene()
+    private val pager = TerrainPager(scene, renderer)
     private val status = TextView(context)
 
     private var lastX = 0f
@@ -42,7 +44,6 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private var lastFocusY = 0f
     private var lastAngle = 0f
     private var seenVersion = -1
-    private var loadingTerrain = false
     @Volatile private var released = false
 
     /** The ground is up: until it is, there is nothing to draw anything on. */
@@ -210,13 +211,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // A context that did not survive lost its pictures — their heap copies
         // go the moment they are first uploaded. Fetch them back from disk.
         renderer.onPicturesLost = {
-            postFromTerrain {
-                scene.dropRecycledPictures()
-                val points = LiveFlightPath.snapshot()
-                val at = points.lastOrNull()
-                extendTerrainIfNeeded(points, at?.lat ?: scene.originLat,
-                    at?.lon ?: scene.originLon, force = true)
-            }
+            postFromTerrain { pager.redress() }
         }
     }
 
@@ -250,7 +245,6 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             }
             scene.setOrigin(fallbackLat, fallbackLon)
         }
-        val flight = if (hasFlight) points else emptyList()
 
         renderer.groundUnderCamera = { x, z ->
             val lat = scene.latAt(z)
@@ -271,39 +265,25 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         renderer.maxDistance = reachOfFlight()
         // no notice that it is loading: the empty screen says so already
 
-        // the ground gathers around the model, or around here when nothing is
-        // flying yet
-        val focusLat = if (hasFlight) points[points.size - 1].lat else scene.originLat
-        val focusLon = if (hasFlight) points[points.size - 1].lon else scene.originLon
-
-        // Claimed before it starts. This was only ever cleared here and set by
-        // the extend, so throughout the first load — twelve tiles, sixty-four
-        // fetches each — anything that neared the edge of the window started a
-        // second loader on the same scene. Two threads then built into one map
-        // of tiles while the other walked it, which is a crash waiting for the
-        // day the timing suits it.
-        loadingTerrain = true
-        val worker = Thread(Runnable {
-            try {
-            scene.loadTerrain(flight, focusLat, focusLon,
-                { postFromTerrain { groundArrived() } },
-                { postFromTerrain { groundArrived(true); loadingTerrain = false } })
-            } catch (e: Throwable) {
-                // Whatever went wrong out here — no signal, a tile that would
-                // not decode, memory — the ground is as ready as it is ever
-                // going to be. Left false, nothing would ever draw again and
-                // the screen would stay black with nothing said.
-                postFromTerrain {
-                    val first = !terrainReady
-                    terrainReady = true
-                    loadingTerrain = false
-                    rebuildOverlays()
-                    if (first) onGroundReady?.invoke()
-                }
+        // The pager owns which tiles exist from here on. These are the three
+        // moments the view has always cared about, wherever they come from.
+        pager.onFirstDressed = {
+            postFromTerrain { groundDressed() }
+        }
+        pager.onWorldMoved = {
+            // every draped plan was laid against the old world's heights
+            postFromTerrain { drapedPlans.clear() }
+        }
+        pager.onStatus = { message: String ->
+            postFromTerrain {
+                status.text = message
+                // Nothing will ever build here — the sea, or no signal and no
+                // cache. That is as ready as the ground will be: held any
+                // longer, a replay over it would never play at all.
+                if (message.isNotEmpty()) groundDressed()
             }
-        })
-        worker.name = "terrain-load"
-        worker.start()
+        }
+        pager.start()
         watch()
     }
 
@@ -327,65 +307,44 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     }
 
     /**
-     * A tile has landed, or the last of them has.
+     * The first tile stands with its picture on.
      *
-     * The ground is built one tile at a time and shown as each is finished, so
-     * this runs many times over a load: it hands the renderer whatever is built
-     * and tells it what to keep. Everything that was waiting on ground to stand
-     * on goes on the first one, not the last — that is the difference between a
-     * black screen for several seconds and terrain under the model at once.
+     * The flight waits for that moment: the shape of the ground shows as it
+     * comes, but a model flying across bare grey mesh with its whole path
+     * drawn over it is a worse thing to watch than a moment of empty screen.
+     * Everything that was waiting for ground to stand on goes now — the
+     * flight, the camera snap, the overlays, and whoever held a replay.
      */
-    private fun groundArrived(whateverHasCome: Boolean = false) {
-        val meshes = scene.tiles
-        // The flight waits for the ground to have its picture.
-        //
-        // The shape of the ground is built first and shown as it comes, which
-        // is what puts something on the screen quickly. But a model flying
-        // across bare grey mesh, with its whole path drawn over it, is a worse
-        // thing to watch than a moment of empty screen — so the flight, the
-        // model and the lines hold until at least one tile has its photograph.
-        // Once the loading has finished they are shown whatever came of it, or
-        // somewhere with no imagery at all would never show a flight.
-        val dressed = whateverHasCome || meshes.any { it.texture != null }
-        val first = !terrainReady && dressed
-        if (dressed) terrainReady = true
-        // The frame moved under ground that was already up: every tile has
-        // the old datum baked into it, so none of them is worth keeping — and
-        // neither is a plan draped against it, which otherwise hung at the old
-        // world's heights over the rebuilt ground.
-        if (scene.takeWorldMoved()) {
-            renderer.keepOnly(emptySet())
-            drapedPlans.clear()
-        }
-        val keys = HashSet<Long>()
-        for (mesh in meshes) keys.add(mesh.key)
-        renderer.keepOnly(keys)
-        for (mesh in meshes) renderer.offer(mesh)
-        if (first) {
-            seenVersion = -1
-            renderer.setTrack(scene.track, scene.shadow)
-            pickUpNewPoints()
-            // Arrive at the model rather than travel to it. The camera is aimed
-            // at the middle of the scene until the ground is up and the flight
-            // can be placed, and easing from one to the other is a second or
-            // two of the whole world sliding past while the view opens.
-            renderer.snapToTarget()
-            // and the plans and traffic in their own right: they are worth
-            // seeing over bare ground, and with nothing flying the flight above
-            // would never have drawn them at all
-            rebuildOverlays()
-            placeMyArrow()
-            placeLoggedArrow()
-            onGroundReady?.invoke()
-        }
-        status.text = if (meshes.isEmpty()) "No terrain here" else ""
+    private fun groundDressed() {
+        if (terrainReady) return
+        terrainReady = true
+        seenVersion = -1
+        renderer.setTrack(scene.track, scene.shadow)
+        pickUpNewPoints()
+        // Arrive at the model rather than travel to it. The camera is aimed
+        // at the middle of the scene until the ground is up and the flight
+        // can be placed, and easing from one to the other is a second or
+        // two of the whole world sliding past while the view opens.
+        renderer.snapToTarget()
+        // and the plans and traffic in their own right: they are worth
+        // seeing over bare ground, and with nothing flying the flight above
+        // would never have drawn them at all
+        rebuildOverlays()
+        placeMyArrow()
+        placeLoggedArrow()
+        onGroundReady?.invoke()
     }
 
     /**
-     * How far back the camera may be pulled: far enough to see the whole
-     * flight, and never so close in that a small one cannot be looked at.
+     * How far back the camera may be pulled: the whole region, always.
+     *
+     * This used to stop a couple of kilometres out, because the ground was a
+     * window that far across and past it there was only sky. The ground is a
+     * pyramid now — coarse tiles carry to the horizon — so pulling out to see
+     * the flight against its mountains and coastline is the point, not a way
+     * off the edge of the world.
      */
-    private fun reachOfFlight(): Float = Math.max(2500f, scene.extent * 5f)
+    private fun reachOfFlight(): Float = Math.max(150_000f, scene.extent * 6f)
 
     private fun heightOfTrack(): Float {
         var highest = 0f
@@ -579,90 +538,8 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             // camera goes with it rather than drifting up after it
             renderer.snapToTarget()
         }
-        extendTerrainIfNeeded(points, last.lat, last.lon)
-    }
-
-    /**
-     * More ground, when something that has to stand on it nears the edge.
-     *
-     * The model, and this phone as well: driving to the far side of a field
-     * with the view open used to take the arrow past the loaded ground, where
-     * it stopped dead — no more terrain was asked for, because only the flight
-     * was being watched.
-     *
-     * Not the camera, deliberately. Panning across the county would pull tiles
-     * for wherever it was pointed and evict the ones the flight is on.
-     */
-    /**
-     * Where the model was a moment ago, so a fast traverse can be led.
-     *
-     * The window used to be centred on wherever the model stood when a load
-     * began, which on a long straight run spent half of every load buying
-     * ground already behind it — and a surf along a ridge outran the loads
-     * entirely, flying off the edge into nothing. Led by the motion, the
-     * model rides at the back of the window and the whole budget buys ground
-     * it is about to reach.
-     */
-    private var motionLat = 0.0
-    private var motionLon = 0.0
-    private var motionAt = 0L
-    private var motionMetresPerSec = 0.0
-    private var motionBearing = 0.0
-
-    private fun noteMotion(lat: Double, lon: Double) {
-        val now = android.os.SystemClock.elapsedRealtime()
-        val dt = (now - motionAt) / 1000.0
-        if (motionAt == 0L || dt >= 0.5) {
-            if (motionAt != 0L && dt <= 10.0) {
-                val north = (lat - motionLat) * scene.metresUp()
-                val east = (lon - motionLon) * scene.metresAcross(lat)
-                val speed = Math.hypot(east, north) / dt
-                // a replay seek is a jump, not a flight; do not lead into it
-                if (speed <= 150.0) {
-                    motionMetresPerSec = speed
-                    motionBearing = Math.atan2(east, north)
-                } else {
-                    motionMetresPerSec = 0.0
-                }
-            }
-            motionLat = lat
-            motionLon = lon
-            motionAt = now
-        }
-    }
-
-    private fun extendTerrainIfNeeded(points: List<TerrainScene.TrackPoint>,
-                                      lat: Double, lon: Double, force: Boolean = false) {
-        noteMotion(lat, lon)
-        // Both capped so they can never meet across the window: the lead puts
-        // the model at most 450m from the trailing edge, and the margin stays
-        // 100m inside that, or every load would retrigger off its own tail.
-        val lead = Math.min(450.0, motionMetresPerSec * 15.0)
-        val margin = Math.min(350.0, Math.max(200.0, motionMetresPerSec * 12.0))
-        val aheadLat = lat + lead * Math.cos(motionBearing) / scene.metresUp()
-        val aheadLon = lon + lead * Math.sin(motionBearing) / scene.metresAcross(lat)
-        if (!released && !loadingTerrain && (force || scene.nearEdge(lat, lon, margin))) {
-            loadingTerrain = true
-            status.text = ""
-            val worker = Thread(Runnable {
-                try {
-                    scene.loadTerrain(points, aheadLat, aheadLon,
-                        { postFromTerrain { groundArrived() } },
-                        { postFromTerrain {
-                            groundArrived(true)
-                            renderer.maxDistance = reachOfFlight()
-                            loadingTerrain = false
-                        } })
-                } catch (e: Throwable) {
-                    // As the first load is guarded: no signal, a tile that will
-                    // not decode, memory. The ground stays as it is; letting it
-                    // out of the thread ends the process.
-                    postFromTerrain { loadingTerrain = false }
-                }
-            })
-            worker.name = "terrain-extend"
-            worker.start()
-        }
+        // the pager reads the camera itself; this just spares it the wait
+        pager.poke()
     }
 
     private fun courseBetween(from: TerrainScene.TrackPoint, to: TerrainScene.TrackPoint): Float {
@@ -685,12 +562,10 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // phone had been while the arrow walked away from the end of it
         rebuildOverlays()
         if (!groundFollowsPhone) return
-        // With nothing flying, this is the only thing that can walk off the
-        // edge of the loaded ground. While something is flying, the ground
-        // gathers around that instead — it cannot follow both at once, and the
-        // model is the one being watched.
+        // the camera follows the arrow, and the pager follows the camera —
+        // a walk to the far side of the field just needs a nudge to look
         if (started && terrainReady && LiveFlightPath.size() < 2) {
-            extendTerrainIfNeeded(LiveFlightPath.snapshot(), lat, lon)
+            pager.poke()
         }
     }
 
@@ -1361,6 +1236,10 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         onFollowingLost = null
         onBearingChanged = null
         renderer.onPicturesLost = null
+        pager.onFirstDressed = null
+        pager.onWorldMoved = null
+        pager.onStatus = null
+        pager.abandon()
         // and the ground: the thread loading it holds this view, and its
         // pictures are the largest thing the app ever has in its hands
         scene.abandon()

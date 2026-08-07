@@ -44,8 +44,15 @@ object Elevation {
     private const val MAX_ZOOM = 15
     private const val TILE_URL = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium"
 
-    /** ~128 KB of heights each, so a couple of dozen is a few megabytes. */
-    private const val MEMORY_TILES = 24
+    /**
+     * ~128 KB of heights each, so this is about twenty megabytes — the
+     * cheapest memory in the whole system. The pyramid's working set spans
+     * every zoom at once plus the warm-ahead; at sixty-four tiles the cache
+     * evicted what a build was standing on between the fetch and the
+     * sample, the build failed its rim check, and whole regions sat grey
+     * on five-second retries.
+     */
+    private const val MEMORY_TILES = 320
 
     /** A track's bounding box is normally a handful of tiles; this is a runaway guard. */
     private const val MAX_PREFETCH_TILES = 256
@@ -72,13 +79,12 @@ object Elevation {
         }
 
     /**
-     * Four threads for the life of the process, rather than four more every
-     * time a corner of ground is asked for. The ground is now fetched a tile at
-     * a time, so that used to mean a new pool per tile — and they were not
-     * daemon threads, so they held the process up on the way out.
+     * Eight threads for the life of the process, rather than a pool per
+     * request. The quadtree warms a dozen rings of tiles at a time, and the
+     * pool is what turns that from a dozen round trips into one.
      */
     private val pool by lazy {
-        Executors.newFixedThreadPool(4, java.util.concurrent.ThreadFactory { runnable ->
+        Executors.newFixedThreadPool(8, java.util.concurrent.ThreadFactory { runnable ->
             val thread = Thread(runnable, "elevation")
             thread.isDaemon = true
             thread
@@ -279,6 +285,23 @@ object Elevation {
      */
     fun ensure(zoom: Int, x: Int, y: Int): Boolean = load(zoom, x, y)
 
+    /**
+     * Start fetching a set of tiles through the pool and return at once.
+     *
+     * Waiting for them was six grey seconds at the start of the 3D view:
+     * whoever asked could do nothing else, and the pictures the screen was
+     * actually waiting on queued behind the wait. The tiles land in cache on
+     * their own; whoever needs one before then blocks on that one alone.
+     */
+    fun warm(wanted: Collection<IntArray>) {
+        for (t in wanted) {
+            pool.submit { load(t[0], t[1], t[2]) }
+        }
+    }
+
+    /** Fetches under way, so a racing second asker waits instead of repeating. */
+    private val inFlight = HashSet<Long>()
+
     /** Memory, then disk, then the network. Returns true if the tile is now in memory. */
     private fun load(zoom: Int, x: Int, y: Int): Boolean {
         if (cached(zoom, x, y) != null) return true
@@ -291,6 +314,32 @@ object Elevation {
                 android.os.SystemClock.elapsedRealtime() < (retryAt[key] ?: 0L)
         }
         if (skip) return false
+        // The warm-ahead pool and a build often want the same tile in the
+        // same breath, and both downloading it was twice the bandwidth and
+        // twice the load on a server that throttles for less. The second
+        // asker waits for the first and reads its result.
+        synchronized(inFlight) {
+            while (inFlight.contains(key)) {
+                try {
+                    (inFlight as java.lang.Object).wait(20_000)
+                } catch (e: InterruptedException) {
+                    return false
+                }
+            }
+            if (cached(zoom, x, y) != null) return true
+            inFlight.add(key)
+        }
+        try {
+            return fetch(zoom, x, y, key)
+        } finally {
+            synchronized(inFlight) {
+                inFlight.remove(key)
+                (inFlight as java.lang.Object).notifyAll()
+            }
+        }
+    }
+
+    private fun fetch(zoom: Int, x: Int, y: Int, key: Long): Boolean {
         var bytes = readDisk(zoom, x, y)
         val fromDisk = bytes != null
         if (bytes == null) {

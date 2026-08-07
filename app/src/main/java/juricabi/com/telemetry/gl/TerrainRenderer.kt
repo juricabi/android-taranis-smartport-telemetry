@@ -26,11 +26,17 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             attribute vec4 aPosition;
             attribute vec2 aTexture;
             attribute vec3 aNormal;
+            uniform float uUvScale;
+            uniform vec2 uUvOff;
             varying vec2 vTexture;
             varying float vShade;
             void main() {
                 gl_Position = uMvp * aPosition;
-                vTexture = aTexture;
+                // A tile whose own picture has not arrived borrows an
+                // ancestor's, reading only its own quarter of a quarter of it:
+                // fine ground with a soft photograph beats grey, and the sharp
+                // one replaces it in place when it lands.
+                vTexture = aTexture * uUvScale + uUvOff;
                 // a fixed light from the north west, the way a printed map is lit
                 vec3 light = normalize(vec3(-0.5, 0.8, -0.4));
                 // How much the face lies across the light, not which way it
@@ -132,6 +138,16 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         /** How much of the way to what it has been told, each frame. */
         private const val SMOOTHING = 0.18f
 
+        /** The vertical field of view; the pager's screen-error maths uses it too. */
+        const val FOV_Y = 50f
+
+        /**
+         * Meshes sent to the card per frame, at most. Eight is still several
+         * hundred a second — far past the build rate — and small enough that
+         * a burst never steals visible milliseconds from a replay's frame.
+         */
+        private const val UPLOADS_PER_FRAME = 8
+
         /** How many fixes can arrive between two rebuilds of the flight. */
         private const val SPARE_POINTS = 600
 
@@ -154,29 +170,55 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val vertexBuffer: Int,
         val indexBuffer: Int,
         val count: Int,
-        var textureId: Int
+        var textureId: Int,
+        /** The tile's box in world metres, for the frustum test. */
+        val minX: Float, val maxX: Float,
+        val minY: Float, val maxY: Float,
+        val minZ: Float, val maxZ: Float
     )
 
-    private val tiles = ArrayList<Tile>()
+    /** By key, so a tile without its own picture can find an ancestor's. */
+    private val tiles = HashMap<Long, Tile>()
     private val pending = ArrayList<TerrainScene.TileMesh>()
 
     /**
-     * The meshes as handed in, kept so they can be uploaded again.
+     * Pictures for tiles whose shape is already up, in their own queue.
      *
-     * Leaving the app throws away the GL context and everything in it; without
-     * this the view came back black, because what had been uploaded was gone
-     * and nothing was left to upload. Only the geometry comes back from here
-     * now: the pictures are recycled as they reach the card, and a lost
-     * context gets them again through [onPicturesLost] and the disk cache.
+     * They used to share [pending], whose emptiness is what lets a new draw
+     * set apply — so a burst of pictures, throttled to a couple per frame,
+     * held the draw set stale for seconds while evictions applied instantly:
+     * tiles vanished from under the stale list and left holes with the
+     * neighbours' skirts hanging into them.
      */
-    private val submitted = ArrayList<TerrainScene.TileMesh>()
+    private val pendingPictures = ArrayList<TerrainScene.TileMesh>()
 
-    /** Told when a new context finds its pictures recycled; runs on the GL thread. */
+    /**
+     * Told when a new context arrives with nothing in it; runs on the GL
+     * thread. The meshes used to be retained on the heap for this moment —
+     * which at a few hundred resident tiles was hundreds of megabytes and an
+     * OutOfMemory, kept against an event that rebuilds from warm disk caches
+     * in a couple of seconds anyway. Now the pager just builds the world
+     * again, the way it built it the first time.
+     */
     @Volatile var onPicturesLost: (() -> Unit)? = null
 
     /** The tiles still wanted, once the scene has said. Null means all of them. */
     private var keep: HashSet<Long>? = null
     private var keepChanged = false
+
+    /**
+     * The tiles to actually draw — the pager's cover, a subset of what is
+     * resident. Null means all of them, which is what the old window flow
+     * still relies on. [drawSetWanted] waits until the upload queue drains,
+     * so a set naming a tile still in the queue never draws a hole.
+     */
+    private var drawSet: HashSet<Long>? = null
+    private var drawSetWanted: HashSet<Long>? = null
+
+    @Synchronized
+    fun setDrawSet(keys: Set<Long>) {
+        drawSetWanted = HashSet(keys)
+    }
 
     private var trackBuffer: FloatBuffer? = null
     private var trackCount = 0
@@ -347,6 +389,22 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     /** As far out as the ground goes; set from the flight, not guessed. */
     @Volatile var maxDistance = 3000f
     @Volatile var target = floatArrayOf(0f, 0f, 0f)
+
+    /**
+     * Where the camera actually stood last frame, in world metres, and how
+     * tall the surface is. The pager's screen-error arithmetic reads these:
+     * the eye rather than the target, because tile detail is a question of
+     * how far the *viewer* is from the ground, wherever they are looking.
+     */
+    @Volatile var eyeX = 0f; private set
+    @Volatile var eyeY = 0f; private set
+    @Volatile var eyeZ = 0f; private set
+    @Volatile var viewHeightPx = 1; private set
+
+    /** Which way the camera faces, so detail can chase the view. */
+    @Volatile var viewDirX = 0f; private set
+    @Volatile var viewDirY = 0f; private set
+    @Volatile var viewDirZ = -1f; private set
 
     /**
      * No exaggeration. Heights were stretched by nearly half to make hills
@@ -642,14 +700,14 @@ class TerrainRenderer : GLSurfaceView.Renderer {
      */
     @Synchronized
     fun offer(mesh: TerrainScene.TileMesh) {
-        pending.add(mesh)
-        for (i in submitted.indices) {
-            if (submitted[i].key == mesh.key) {
-                submitted[i] = mesh
-                return
-            }
+        // A picture for a tile already standing rides its own queue; only a
+        // new shape goes through pending, whose drain is what admits a new
+        // draw set.
+        if (tiles.containsKey(mesh.key) && mesh.texture != null) {
+            pendingPictures.add(mesh)
+        } else {
+            pending.add(mesh)
         }
-        submitted.add(mesh)
     }
 
     /**
@@ -663,9 +721,14 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     fun keepOnly(keys: Set<Long>) {
         keep = HashSet(keys)
         keepChanged = true
+        // and the pictures waiting for tiles that are no longer wanted
         var i = 0
-        while (i < submitted.size) {
-            if (!keys.contains(submitted[i].key)) submitted.removeAt(i) else i++
+        while (i < pendingPictures.size) {
+            if (!keys.contains(pendingPictures[i].key)) {
+                pendingPictures.removeAt(i)
+            } else {
+                i++
+            }
         }
     }
 
@@ -851,29 +914,29 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         modelProgram = program(MODEL_VERTEX, MODEL_FRAGMENT_EVEN)
         if (modelProgram == 0) modelProgram = program(MODEL_VERTEX, MODEL_FRAGMENT)
         lineProgram = program(LINE_VERTEX, LINE_FRAGMENT)
-        // a new context throws away every texture and buffer we had, so put
-        // the meshes back in the queue to be uploaded again
-        var picturesLost = false
+        // A new context arrives with nothing in it: what was uploaded is
+        // gone, and nothing on this side remembers it. The pager rebuilds
+        // the world from its caches, the way it built it the first time.
         synchronized(this) {
             tiles.clear()
             pending.clear()
-            pending.addAll(submitted)
-            // The geometry re-uploads from the meshes, but their pictures were
-            // recycled the moment they first reached the card. Say so, and the
-            // view fetches them back from the disk they were stitched from.
-            picturesLost = submitted.any { it.texture?.isRecycled == true }
+            pendingPictures.clear()
+            drawSet = null
+            drawSetWanted = null
         }
-        if (picturesLost) onPicturesLost?.invoke()
+        onPicturesLost?.invoke()
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
         surfaceWidth = Math.max(1, width)
         surfaceHeight = Math.max(1, height)
+        viewHeightPx = surfaceHeight
         GLES20.glViewport(0, 0, surfaceWidth, surfaceHeight)
         // the projection is rebuilt per frame instead, from how far out we are
     }
 
     override fun onDrawFrame(gl: GL10?) {
+        noteFrame()
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         uploadPending()
 
@@ -884,7 +947,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val ratio = surfaceWidth.toFloat() / surfaceHeight
         val near = Math.max(1f, distance / 200f)
         val far = Math.max(4000f, distance * 8f)
-        Matrix.perspectiveM(projection, 0, 50f, ratio, near, far)
+        Matrix.perspectiveM(projection, 0, FOV_Y, ratio, near, far)
 
         settle()
 
@@ -940,6 +1003,22 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         floorLift = if (liftsSnap) wantLift else floorLift + (wantLift - floorLift) * 0.15f
         liftsSnap = false
         eyeY += floorLift
+        // where the camera actually stood this frame, and which way it
+        // faced, for the pager's distance-to-tile arithmetic
+        this.eyeX = eyeX
+        this.eyeY = eyeY
+        this.eyeZ = eyeZ
+        run {
+            val dx = shownTarget[0] - eyeX
+            val dy = targetY - eyeY
+            val dz = shownTarget[2] - eyeZ
+            val len = Math.sqrt((dx * dx + dy * dy + dz * dz).toDouble()).toFloat()
+            if (len > 1f) {
+                viewDirX = dx / len
+                viewDirY = dy / len
+                viewDirZ = dz / len
+            }
+        }
         Matrix.setLookAtM(view, 0, eyeX, eyeY, eyeZ,
             shownTarget[0], targetY, shownTarget[2], 0f, 1f, 0f)
 
@@ -970,40 +1049,51 @@ class TerrainRenderer : GLSurfaceView.Renderer {
      */
     private fun uploadPending() {
         val meshes: List<TerrainScene.TileMesh>
+        val pictures: List<TerrainScene.TileMesh>
         synchronized(this) {
             // a change of mind about what to keep is reason enough to run,
-            // even with nothing new to put up
-            if (pending.isEmpty() && !keepChanged) return
+            // even with nothing new to put up — and so is a draw set waiting
+            // for the queue to drain
+            if (pending.isEmpty() && pendingPictures.isEmpty() &&
+                !keepChanged && drawSetWanted == null) {
+                return
+            }
             keepChanged = false
-            meshes = ArrayList(pending)
-            pending.clear()
-            // Whatever the scene no longer wants. It says so itself now, rather
-            // than it being inferred from a submission being the whole set —
-            // which it no longer is, since tiles arrive one at a time.
-            val wanted = keep
-            if (wanted != null) {
-                val gone = ArrayList<Tile>()
-                for (t in tiles) if (!wanted.contains(t.key)) gone.add(t)
-                for (t in gone) {
-                    if (t.textureId != 0) GLES20.glDeleteTextures(1, intArrayOf(t.textureId), 0)
-                    GLES20.glDeleteBuffers(2, intArrayOf(t.vertexBuffer, t.indexBuffer), 0)
-                    tiles.remove(t)
+            pruneLocked()
+            // A few at a time. A restored context queues every tile at once,
+            // and sending them all in one frame is a visible freeze.
+            val take = Math.min(pending.size, UPLOADS_PER_FRAME)
+            meshes = ArrayList(pending.subList(0, take))
+            pending.subList(0, take).clear()
+            // One: a big picture with its mipmaps is most of a frame on its
+            // own, and two of them in one frame is a stutter the eye catches
+            // in a moving replay.
+            val takePictures = Math.min(pendingPictures.size, 1)
+            pictures = ArrayList(pendingPictures.subList(0, takePictures))
+            pendingPictures.subList(0, takePictures).clear()
+        }
+        // Pictures are the heavy part of an upload — eight megabytes is tens
+        // of milliseconds on this thread — so they go up a couple per frame
+        // from their own queue, and never hold the mesh queue or the draw
+        // set behind them.
+        for (mesh in pictures) {
+            val here = synchronized(this) { tiles[mesh.key] } ?: continue
+            val bitmap = mesh.texture
+            if (bitmap != null && !bitmap.isRecycled) {
+                // a sharper picture replaces the one the tile wears
+                if (here.textureId != 0) {
+                    GLES20.glDeleteTextures(1, intArrayOf(here.textureId), 0)
                 }
+                here.textureId = uploadTexture(bitmap)
             }
         }
         for (mesh in meshes) {
-            // The shape of this tile is already up. If a picture has arrived for
-            // it since, that is all that needs sending — the ground itself has
-            // not moved, and re-sending a megabyte of it would be for nothing.
-            var standing: Tile? = null
-            synchronized(this) {
-                for (t in tiles) if (t.key == mesh.key) standing = t
-            }
-            val here = standing
+            // The shape of this tile is already up: only its picture is new,
+            // and the picture queue is what paces those.
+            val here = synchronized(this) { tiles[mesh.key] }
             if (here != null) {
-                val bitmap = mesh.texture
-                if (here.textureId == 0 && bitmap != null && !bitmap.isRecycled) {
-                    here.textureId = uploadTexture(bitmap)
+                if (mesh.texture != null) {
+                    synchronized(this) { pendingPictures.add(mesh) }
                 }
                 continue
             }
@@ -1026,12 +1116,115 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
             GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, 0)
             synchronized(this) {
-                tiles.add(Tile(mesh.key, ids[0], ids[1], mesh.indices.size, texture))
+                tiles[mesh.key] = Tile(mesh.key, ids[0], ids[1], mesh.indices.size, texture,
+                    mesh.minX, mesh.maxX, mesh.minY, mesh.maxY, mesh.minZ, mesh.maxZ)
+            }
+        }
+        synchronized(this) {
+            // The moment every tile it names is on the card — not when the
+            // whole queue drains. Waiting for the queue meant a busy stream
+            // of new tiles held the draw list stale for seconds, while
+            // deletions applied instantly: every eviction was a hole until
+            // the queue happened to empty.
+            val wanted = drawSetWanted
+            if (wanted != null && wanted.all { tiles.containsKey(it) }) {
+                drawSet = wanted
+                drawSetWanted = null
+                // what the old list was still showing can go now
+                pruneLocked()
             }
         }
     }
 
+    /**
+     * Throw away what is neither wanted nor still on screen. Caller holds
+     * the monitor. A tile the applied draw list names must outlive the
+     * eviction that retired it, or the frames between eviction and the next
+     * list swap flash black where it stood.
+     */
+    private fun pruneLocked() {
+        val wanted = keep ?: return
+        val drawnNow = drawSet
+        val gone = tiles.entries.iterator()
+        while (gone.hasNext()) {
+            val t = gone.next().value
+            if (wanted.contains(t.key)) continue
+            if (drawnNow != null && drawnNow.contains(t.key)) continue
+            if (t.textureId != 0) GLES20.glDeleteTextures(1, intArrayOf(t.textureId), 0)
+            GLES20.glDeleteBuffers(2, intArrayOf(t.vertexBuffer, t.indexBuffer), 0)
+            gone.remove()
+        }
+    }
+
+    // What the frames actually cost, said out loud every five seconds, so a
+    // stutter is a number in a log and not an argument.
+    private var frameLastNs = 0L
+    private var frameCount = 0
+    private var frameSlow = 0
+    private var frameWorstMs = 0f
+    private var frameLogNs = 0L
+
+    private fun noteFrame() {
+        val now = System.nanoTime()
+        if (frameLastNs != 0L) {
+            val ms = (now - frameLastNs) / 1e6f
+            // a gap of a second is the surface pausing, not a frame drawn
+            // slowly; counting it made every view switch a false alarm
+            if (ms > 1000f) {
+                frameLastNs = now
+                return
+            }
+            frameCount++
+            if (ms > 25f) frameSlow++
+            if (ms > frameWorstMs) frameWorstMs = ms
+            if (now - frameLogNs > 5_000_000_000L) {
+                android.util.Log.i("TerrainFrames",
+                    "frames=$frameCount slow=$frameSlow worst=${frameWorstMs.toInt()}ms")
+                frameLogNs = now
+                frameCount = 0
+                frameSlow = 0
+                frameWorstMs = 0f
+            }
+        }
+        frameLastNs = now
+    }
+
+    /** The six clip planes, four numbers each, pulled from the mvp per frame. */
+    private val frustum = FloatArray(24)
+
+    /** Gribb-Hartmann, unnormalised: a which-side test needs no unit lengths. */
+    private fun extractFrustum() {
+        val m = mvp
+        for (p in 0 until 6) {
+            val row = p / 2
+            val sign = if (p % 2 == 0) 1f else -1f
+            for (j in 0 until 4) {
+                frustum[p * 4 + j] = m[j * 4 + 3] + sign * m[j * 4 + row]
+            }
+        }
+    }
+
+    /**
+     * Whether any of the tile's box is inside the frustum: for each plane,
+     * test the box corner farthest along the plane's normal — if even that
+     * corner is behind the plane, the whole box is.
+     */
+    private fun boxVisible(t: Tile): Boolean {
+        for (p in 0 until 6) {
+            val a = frustum[p * 4]
+            val b = frustum[p * 4 + 1]
+            val c = frustum[p * 4 + 2]
+            val d = frustum[p * 4 + 3]
+            val x = if (a >= 0) t.maxX else t.minX
+            val y = if (b >= 0) t.maxY else t.minY
+            val z = if (c >= 0) t.maxZ else t.minZ
+            if (a * x + b * y + c * z + d < 0) return false
+        }
+        return true
+    }
+
     private fun uploadTexture(bitmap: android.graphics.Bitmap): Int {
+        val startedNs = System.nanoTime()
         val ids = IntArray(1)
         GLES20.glGenTextures(1, ids, 0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, ids[0])
@@ -1052,7 +1245,13 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // The picture now lives on the card, and the heap copy was held only
         // against a lost context — half the ground's memory, kept for a rare
         // event. Let it go; a lost context asks the disk cache instead.
+        val side = bitmap.width
         bitmap.recycle()
+        // name the cost when it eats frames, so tuning has a number to aim at
+        val ms = (System.nanoTime() - startedNs) / 1_000_000
+        if (ms > 20) {
+            android.util.Log.i("TerrainFrames", "picture ${side}px took ${ms}ms")
+        }
         return ids[0]
     }
 
@@ -1065,6 +1264,8 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val uMvp = GLES20.glGetUniformLocation(terrainProgram, "uMvp")
         val uHasTexture = GLES20.glGetUniformLocation(terrainProgram, "uHasTexture")
         val uBase = GLES20.glGetUniformLocation(terrainProgram, "uBase")
+        val uUvScale = GLES20.glGetUniformLocation(terrainProgram, "uUvScale")
+        val uUvOff = GLES20.glGetUniformLocation(terrainProgram, "uUvOff")
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
         // the ground's own colour, for a tile whose imagery has not arrived
         GLES20.glUniform3f(uBase, 0.45f, 0.44f, 0.40f)
@@ -1077,10 +1278,20 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         GLES20.glEnable(GLES20.GL_POLYGON_OFFSET_FILL)
         GLES20.glPolygonOffset(2.5f, 8f)
 
-        val snapshot: List<Tile>
-        synchronized(this) { snapshot = ArrayList(tiles) }
+        val snapshot: HashMap<Long, Tile>
+        val drawn: HashSet<Long>?
+        synchronized(this) {
+            snapshot = HashMap(tiles)
+            drawn = drawSet
+        }
+        // The selection is deliberately all-round so turning the camera does
+        // not churn tiles; the frustum is applied here instead, per frame,
+        // which typically halves what is actually sent to the driver.
+        extractFrustum()
         val stride = FLOATS_PER_VERTEX * 4
-        for (tile in snapshot) {
+        for (tile in snapshot.values) {
+            if (drawn != null && !drawn.contains(tile.key)) continue
+            if (!boxVisible(tile)) continue
             GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, tile.vertexBuffer)
             GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, tile.indexBuffer)
             GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, stride, 0)
@@ -1090,12 +1301,35 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glVertexAttribPointer(aNormal, 3, GLES20.GL_FLOAT, false, stride, 5 * 4)
             GLES20.glEnableVertexAttribArray(aNormal)
 
-            if (tile.textureId != 0) {
+            // Its own picture, or the nearest ancestor's quarter-of-a-quarter
+            // while its own is still on the wire — soft beats grey, and the
+            // sharp one lands in place.
+            var texId = tile.textureId
+            var scale = 1f
+            var offU = 0f
+            var offV = 0f
+            if (texId == 0) {
+                var at = tile.key
+                while (texId == 0 && TerrainScene.zoomOf(at) > 0) {
+                    val x = TerrainScene.tileXOf(at)
+                    val y = TerrainScene.tileYOf(at)
+                    offU = (offU + (x and 1)) * 0.5f
+                    offV = (offV + (y and 1)) * 0.5f
+                    scale *= 0.5f
+                    at = TerrainScene.parentOf(at)
+                    texId = snapshot[at]?.textureId ?: 0
+                }
+            }
+            if (texId != 0) {
                 GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, tile.textureId)
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texId)
                 GLES20.glUniform1f(uHasTexture, 1f)
+                GLES20.glUniform1f(uUvScale, scale)
+                GLES20.glUniform2f(uUvOff, offU, offV)
             } else {
                 GLES20.glUniform1f(uHasTexture, 0f)
+                GLES20.glUniform1f(uUvScale, 1f)
+                GLES20.glUniform2f(uUvOff, 0f, 0f)
             }
             GLES20.glDrawElements(GLES20.GL_TRIANGLES, tile.count,
                 GLES20.GL_UNSIGNED_SHORT, 0)
