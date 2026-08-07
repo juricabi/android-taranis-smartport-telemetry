@@ -1,6 +1,7 @@
 package juricabi.com.telemetry.gl
 
 import android.util.Log
+import juricabi.com.telemetry.utils.DebugLog
 import juricabi.com.telemetry.utils.Elevation
 import juricabi.com.telemetry.utils.Imagery
 
@@ -180,10 +181,6 @@ class TerrainPager(
      */
     fun redress() {
         synchronized(lock) {
-            for (p in resident.values) {
-                val bmp = p.mesh.texture
-                if (bmp != null && !bmp.isRecycled) bmp.recycle()
-            }
             resident.clear()
             lock.notifyAll()
         }
@@ -192,10 +189,6 @@ class TerrainPager(
     fun abandon() {
         abandoned = true
         synchronized(lock) {
-            for (p in resident.values) {
-                val bmp = p.mesh.texture
-                if (bmp != null && !bmp.isRecycled) bmp.recycle()
-            }
             resident.clear()
             lock.notifyAll()
         }
@@ -206,7 +199,9 @@ class TerrainPager(
     private var rootsPrefetched = false
 
     private fun meshLoop() {
-        Log.i(TAG, "mesh thread live after " +
+        android.os.Process.setThreadPriority(
+            android.os.Process.THREAD_PRIORITY_BACKGROUND)
+        DebugLog.note(TAG, "mesh thread live after " +
             "${android.os.SystemClock.elapsedRealtime() - startedAt}ms")
         while (!abandoned) {
             try {
@@ -241,13 +236,16 @@ class TerrainPager(
                     burst++
                 }
                 stats()
+                // short, because a gesture poke should find this loop ready:
+                // half a second of doze here stacked with the workers' own
+                // and turned every camera move into a visible wait
                 if (!built) synchronized(lock) {
-                    if (!abandoned) lock.wait(500)
+                    if (!abandoned) lock.wait(200)
                 }
             } catch (e: Throwable) {
                 // A pass that dies must not kill the ground for the rest of
                 // the session; the next one starts from clean state.
-                Log.w(TAG, "pass failed: ${e.message}")
+                DebugLog.note(TAG, "pass failed: ${e.message}")
                 synchronized(lock) { if (!abandoned) lock.wait(1000) }
             }
         }
@@ -268,10 +266,6 @@ class TerrainPager(
             val hadTiles = synchronized(lock) {
                 val had = resident.isNotEmpty()
                 if (had) {
-                    for (p in resident.values) {
-                        val bmp = p.mesh.texture
-                        if (bmp != null && !bmp.isRecycled) bmp.recycle()
-                    }
                     resident.clear()
                     heightRange.clear()
                 }
@@ -586,7 +580,7 @@ class TerrainPager(
         renderer.offer(mesh)
         builds++
         if (builds == 1) {
-            Log.i(TAG, "first mesh after " +
+            DebugLog.note(TAG, "first mesh after " +
                 "${android.os.SystemClock.elapsedRealtime() - startedAt}ms")
         }
         poke()
@@ -629,10 +623,20 @@ class TerrainPager(
                 var extra = if (z == ROOT_ZOOM) 0 else Math.round(
                     Math.log(Math.max(1.0, wantedPx / 256.0)) / Math.log(2.0)
                 ).toInt().coerceIn(0, Math.min(3, 19 - z))
-                // First dress in a quarter of the fetches, full sharpness a
+                // First dress in a handful of fetches, full sharpness a
                 // breath later through the upgrade path: a cold view reads
-                // as ready seconds sooner, and ends just as sharp.
-                if (!p.dressed && extra > 2) extra = 2
+                // as ready seconds sooner, and ends just as sharp. Ground
+                // already seen skips the ladder — the cache hands back the
+                // sharpest picture it holds whatever is asked.
+                if (!p.dressed && extra > 1) extra = 1
+                // Sharpening climbs one level per picture rather than leaping
+                // to the top: each step is a quarter of the next one's
+                // fetches, so the view visibly improves on the way instead of
+                // once, all at the end. Ground already seen skips the climb —
+                // the cache hands back the sharpest picture it holds.
+                if (p.dressed && extra > p.extraDressed + 1) {
+                    extra = p.extraDressed + 1
+                }
                 // A dressed tile comes back to be sharpened as the camera
                 // closes — or thinned as it leaves, but only when someone
                 // actually needs the memory: thinning on every zoom-out made
@@ -711,31 +715,39 @@ class TerrainPager(
     }
 
     private fun texLoop() {
+        android.os.Process.setThreadPriority(
+            android.os.Process.THREAD_PRIORITY_BACKGROUND)
         while (!abandoned) {
             val job = synchronized(lock) {
-                val found = wantedTextures.firstOrNull {
-                    it[1] >= 0 && !texInFlight.contains(it[0]) &&
-                        resident[it[0]].let { p ->
-                            p != null && (!p.dressed || p.extraDressed != it[1].toInt())
-                        }
+                val found = wantedTextures.firstOrNull { entry ->
+                    // Direction matters. "Not what it wears" alone spun
+                    // forever: the cache hands back sharper than asked, the
+                    // tile records the truth, and equality never comes.
+                    val target = entry[1].toInt()
+                    val was = entry[3].toInt()
+                    val p = resident[entry[0]]
+                    target >= 0 && !texInFlight.contains(entry[0]) && p != null &&
+                        (!p.dressed ||
+                            (target > was && p.extraDressed < target) ||
+                            (target < was && p.extraDressed > target))
                 }
                 if (found != null) texInFlight.add(found[0])
                 found
             }
             if (job == null) {
-                synchronized(lock) { if (!abandoned) lock.wait(500) }
+                synchronized(lock) { if (!abandoned) lock.wait(200) }
                 continue
             }
             val key = job[0]
             try {
-                fetchAndDress(key, job[1].toInt())
+                fetchAndDress(key, job[1].toInt(), job[3].toInt())
             } finally {
                 synchronized(lock) { texInFlight.remove(key) }
             }
         }
     }
 
-    private fun fetchAndDress(key: Long, extra: Int) {
+    private fun fetchAndDress(key: Long, extra: Int, was: Int) {
         val z = TerrainScene.zoomOf(key)
         val bmp = try {
             Imagery.mosaic(z, TerrainScene.tileXOf(key), TerrainScene.tileYOf(key), extra)
@@ -757,16 +769,31 @@ class TerrainPager(
         var published: TerrainScene.TileMesh? = null
         synchronized(lock) {
             val p = resident[key]
-            // fresh, sharper, or deliberately thinner — whatever was queued
-            if (p != null && (!p.dressed || extra != p.extraDressed)) {
+            // fresh, sharper, or deliberately thinner — whatever was queued.
+            // The old picture is not touched here: once offered, a bitmap
+            // belongs to the renderer, and recycling it from this thread
+            // while the GL thread had it half way through an upload was the
+            // crash that christened the field log.
+            if (p != null && (!p.dressed ||
+                    (extra > was && p.extraDressed < extra) ||
+                    (extra < was && p.extraDressed > extra))) {
                 val old = p.mesh
-                // rare race: the first picture still queued for upload when a
-                // sharper one lands — let it go rather than leak it
-                old.texture?.let { if (!it.isRecycled) it.recycle() }
                 p.mesh = TerrainScene.TileMesh(old.key, old.vertices, old.indices,
                     bmp, old.minX, old.maxX, old.minY, old.maxY, old.minZ, old.maxZ)
                 p.dressed = true
-                p.extraDressed = extra
+                // The larger of what was asked and what arrived. Sharper than
+                // asked is the cache being generous — record the truth or an
+                // "upgrade" to the worn picture queues forever. Softer than
+                // asked is the imagery's ceiling where ArcGIS ends — record
+                // the ask as satisfied or the pager re-asks for a sharpness
+                // that does not exist, forever. Both forevers were measured.
+                var worn = 0
+                var w = bmp.width
+                while (w > 256) {
+                    worn++
+                    w = w shr 1
+                }
+                p.extraDressed = Math.max(extra, worn)
                 p.textureBytes = bmp.width.toLong() * bmp.height * 2 * 4 / 3
                 published = p.mesh
                 if (!firstDressedFired) {
@@ -782,7 +809,7 @@ class TerrainPager(
         }
         renderer.offer(mesh)
         if (fireFirst) {
-            Log.i(TAG, "first picture after " +
+            DebugLog.note(TAG, "first picture after " +
                 "${android.os.SystemClock.elapsedRealtime() - startedAt}ms")
             onFirstDressed?.invoke()
         }
@@ -809,9 +836,9 @@ class TerrainPager(
                 TerrainScene.zoomOf(key) == ROOT_ZOOM) {
                 continue
             }
+            // the bitmap is the renderer's to recycle, wherever it is in
+            // its queues; touching it from here raced the upload
             textureTotal -= entry.value.textureBytes
-            val bmp = entry.value.mesh.texture
-            if (bmp != null && !bmp.isRecycled) bmp.recycle()
             heightRange.remove(key)
             textureRetryAt.remove(key)
             it.remove()
@@ -834,7 +861,7 @@ class TerrainPager(
         }
         val runtime = Runtime.getRuntime()
         val heap = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024)
-        Log.i(TAG, "cut=${cut.size} cover=${cover.size} resident=$count " +
+        DebugLog.note(TAG, "cut=${cut.size} cover=${cover.size} resident=$count " +
             "dressed=$dressed textures=${bytes / (1024 * 1024)}MB heap=${heap}MB " +
             "builds=$builds fails=$buildFails evictions=$evictions")
     }

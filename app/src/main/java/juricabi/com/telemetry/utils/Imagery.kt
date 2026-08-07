@@ -78,7 +78,14 @@ object Imagery {
 
     private val pool by lazy {
         Executors.newFixedThreadPool(POOL_THREADS, ThreadFactory { runnable ->
-            val thread = Thread(runnable, "imagery")
+            val thread = Thread({
+                // Sixteen decoding threads at normal priority outmuscled the
+                // renderer and the replay for cores while an area loaded; the
+                // ground can arrive a breath later, the flight cannot stutter.
+                android.os.Process.setThreadPriority(
+                    android.os.Process.THREAD_PRIORITY_BACKGROUND)
+                runnable.run()
+            }, "imagery")
             thread.isDaemon = true
             thread
         })
@@ -92,9 +99,29 @@ object Imagery {
             val dir = File(context.applicationContext.cacheDir, "imagery")
             if (!dir.isDirectory) dir.mkdirs()
             cacheDir = dir
+            pool.submit { pruneMosaics() }
         } catch (e: Exception) {
             // no disk cache is survivable; every tile just costs a download
             Log.w(TAG, "no imagery cache dir: ${e.message}")
+        }
+    }
+
+    /** The finished mosaics are half a megabyte each; keep the newest ~250MB. */
+    private fun pruneMosaics() {
+        try {
+            val dir = cacheDir ?: return
+            val mosaics = dir.listFiles { f ->
+                f.name.startsWith("m") && f.name.endsWith(".jpg")
+            } ?: return
+            var total = mosaics.sumOf { it.length() }
+            if (total <= 250L * 1024 * 1024) return
+            for (f in mosaics.sortedBy { it.lastModified() }) {
+                total -= f.length()
+                f.delete()
+                if (total <= 200L * 1024 * 1024) break
+            }
+        } catch (e: Exception) {
+            // pruning is housekeeping; failing costs disk, not correctness
         }
     }
 
@@ -104,6 +131,7 @@ object Imagery {
      * Returns null if nothing could be fetched.
      */
     fun mosaic(z: Int, x: Int, y: Int, extraZoom: Int): Bitmap? {
+        val startedNs = System.nanoTime()
         var mosaic: Bitmap? = null
         var sawPlaceholder = false
         try {
@@ -111,6 +139,18 @@ object Imagery {
             val n = 1 shl z
             if (x < 0 || x >= n || y < 0 || y >= n) return null
             val extra = extraZoom.coerceIn(0, min(MAX_EXTRA_ZOOM, MAX_ZOOM - z))
+            // The finished picture, remembered. Stitching a sharp mosaic is
+            // dozens of decodes and the second the eye waits on every return
+            // to ground it has already seen; reading the finished one back is
+            // a single decode. A sharper remembered one serves a softer ask —
+            // the ask varies with camera distance, the ground does not.
+            for (have in extra..MAX_EXTRA_ZOOM) {
+                readMosaic(z, x, y, have)?.let {
+                    DebugLog.note(TAG, "mosaic $z/$x/$y+$extra cached " +
+                        "${(System.nanoTime() - startedNs) / 1_000_000}ms")
+                    return it
+                }
+            }
             val side = 1 shl extra
             val childZoom = z + extra
             // Half the memory of ARGB_8888, and the ground has no use for an
@@ -172,7 +212,11 @@ object Imagery {
             // mesh rather than written on by the server.
             if (sawPlaceholder && extra > 0) {
                 mosaic.recycle()
-                return mosaic(z, x, y, extra - 1)
+                val fallback = mosaic(z, x, y, extra - 1)
+                // remembered under what was asked, so the next ask does not
+                // stitch its way down to the same answer again
+                if (fallback != null) writeMosaic(z, x, y, extra, fallback)
+                return fallback
             }
             // a missing square is only haze on the texture, but all of them means
             // there is no imagery here at all and the caller should not texture
@@ -180,6 +224,13 @@ object Imagery {
                 mosaic.recycle()
                 return null
             }
+            // only complete, expensive ones: a small mosaic is quicker to
+            // stitch than to read back, and a holed one should heal next time
+            if (extra >= 2 && drawn.get() == side * side) {
+                writeMosaic(z, x, y, extra, mosaic)
+            }
+            DebugLog.note(TAG, "mosaic $z/$x/$y+$extra stitched " +
+                "${(System.nanoTime() - startedNs) / 1_000_000}ms")
             return mosaic
         } catch (e: Exception) {
             mosaic?.recycle()
@@ -316,6 +367,51 @@ object Imagery {
         val dir = cacheDir ?: return null
         // ESRI answers JPEG over land and PNG over water, so no honest extension
         return File(dir, "${zoom}_${x}_$y.tile")
+    }
+
+    private fun mosaicFile(z: Int, x: Int, y: Int, extra: Int): File? {
+        val dir = cacheDir ?: return null
+        return File(dir, "m${z}_${x}_${y}_$extra.jpg")
+    }
+
+    private fun readMosaic(z: Int, x: Int, y: Int, extra: Int): Bitmap? {
+        try {
+            val file = mosaicFile(z, x, y, extra) ?: return null
+            if (!file.isFile || file.length() <= 0L) return null
+            val options = BitmapFactory.Options()
+            options.inPreferredConfig = Bitmap.Config.RGB_565
+            val bitmap = BitmapFactory.decodeFile(file.path, options)
+            if (bitmap == null) {
+                file.delete()
+            } else {
+                // touched, so the prune keeps what is actually being flown over
+                file.setLastModified(System.currentTimeMillis())
+            }
+            return bitmap
+        } catch (e: Exception) {
+            return null
+        } catch (e: OutOfMemoryError) {
+            return null
+        }
+    }
+
+    private fun writeMosaic(z: Int, x: Int, y: Int, extra: Int, bitmap: Bitmap) {
+        try {
+            val file = mosaicFile(z, x, y, extra) ?: return
+            val dir = file.parentFile ?: return
+            if (!dir.isDirectory && !dir.mkdirs()) return
+            val temp = File(dir, "${file.name}.${Thread.currentThread().id}.tmp")
+            FileOutputStream(temp).use {
+                // 85 keeps field tracks readable and the file under a
+                // megabyte; the source tiles are JPEG to begin with
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 85, it)
+            }
+            if (!temp.renameTo(file)) temp.delete()
+        } catch (e: Exception) {
+            // a mosaic that fails to cache costs only its next stitch
+        } catch (e: OutOfMemoryError) {
+            // same
+        }
     }
 
     private fun readDisk(zoom: Int, x: Int, y: Int): ByteArray? {

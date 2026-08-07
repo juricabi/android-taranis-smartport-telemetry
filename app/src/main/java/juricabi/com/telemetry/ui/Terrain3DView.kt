@@ -133,6 +133,13 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     /** The last ground height known under this phone, for a step past the edge. */
     private var myGround = Float.NaN
 
+    /** What each ring was last built from, so a compass sample rebuilds neither. */
+    private val myRingKey = longArrayOf(0L)
+    private val loggedRingKey = longArrayOf(0L)
+
+    /** Bumped when the ground under the rings changes, forcing a re-drape. */
+    private var ringEpoch = 0
+
     /** The same four things again, for the arrow that says where it was. */
     private var loggedLat = Double.NaN
     private var loggedLon = Double.NaN
@@ -318,6 +325,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private fun groundDressed() {
         if (terrainReady) return
         terrainReady = true
+        ringEpoch++
         seenVersion = -1
         renderer.setTrack(scene.track, scene.shadow)
         pickUpNewPoints()
@@ -675,6 +683,9 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private var flightPlans: List<Pair<List<juricabi.com.telemetry.maps.Position>, Int>> =
         emptyList()
     private var traffic: List<juricabi.com.telemetry.manager.Fr24Manager.AirplaneInfo> = emptyList()
+    /** Over a replay: the home line anchors to the record or not at all. */
+    @Volatile var homeFromRecorded = false
+
     private var homeLineOn = false
     private var headingLineOn = false
     private var homeLineColor = 0
@@ -722,8 +733,20 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // Both of these start at the model, so the renderer draws them from
         // where it is drawing the model. Given as vertices here they jumped to
         // each fix and then waited, while the model glided between them.
-        val homeLat = if (!loggedLat.isNaN()) loggedLat else myLat
-        val homeLon = if (!loggedLon.isNaN()) loggedLon else myLon
+        // Over a replay, only the recorded operator may anchor it: with no
+        // record there is no line, exactly as the map decides. Falling back
+        // to where the phone is now drew the line off across the county the
+        // flight was not recorded in.
+        val homeLat = when {
+            !loggedLat.isNaN() -> loggedLat
+            homeFromRecorded -> Double.NaN
+            else -> myLat
+        }
+        val homeLon = when {
+            !loggedLon.isNaN() -> loggedLon
+            homeFromRecorded -> Double.NaN
+            else -> myLon
+        }
         val home = if (homeLat.isNaN() || homeLon.isNaN()) {
             null
         } else {
@@ -963,7 +986,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             return
         }
         myGround = standArrow(
-            myLat, myLon, myAccuracy, myHeading, myGround,
+            myLat, myLon, myAccuracy, myHeading, myGround, myRingKey,
             { x, y, z, heading -> renderer.setMyLocation(x, y, z, heading, hasMyHeading) },
             { ring -> renderer.setAccuracyCircle(ring) }
         )
@@ -971,7 +994,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
 
     private fun placeLoggedArrow() {
         loggedGround = standArrow(
-            loggedLat, loggedLon, loggedAccuracy, loggedHeading, loggedGround,
+            loggedLat, loggedLon, loggedAccuracy, loggedHeading, loggedGround, loggedRingKey,
             { x, y, z, heading ->
                 renderer.setLoggedLocation(x, y, z, heading, hasLoggedHeading)
             },
@@ -995,6 +1018,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
      */
     private fun standArrow(
         lat: Double, lon: Double, accuracy: Float, heading: Float, lastGround: Float,
+        ringKey: LongArray,
         arrow: (Float, Float, Float, Float) -> Unit,
         circle: (FloatArray) -> Unit
     ): Float {
@@ -1005,6 +1029,16 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             scene.east(lon), ground - scene.originAltitude + 0.1f,
             -scene.north(lat), heading
         )
+
+        // The ring does not turn when the phone turns. Rebuilding its
+        // sixty-four draped points on every compass sample was thousands of
+        // ground lookups a second on the screen's thread; it owes a rebuild
+        // only to a new place, a new accuracy, or new ground under it.
+        val key = (java.lang.Double.doubleToLongBits(lat) * 31 +
+            java.lang.Double.doubleToLongBits(lon)) * 31 +
+            accuracy.toRawBits() + ringEpoch
+        if (key == ringKey[0]) return ground
+        ringKey[0] = key
 
         // an unknown accuracy is not a small one: drop the ring rather than
         // leave the last one it had lying there
@@ -1029,6 +1063,10 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        // The camera is about to move, and only gestures move it without a
+        // fix arriving: without this nudge the pager slept out its idle
+        // timers before noticing a zoom, and the wait read as slow loading.
+        pager.poke()
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 lastX = event.x

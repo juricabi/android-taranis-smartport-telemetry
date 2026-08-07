@@ -721,10 +721,12 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     fun keepOnly(keys: Set<Long>) {
         keep = HashSet(keys)
         keepChanged = true
-        // and the pictures waiting for tiles that are no longer wanted
+        // and the pictures waiting for tiles that are no longer wanted —
+        // theirs is the one heap copy, and this is its owner letting go
         var i = 0
         while (i < pendingPictures.size) {
             if (!keys.contains(pendingPictures[i].key)) {
+                pendingPictures[i].texture?.let { if (!it.isRecycled) it.recycle() }
                 pendingPictures.removeAt(i)
             } else {
                 i++
@@ -919,7 +921,11 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // the world from its caches, the way it built it the first time.
         synchronized(this) {
             tiles.clear()
+            tilesDirty = true
             pending.clear()
+            for (m in pendingPictures) {
+                m.texture?.let { if (!it.isRecycled) it.recycle() }
+            }
             pendingPictures.clear()
             drawSet = null
             drawSetWanted = null
@@ -1077,7 +1083,13 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // from their own queue, and never hold the mesh queue or the draw
         // set behind them.
         for (mesh in pictures) {
-            val here = synchronized(this) { tiles[mesh.key] } ?: continue
+            val here = synchronized(this) { tiles[mesh.key] }
+            if (here == null) {
+                // its tile left between queueing and now; the picture is
+                // ours to let go, or it lingers on the heap unowned
+                mesh.texture?.let { if (!it.isRecycled) it.recycle() }
+                continue
+            }
             val bitmap = mesh.texture
             if (bitmap != null && !bitmap.isRecycled) {
                 // a sharper picture replaces the one the tile wears
@@ -1118,6 +1130,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             synchronized(this) {
                 tiles[mesh.key] = Tile(mesh.key, ids[0], ids[1], mesh.indices.size, texture,
                     mesh.minX, mesh.maxX, mesh.minY, mesh.maxY, mesh.minZ, mesh.maxZ)
+                tilesDirty = true
             }
         }
         synchronized(this) {
@@ -1145,19 +1158,30 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     private fun pruneLocked() {
         val wanted = keep ?: return
         val drawnNow = drawSet
+        // A handful per frame, under the monitor everything else queues on:
+        // a whole zoom-out's worth of retirements deleted in one loop was a
+        // stall every touch event could end up waiting behind. It is called
+        // every frame; the queue drains in a blink either way.
+        var deletes = 16
+        tilesDirty = true
         val gone = tiles.entries.iterator()
-        while (gone.hasNext()) {
+        while (gone.hasNext() && deletes > 0) {
             val t = gone.next().value
             if (wanted.contains(t.key)) continue
             if (drawnNow != null && drawnNow.contains(t.key)) continue
             if (t.textureId != 0) GLES20.glDeleteTextures(1, intArrayOf(t.textureId), 0)
             GLES20.glDeleteBuffers(2, intArrayOf(t.vertexBuffer, t.indexBuffer), 0)
             gone.remove()
+            deletes--
         }
     }
 
     // What the frames actually cost, said out loud every five seconds, so a
     // stutter is a number in a log and not an argument.
+    /** The map drawTerrain reads; rebuilt only when the tile set changes. */
+    private var tilesSnapshot = HashMap<Long, Tile>()
+    private var tilesDirty = true
+
     private var frameLastNs = 0L
     private var frameCount = 0
     private var frameSlow = 0
@@ -1178,7 +1202,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             if (ms > 25f) frameSlow++
             if (ms > frameWorstMs) frameWorstMs = ms
             if (now - frameLogNs > 5_000_000_000L) {
-                android.util.Log.i("TerrainFrames",
+                juricabi.com.telemetry.utils.DebugLog.note("TerrainFrames",
                     "frames=$frameCount slow=$frameSlow worst=${frameWorstMs.toInt()}ms")
                 frameLogNs = now
                 frameCount = 0
@@ -1250,7 +1274,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // name the cost when it eats frames, so tuning has a number to aim at
         val ms = (System.nanoTime() - startedNs) / 1_000_000
         if (ms > 20) {
-            android.util.Log.i("TerrainFrames", "picture ${side}px took ${ms}ms")
+            juricabi.com.telemetry.utils.DebugLog.note("TerrainFrames", "picture ${side}px took ${ms}ms")
         }
         return ids[0]
     }
@@ -1278,10 +1302,17 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         GLES20.glEnable(GLES20.GL_POLYGON_OFFSET_FILL)
         GLES20.glPolygonOffset(2.5f, 8f)
 
+        // Copied only when the tile set actually changed: a fresh 400-entry
+        // map every frame was steady garbage for the collector to sweep,
+        // paid on the one thread that cannot pause for it.
         val snapshot: HashMap<Long, Tile>
         val drawn: HashSet<Long>?
         synchronized(this) {
-            snapshot = HashMap(tiles)
+            if (tilesDirty) {
+                tilesSnapshot = HashMap(tiles)
+                tilesDirty = false
+            }
+            snapshot = tilesSnapshot
             drawn = drawSet
         }
         // The selection is deliberately all-round so turning the camera does

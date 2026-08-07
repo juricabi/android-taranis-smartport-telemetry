@@ -223,30 +223,23 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * nothing drawn until the next one came round.
      */
     private fun tellViewsWhereIAm() {
-        tellMapWhereIAm()
-        val fix = bestPhoneFix ?: return
+        // One answer for both views: the freshest fix this screen has heard,
+        // or the system's last known place until it hears one. These used to
+        // be two roads — the map fell back to the last known place, the
+        // ground view waited for a live fix — and whichever view had been
+        // built most recently disagreed with the other about whether the
+        // phone existed at all.
         if (!showLiveArrow()) return
-        terrain3D?.setMyPosition(fix.latitude, fix.longitude, phoneAccuracy)
-        terrain3D?.setMyHeading(phoneHeading)
-    }
-
-    /** What the screen knows about this phone, onto the map that draws it. */
-    private fun tellMapWhereIAm() {
-        // The system's last known place until this screen has heard one of its
-        // own: the map used to ask for that itself, and without it a map built
-        // before the first fix has no arrow on it at all.
-        val fix = bestPhoneFix
-        val where = if (fix != null) {
-            Position(fix.latitude, fix.longitude)
-        } else {
-            myLastKnownPlace() ?: return
-        }
+        val fix = bestPhoneFix ?: myLastKnownFix() ?: return
         map?.setPhoneLocation(
-            where,
-            if (fix != null && fix.hasAccuracy()) fix.accuracy else Float.NaN
+            Position(fix.latitude, fix.longitude),
+            if (fix.hasAccuracy()) fix.accuracy else Float.NaN
         )
         // NaN is meaningful: draw a dot rather than retaining an old arrow.
         map?.setPhoneBearing(phoneHeading)
+        terrain3D?.setMyPosition(fix.latitude, fix.longitude,
+            if (fix.hasAccuracy()) fix.accuracy else 0f)
+        terrain3D?.setMyHeading(phoneHeading)
     }
 
     /**
@@ -264,8 +257,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         updateHomeLine()
         // not over a replay, which is drawing where the phone was then
         if (showLiveArrow()) {
-            terrain3D?.setMyPosition(location.latitude, location.longitude, phoneAccuracy)
-            tellMapWhereIAm()
+            tellViewsWhereIAm()
         } else {
             terrain3D?.hideMyLocation()
         }
@@ -273,6 +265,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     @Volatile private var phoneAccuracy = 0f
     private var terrain3D: Terrain3DView? = null
+
     private var lastPitch = 0f
     private var lastRoll = 0f
 
@@ -473,6 +466,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_maps)
 
+        // diagnostics into TelemetryLogs/terrain-debug.txt, so a tester away
+        // from the desk can send what logcat would have said — crashes too
+        juricabi.com.telemetry.utils.DebugLog.init()
+
         preferenceManager = PreferenceManager(this)
 
         tts = TextToSpeech(this) { status ->
@@ -651,9 +648,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             centreOnModel()
             setChaseMode(false)
             terrain3D?.let {
-                setFollowMode(false)
-                it.setFollowing(false)
-                if (!it.goToMyLocation()) {
+                // follow ends only when the trip actually happens — a failed
+                // locate leaving the camera unmoored matched neither view
+                if (it.goToMyLocation()) {
+                    setFollowMode(false)
+                    it.setFollowing(false)
+                } else {
                     Toast.makeText(this, "Phone location not available", Toast.LENGTH_SHORT).show()
                 }
                 return@setOnClickListener
@@ -668,14 +668,25 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
 
         findQuadButton.setOnClickListener {
+            // Both views go and look at the quad, then say how to walk to it.
+            // The camera move belonged to 3D only, and the follow release
+            // skipped 3D's own fallback branch — three behaviours for one
+            // button.
+            val live = juricabi.com.telemetry.gl.LiveFlightPath.latest()
+            val quad = live?.let { Position(it.lat, it.lon) }
+                ?: lastKnownGPS
             terrain3D?.let { view ->
-                val live = juricabi.com.telemetry.gl.LiveFlightPath.latest()
                 if (live != null) {
                     setFollowMode(false)
                     view.lookAt(live.lat, live.lon, live.altitudeMsl)
-                } else {
-                    lastKnownGPS?.let { view.lookAt(it.lat, it.lon, null) }
+                } else if (quad != null) {
+                    setFollowMode(false)
+                    view.lookAt(quad.lat, quad.lon, null)
                 }
+            }
+            if (terrain3D == null && quad != null) {
+                setFollowMode(false)
+                map?.moveCamera(quad, LOCATE_ZOOM)
             }
             showFindMyQuad()
         }
@@ -871,18 +882,22 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // turning the map to a heading swung it round the empty middle
             // instead of round the model.
             centreOnModel()
-            // a map that has just been built knows nothing until it is told
-            tellMapWhereIAm()
             map?.moveCamera(shownPosition(), LOCATE_ZOOM)
             updateHeading()
-            updateHomeLine()
-            showOperator()
         } else {
             // Nothing flown yet: open on where this phone is, at the same
             // height the locate button uses. A map is built looking at the
             // whole world from zoom four, which is no use to anybody.
             myLastKnownPlace()?.let { map?.moveCamera(it, LOCATE_ZOOM) }
         }
+        // A map that has just been built knows nothing until it is told —
+        // and the phone, the operator and the line home exist whether or not
+        // the model has a fix yet. Fed only alongside the model, a map built
+        // during a paused replay or before the link came up had no arrow, no
+        // ring and no operator until the next live fix happened along.
+        tellViewsWhereIAm()
+        updateHomeLine()
+        showOperator()
     }
 
     /**
@@ -1002,6 +1017,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * happens to be now, the line home crosses the county.
      */
     private fun showOperator() {
+        // the ground view decides its home line by the same rule the map does
+        terrain3D?.homeFromRecorded = isInReplayMode()
         if (!isInReplayMode()) return
         val track = operatorTrack
         val now = replayTimeNow()
@@ -1399,13 +1416,43 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     seekBar.max = size
                     seekBar.visibility = View.VISIBLE
                     playButton.visibility = View.VISIBLE
+                    // The record chosen is the record wanted: it plays without
+                    // a second tap. The ground hold still applies — over the
+                    // 3D view this waits for a dressed world exactly as a
+                    // hand-started replay does.
+                    logPlayer?.startPlayback()
                     var resumeAfterScrub = false
+                    // One decode per hundred milliseconds while the thumb is
+                    // down, to wherever it is by then. Every drag event used
+                    // to seek at once — and a leftward seek decodes the log
+                    // again from its first packet, so a fast drag was dozens
+                    // of whole-log decodes back to back on this thread, and
+                    // the screen locked up for the length of them.
+                    var pendingScrub = -1
+                    val scrubRunner = object : Runnable {
+                        override fun run() {
+                            val to = pendingScrub
+                            pendingScrub = -1
+                            if (to >= 0) {
+                                logPlayer?.seek(to)
+                                showOperator()
+                                showTime()
+                            }
+                        }
+                    }
                     seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                         override fun onProgressChanged(
                             seekbar: SeekBar,
                             position: Int,
                             fromUser: Boolean
                         ) {
+                            if (fromUser) {
+                                val idle = pendingScrub < 0
+                                pendingScrub = position
+                                if (idle) seekbar.postDelayed(scrubRunner, 100)
+                                return
+                            }
+                            // playback's own advance: forward and incremental
                             logPlayer?.seek(position)
                             showOperator()
                             // The clock keeps step with the log rather than
@@ -1426,6 +1473,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                         }
 
                         override fun onStopTrackingTouch(p0: SeekBar?) {
+                            // wherever the thumb was left, exactly, now
+                            p0?.removeCallbacks(scrubRunner)
+                            scrubRunner.run()
                             if (resumeAfterScrub) {
                                 resumeAfterScrub = false
                                 // Not from the very end: startPlayback treats a
@@ -3124,6 +3174,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private fun myLastKnownPlace(): Position? {
         map?.getMyLocation()?.let { return it }
+        val found = myLastKnownFix() ?: return null
+        return Position(found.latitude, found.longitude)
+    }
+
+    /** The system's memory of where this phone last stood, with its accuracy. */
+    private fun myLastKnownFix(): Location? {
         if (checkCallingOrSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
             != PackageManager.PERMISSION_GRANTED) {
             return null
@@ -3145,8 +3201,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 else -> known
             }
         }
-        val found = best ?: return null
-        return Position(found.latitude, found.longitude)
+        return best
     }
 
     private fun show3DView(quiet: Boolean = false) {
@@ -3170,7 +3225,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         hide3DView()
         // Let go of properly rather than merely dropped: the tile threads and
         // the tile cache belong to the view, and this happens every time the
-        // ground is opened.
+        // ground is opened. Keeping the map alive behind the ground was tried
+        // and rolled back — the phone does not owe a hidden map its memory.
         map?.onDestroy()
         mapHolder.removeAllViews()
         map = null
@@ -3245,6 +3301,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             if (showLiveArrow()) mine?.lon ?: Double.NaN else Double.NaN,
             if (showLiveArrow()) phoneAccuracy else Float.NaN
         )
+        // start() seeds the view from the last-known place with whatever
+        // accuracy was lying around — a second location path. The unified
+        // answer, ring and all, goes over the top of it.
+        tellViewsWhereIAm()
     }
 
     /**
@@ -3738,9 +3798,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             }
             preferenceManager.set3DMapChosen(false)
             hide3DView()
-            // Let go of rather than merely dropped, as the ground view does
-            // it: taking the view away leaves its renderer and its tile
-            // threads running with nothing to draw on.
             map?.onDestroy()
             mapHolder.removeAllViews()
             map = null

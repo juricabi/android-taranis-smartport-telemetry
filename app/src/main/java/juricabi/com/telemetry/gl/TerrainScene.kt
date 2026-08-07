@@ -429,6 +429,13 @@ class TerrainScene {
     private fun resolveAltitudeReference(points: List<TrackPoint>) {
         // settled once and for good — no need to fetch anything again for it
         if (altitudeResolved && altitudeIsAboveLaunch) return
+        // Re-asked while the answer is "above the sea" — the one-way door
+        // stays open — but not on every batch: the walk below reads the
+        // whole flight, on the screen's thread, and a sea-level flight asked
+        // it twice a second for its entire length.
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now < altitudeAskAt) return
+        altitudeAskAt = now + if (altitudeResolved) 5_000 else 1_000
         // At the level the altitude profile samples, so the two views cannot
         // be metres apart about the same flight — and fetched here, because
         // the ground under the flight is not necessarily the ground the
@@ -440,7 +447,16 @@ class TerrainScene {
                 if (p.lat < s) s = p.lat; if (p.lat > n) n = p.lat
                 if (p.lon < w) w = p.lon; if (p.lon > e) e = p.lon
             }
-            Elevation.prefetch(s, w, n, e, Elevation.TILE_ZOOM)
+            // Fired and not waited for. This is asked on the screen's thread
+            // with every batch of new points, and a flight whose heights stay
+            // above the sea asks on every one — waiting here for the network
+            // was the screen freezing under fast scrubbing. referenceOf reads
+            // only what is in memory and answers "not yet" until these land.
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now >= altitudeWarmAt) {
+                altitudeWarmAt = now + 3_000
+                Elevation.warmBox(s, w, n, e, Elevation.TILE_ZOOM)
+            }
         }
         val proposed = referenceOf(points, Elevation.TILE_ZOOM) ?: return
         val found = AltitudeFrame.settle(proposed, altitudeEpoch) ?: return
@@ -469,6 +485,12 @@ class TerrainScene {
         // flight sits in it, which is the whole of what was in doubt.
         launchGroundElevation = found.lift
     }
+
+    /** When the altitude reference may next warm its box; it re-asks per batch. */
+    private var altitudeWarmAt = 0L
+
+    /** When it may next walk the flight at all; the walk is the dear part. */
+    private var altitudeAskAt = 0L
 
     /** Added to every reported altitude when they are measured from the launch. */
     var launchGroundElevation = 0f
@@ -604,9 +626,13 @@ class TerrainScene {
             vertices[v++] = vertices[src + 2]
             vertices[v++] = vertices[src + 3]
             vertices[v++] = vertices[src + 4]
-            vertices[v++] = vertices[src + 5]
-            vertices[v++] = vertices[src + 6]
-            vertices[v++] = vertices[src + 7]
+            // Not the rim's normal: lit like walkable ground, a skirt face at
+            // a ridge was a bright streaked wall against the sky. This normal
+            // is perpendicular to the renderer's fixed light, so the skirt
+            // sits at the shade floor and reads as silhouette, not picture.
+            vertices[v++] = 0.625f
+            vertices[v++] = 0f
+            vertices[v++] = -0.781f
         }
 
         val indices = ShortArray((grid - 1) * (grid - 1) * 6 + rim * 6)
@@ -658,28 +684,20 @@ class TerrainScene {
         }
     }
 
-    /** The level the last groundAt answer came from; nearly every call repeats it. */
-    @Volatile private var lastGroundZoom = 15
-
     /**
      * The finest ground anyone has in memory here, wherever "here" is.
      *
-     * The ground is no longer one zoom: near the camera it is leaf tiles,
-     * far away it is coarse ones, and a question about a far corner of the
-     * flight deserves the best answer available rather than none. Walked
-     * from the level that answered last time, since consecutive questions
-     * are almost always about the same neighbourhood.
+     * Always from the finest level down. A remembered "level that answered
+     * last time" seemed a kindness and was a trap: once a coarse level had
+     * answered it went on answering after finer heights arrived, and the
+     * arrow stood at the coarse ground's height while the fine mesh rose
+     * around it — swallowed, with its ring underground. Sixteen hash misses
+     * are nothing; a stale height is an arrow inside a hill.
      */
     fun groundAt(lat: Double, lon: Double): Float? {
-        val first = lastGroundZoom
-        Elevation.elevationAt(lat, lon, first)?.let { return it }
         for (level in 15 downTo 0) {
-            if (level == first) continue
             val h = Elevation.elevationAt(lat, lon, level)
-            if (h != null) {
-                lastGroundZoom = level
-                return h
-            }
+            if (h != null) return h
         }
         return null
     }
@@ -695,7 +713,12 @@ class TerrainScene {
         val out = FloatArray(points.size * 3)
         var i = 0
         for (p in points) {
-            val ground = groundAt(p.lat, p.lon)
+            // The reference level first, one lookup: it is warmed for the
+            // whole flight, and a shadow does not need leaf sharpness. The
+            // sixteen-level walk per point, three thousand points, twice a
+            // second, was a measurable slice of every replay's screen thread.
+            val ground = Elevation.elevationAt(p.lat, p.lon, Elevation.TILE_ZOOM)
+                ?: groundAt(p.lat, p.lon)
             out[i++] = east(p.lon)
             out[i++] = if (ground != null) ground - originAltitude else 0f
             out[i++] = -north(p.lat)

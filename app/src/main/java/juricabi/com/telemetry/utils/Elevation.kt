@@ -85,7 +85,13 @@ object Elevation {
      */
     private val pool by lazy {
         Executors.newFixedThreadPool(8, java.util.concurrent.ThreadFactory { runnable ->
-            val thread = Thread(runnable, "elevation")
+            val thread = Thread({
+                // background, with the imagery pool: the ground yields cores
+                // to the flight being drawn over it
+                android.os.Process.setThreadPriority(
+                    android.os.Process.THREAD_PRIORITY_BACKGROUND)
+                runnable.run()
+            }, "elevation")
             thread.isDaemon = true
             thread
         })
@@ -163,6 +169,23 @@ object Elevation {
      * be the main thread. [onDone] reports usable against total tiles, so an
      * area with no terrain at all can be told from a partial one.
      */
+    /**
+     * The box, fired into the pool and never waited for.
+     *
+     * [prefetch] joins its downloads, which is right for a progress dialog
+     * and wrong for everyone else: asked from the screen's thread it parked
+     * the screen on the network for as long as the fetches took.
+     */
+    fun warmBox(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double, zoom: Int) {
+        val box = tileBox(minLat, minLon, maxLat, maxLon, zoom) ?: return
+        if (box.count == 0 || box.count > MAX_PREFETCH_TILES) return
+        for (x in box.x0..box.x1) {
+            for (y in box.y0..box.y1) {
+                pool.submit { load(zoom, x, y) }
+            }
+        }
+    }
+
     fun prefetch(
         minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
         zoom: Int = TILE_ZOOM,
