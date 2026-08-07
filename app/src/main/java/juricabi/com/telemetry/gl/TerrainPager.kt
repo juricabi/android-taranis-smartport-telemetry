@@ -112,7 +112,9 @@ class TerrainPager(
         /** How sharp the picture it wears is, so approaching can sharpen it. */
         @Volatile var extraDressed: Int = -1,
         /** False when the rim was built blind; rebuilt once data exists. */
-        @Volatile var rimComplete: Boolean = true
+        @Volatile var rimComplete: Boolean = true,
+        /** The neighbour levels its edges were conformed to, packed. */
+        var edgeSig: Int = 0
     )
 
     private val lock = Object()
@@ -147,6 +149,41 @@ class TerrainPager(
 
     /** What the last pass decided; pager threads only. */
     private var cut = ArrayList<Long>()
+
+    /** The cut as a set, for asking what level a neighbouring square draws at. */
+    private var cutLookup = HashSet<Long>()
+
+    /**
+     * The zoom each neighbouring square is drawn at — [west, east, north,
+     * south] — clamped to this tile's own where the neighbour is as fine or
+     * finer: the finer side is the one that conforms, and only ever to the
+     * coarser line beside it.
+     */
+    private fun edgeLevels(key: Long): IntArray {
+        val z = TerrainScene.zoomOf(key)
+        val x = TerrainScene.tileXOf(key)
+        val y = TerrainScene.tileYOf(key)
+        val n = 1 shl z
+        val out = IntArray(4) { z }
+        for (i in 0..3) {
+            val nx = x + if (i == 0) -1 else if (i == 1) 1 else 0
+            val ny = y + if (i == 2) -1 else if (i == 3) 1 else 0
+            if (ny < 0 || ny >= n) continue
+            var at = TerrainScene.tileKey(z, ((nx % n) + n) % n, ny)
+            // the square as drawn: itself in the cut, or the ancestor
+            // standing over it — nothing found leaves the edge unconformed
+            while (TerrainScene.zoomOf(at) > ROOT_ZOOM && !cutLookup.contains(at)) {
+                at = TerrainScene.parentOf(at)
+            }
+            if (cutLookup.contains(at)) {
+                out[i] = Math.min(TerrainScene.zoomOf(at), z)
+            }
+        }
+        return out
+    }
+
+    private fun packSig(levels: IntArray): Int =
+        (levels[0] shl 24) or (levels[1] shl 16) or (levels[2] shl 8) or levels[3]
     private var cover = HashSet<Long>()
     private var coverAncestors = HashSet<Long>()
 
@@ -341,6 +378,8 @@ class TerrainPager(
         val newCover = HashSet<Long>()
         val newAncestors = HashSet<Long>()
         val cutSet = HashSet(newCut)
+        // what the edges conform to, read on this same thread by the builds
+        cutLookup = cutSet
         synchronized(lock) {
             for (root in roots()) {
                 cover(root, cutSet, newCover)
@@ -577,13 +616,16 @@ class TerrainPager(
                 }
             }
             if (wanted == null) {
-                // Nothing missing: mend one tile that was built blind, by
-                // letting the ordinary path build it again now that its
-                // neighbours may exist. One per turn — mending is upkeep,
-                // not a race.
+                // Nothing missing: mend one tile whose rim was built blind,
+                // or whose edges were conformed to neighbour levels the cut
+                // has since changed, by letting the ordinary path build it
+                // again. One per turn — mending is upkeep, not a race. The
+                // renderer keeps the picture across the rebuild, so a mend
+                // costs a mesh, not a flash.
                 for (key in cut) {
                     val p = resident[key] ?: continue
-                    if (!p.rimComplete && now >= (buildRetryAt[key] ?: 0L)) {
+                    if (now < (buildRetryAt[key] ?: 0L)) continue
+                    if (!p.rimComplete || p.edgeSig != packSig(edgeLevels(key))) {
                         // the picture is the renderer's to recycle — the one
                         // recycle that survived the ownership rule here was
                         // the same GL-thread race the rule exists to end
@@ -600,7 +642,10 @@ class TerrainPager(
         val key = wanted ?: return false
         if (abandoned) return false
         val z = TerrainScene.zoomOf(key)
-        val mesh = scene.buildTile(z, TerrainScene.tileXOf(key), TerrainScene.tileYOf(key))
+        // the neighbour levels as drawn now, for the edges to lie on
+        val levels = edgeLevels(key)
+        val mesh = scene.buildTile(z, TerrainScene.tileXOf(key), TerrainScene.tileYOf(key),
+            levels)
         if (mesh == null) {
             // No heights here at all — the fetch failed and its source backs
             // off for thirty seconds. Retrying sooner than that only counts
@@ -624,7 +669,7 @@ class TerrainPager(
         synchronized(lock) {
             if (abandoned) return false
             resident[key] = Paged(mesh, dressed = false, textureBytes = 0,
-                rimComplete = mesh.rimComplete)
+                rimComplete = mesh.rimComplete, edgeSig = packSig(levels))
             heightRange[key] = floatArrayOf(mesh.minY, mesh.maxY)
             // built blind: come back for it when its neighbours have landed
             if (!mesh.rimComplete) {

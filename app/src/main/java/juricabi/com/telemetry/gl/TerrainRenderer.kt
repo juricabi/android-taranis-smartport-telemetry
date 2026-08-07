@@ -54,11 +54,12 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             uniform sampler2D uTexture;
             uniform float uHasTexture;
             uniform vec3 uBase;
+            uniform float uAlpha;
             varying vec2 vTexture;
             varying float vShade;
             void main() {
                 vec3 base = mix(uBase, texture2D(uTexture, vTexture).rgb, uHasTexture);
-                gl_FragColor = vec4(base * vShade, 1.0);
+                gl_FragColor = vec4(base * vShade, uAlpha);
             }
         """
 
@@ -175,10 +176,24 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val minX: Float, val maxX: Float,
         val minY: Float, val maxY: Float,
         val minZ: Float, val maxZ: Float
-    )
+    ) {
+        /** When its first own picture landed, for the fade over the borrow. */
+        var dressedAt = 0L
+    }
 
     /** By key, so a tile without its own picture can find an ancestor's. */
     private val tiles = HashMap<Long, Tile>()
+
+    /**
+     * Tiles that just left the drawn list, and when. They keep drawing for
+     * a breath, fading, so a merge is a dissolve rather than a pop — the
+     * eye reads a resolution change it is walked through and misses one
+     * that happens between two frames. Guarded by the monitor.
+     */
+    private val retiring = HashMap<Long, Long>()
+
+    /** A quarter second: long enough to read as change, not as lag. */
+    private val FADE_MS = 250f
     private val pending = ArrayList<TerrainScene.TileMesh>()
 
     /**
@@ -1138,6 +1153,10 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                 // a sharper picture replaces the one the tile wears
                 if (here.textureId != 0) {
                     GLES20.glDeleteTextures(1, intArrayOf(here.textureId), 0)
+                } else {
+                    // its first own picture: faded in over the ancestor's it
+                    // was borrowing, rather than snapped
+                    here.dressedAt = android.os.SystemClock.elapsedRealtime()
                 }
                 here.textureId = uploadTexture(bitmap)
             }
@@ -1146,6 +1165,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             // The shape of this tile is already up: only its picture is new,
             // and the picture queue is what paces those.
             val here = synchronized(this) { tiles[mesh.key] }
+            var inherited = 0
             if (here != null) {
                 if (mesh.texture != null) {
                     synchronized(this) { pendingPictures.add(mesh) }
@@ -1158,9 +1178,11 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                 // the whole ground on the old one while the flight floated.
                 GLES20.glDeleteBuffers(2,
                     intArrayOf(here.vertexBuffer, here.indexBuffer), 0)
-                if (here.textureId != 0) {
-                    GLES20.glDeleteTextures(1, intArrayOf(here.textureId), 0)
-                }
+                // The picture stays. It is the same ground over the same
+                // extent whatever the mesh under it looks like now, and
+                // deleting it flashed the tile soft on every mend for the
+                // second the cache took to hand the same picture back.
+                inherited = here.textureId
                 synchronized(this) {
                     tiles.remove(mesh.key)
                     tilesDirty = true
@@ -1168,9 +1190,12 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             }
             val bitmap = mesh.texture
             val texture = if (bitmap != null && !bitmap.isRecycled) {
+                if (inherited != 0) {
+                    GLES20.glDeleteTextures(1, intArrayOf(inherited), 0)
+                }
                 uploadTexture(bitmap)
             } else {
-                0
+                inherited
             }
             val ids = IntArray(2)
             GLES20.glGenBuffers(2, ids, 0)
@@ -1198,6 +1223,20 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             // the queue happened to empty.
             val wanted = drawSetWanted
             if (wanted != null && wanted.all { tiles.containsKey(it) }) {
+                // What leaves the list dissolves rather than pops: a merged
+                // square's children keep drawing over their parent for a
+                // breath. Only tiles wearing a picture — fading a bare mesh
+                // is fading the borrow it shares with its replacement.
+                val now = android.os.SystemClock.elapsedRealtime()
+                drawSet?.let { old ->
+                    for (key in old) {
+                        if (!wanted.contains(key) &&
+                            (tiles[key]?.textureId ?: 0) != 0) {
+                            retiring[key] = now
+                        }
+                    }
+                }
+                for (key in wanted) retiring.remove(key)
                 drawSet = wanted
                 drawSetWanted = null
                 // what the old list was still showing can go now
@@ -1221,11 +1260,16 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // every frame; the queue drains in a blink either way.
         var deletes = 16
         var removed = false
+        val now = android.os.SystemClock.elapsedRealtime()
         val gone = tiles.entries.iterator()
         while (gone.hasNext() && deletes > 0) {
             val t = gone.next().value
             if (wanted.contains(t.key)) continue
             if (drawnNow != null && drawnNow.contains(t.key)) continue
+            // not while it is still dissolving; its turn comes in a blink
+            val fadeStart = retiring[t.key]
+            if (fadeStart != null && now - fadeStart < FADE_MS) continue
+            retiring.remove(t.key)
             if (t.textureId != 0) GLES20.glDeleteTextures(1, intArrayOf(t.textureId), 0)
             GLES20.glDeleteBuffers(2, intArrayOf(t.vertexBuffer, t.indexBuffer), 0)
             gone.remove()
@@ -1249,6 +1293,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     fun shutdown() {
         pending.clear()
         pendingPictures.clear()
+        retiring.clear()
         tiles.clear()
         tilesSnapshot = HashMap()
         tilesDirty = true
@@ -1368,9 +1413,11 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val uBase = GLES20.glGetUniformLocation(terrainProgram, "uBase")
         val uUvScale = GLES20.glGetUniformLocation(terrainProgram, "uUvScale")
         val uUvOff = GLES20.glGetUniformLocation(terrainProgram, "uUvOff")
+        val uAlpha = GLES20.glGetUniformLocation(terrainProgram, "uAlpha")
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
         // the ground's own colour, for a tile whose imagery has not arrived
         GLES20.glUniform3f(uBase, 0.45f, 0.44f, 0.40f)
+        GLES20.glUniform1f(uAlpha, 1f)
 
         // The proper answer to two surfaces at the same depth: push the ground
         // back by a hair, in depth only, so anything lying on it wins without
@@ -1385,6 +1432,10 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // paid on the one thread that cannot pause for it.
         val snapshot: HashMap<Long, Tile>
         val drawn: HashSet<Long>?
+        val now = android.os.SystemClock.elapsedRealtime()
+        // what is dissolving out, read once under the monitor; entries whose
+        // tile has already gone are dropped here
+        var fadeOut: ArrayList<Tile>? = null
         synchronized(this) {
             if (tilesDirty) {
                 tilesSnapshot = HashMap(tiles)
@@ -1392,15 +1443,29 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             }
             snapshot = tilesSnapshot
             drawn = drawSet
+            if (retiring.isNotEmpty()) {
+                val leaving = retiring.entries.iterator()
+                while (leaving.hasNext()) {
+                    val entry = leaving.next()
+                    val t = tiles[entry.key]
+                    if (t == null || t.textureId == 0) {
+                        leaving.remove()
+                        continue
+                    }
+                    if (now - entry.value < FADE_MS) {
+                        (fadeOut ?: ArrayList<Tile>().also { fadeOut = it }).add(t)
+                    }
+                }
+            }
         }
         // The selection is deliberately all-round so turning the camera does
         // not churn tiles; the frustum is applied here instead, per frame,
         // which typically halves what is actually sent to the driver.
         extractFrustum()
         val stride = FLOATS_PER_VERTEX * 4
-        for (tile in snapshot.values) {
-            if (drawn != null && !drawn.contains(tile.key)) continue
-            if (!boxVisible(tile)) continue
+
+        // one tile through the pipe: bind, point, draw, unpoint
+        fun drawOne(tile: Tile, texId: Int, scale: Float, offU: Float, offV: Float) {
             GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, tile.vertexBuffer)
             GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, tile.indexBuffer)
             GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, stride, 0)
@@ -1409,11 +1474,36 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glEnableVertexAttribArray(aTexture)
             GLES20.glVertexAttribPointer(aNormal, 3, GLES20.GL_FLOAT, false, stride, 5 * 4)
             GLES20.glEnableVertexAttribArray(aNormal)
+            if (texId != 0) {
+                GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texId)
+                GLES20.glUniform1f(uHasTexture, 1f)
+                GLES20.glUniform1f(uUvScale, scale)
+                GLES20.glUniform2f(uUvOff, offU, offV)
+            } else {
+                GLES20.glUniform1f(uHasTexture, 0f)
+                GLES20.glUniform1f(uUvScale, 1f)
+                GLES20.glUniform2f(uUvOff, 0f, 0f)
+            }
+            GLES20.glDrawElements(GLES20.GL_TRIANGLES, tile.count,
+                GLES20.GL_UNSIGNED_SHORT, 0)
+            GLES20.glDisableVertexAttribArray(aPosition)
+            GLES20.glDisableVertexAttribArray(aTexture)
+            GLES20.glDisableVertexAttribArray(aNormal)
+        }
+
+        // tiles whose first picture is still dissolving in over the borrow
+        var fadeIn: ArrayList<Tile>? = null
+        for (tile in snapshot.values) {
+            if (drawn != null && !drawn.contains(tile.key)) continue
+            if (!boxVisible(tile)) continue
 
             // Its own picture, or the nearest ancestor's quarter-of-a-quarter
             // while its own is still on the wire — soft beats grey, and the
-            // sharp one lands in place.
-            var texId = tile.textureId
+            // sharp one lands in place. A picture that has just landed keeps
+            // the borrow beneath it for a breath and dissolves in over it.
+            val fadingIn = tile.dressedAt != 0L && now - tile.dressedAt < FADE_MS
+            var texId = if (fadingIn) 0 else tile.textureId
             var scale = 1f
             var offU = 0f
             var offV = 0f
@@ -1428,24 +1518,43 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                     at = TerrainScene.parentOf(at)
                     texId = snapshot[at]?.textureId ?: 0
                 }
+                if (fadingIn) {
+                    if (texId != 0) {
+                        (fadeIn ?: ArrayList<Tile>().also { fadeIn = it }).add(tile)
+                    } else {
+                        // nothing to fade over: the picture just shows
+                        texId = tile.textureId
+                        scale = 1f; offU = 0f; offV = 0f
+                    }
+                }
             }
-            if (texId != 0) {
-                GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texId)
-                GLES20.glUniform1f(uHasTexture, 1f)
-                GLES20.glUniform1f(uUvScale, scale)
-                GLES20.glUniform2f(uUvOff, offU, offV)
-            } else {
-                GLES20.glUniform1f(uHasTexture, 0f)
-                GLES20.glUniform1f(uUvScale, 1f)
-                GLES20.glUniform2f(uUvOff, 0f, 0f)
-            }
-            GLES20.glDrawElements(GLES20.GL_TRIANGLES, tile.count,
-                GLES20.GL_UNSIGNED_SHORT, 0)
+            drawOne(tile, texId, scale, offU, offV)
+        }
 
-            GLES20.glDisableVertexAttribArray(aPosition)
-            GLES20.glDisableVertexAttribArray(aTexture)
-            GLES20.glDisableVertexAttribArray(aNormal)
+        // The dissolve, over the opaque ground: resolution fades, geometry
+        // does not, so nothing swims — the eye is walked through a change
+        // of sharpness it would otherwise catch happening between frames.
+        val fadingOut = fadeOut
+        val fadingIn = fadeIn
+        if (fadingOut != null || fadingIn != null) {
+            GLES20.glEnable(GLES20.GL_BLEND)
+            GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+            GLES20.glDepthMask(false)
+            fadingIn?.forEach { tile ->
+                GLES20.glUniform1f(uAlpha,
+                    ((now - tile.dressedAt) / FADE_MS).coerceIn(0f, 1f))
+                drawOne(tile, tile.textureId, 1f, 0f, 0f)
+            }
+            fadingOut?.forEach { tile ->
+                if (!boxVisible(tile)) return@forEach
+                val began = synchronized(this) { retiring[tile.key] } ?: return@forEach
+                GLES20.glUniform1f(uAlpha,
+                    (1f - (now - began) / FADE_MS).coerceIn(0f, 1f))
+                drawOne(tile, tile.textureId, 1f, 0f, 0f)
+            }
+            GLES20.glDepthMask(true)
+            GLES20.glDisable(GLES20.GL_BLEND)
+            GLES20.glUniform1f(uAlpha, 1f)
         }
         // everything after this draws from ordinary buffers, which a bound
         // vertex buffer would silently override

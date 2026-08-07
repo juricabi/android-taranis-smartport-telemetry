@@ -106,7 +106,7 @@ object Imagery {
             // prune walks a quarter-gigabyte directory
             if (!prunedThisRun) {
                 prunedThisRun = true
-                pool.submit { pruneMosaics() }
+                pool.submit { pruneCaches() }
             }
         } catch (e: Exception) {
             // no disk cache is survivable; every tile just costs a download
@@ -114,19 +114,29 @@ object Imagery {
         }
     }
 
-    /** The finished mosaics are half a megabyte each; keep the newest ~250MB. */
-    private fun pruneMosaics() {
+    /**
+     * The finished mosaics to the newest ~250MB, and the source squares to
+     * the newest ~400MB. The squares had no ceiling at all, and two days of
+     * flying and testing grew them past two gigabytes — every 256-pixel
+     * piece of everywhere the camera had ever looked, kept forever.
+     */
+    private fun pruneCaches() {
+        prune("m", ".jpg", 250L * 1024 * 1024, 200L * 1024 * 1024)
+        prune(null, ".tile", 400L * 1024 * 1024, 350L * 1024 * 1024)
+    }
+
+    private fun prune(prefix: String?, suffix: String, over: Long, downTo: Long) {
         try {
             val dir = cacheDir ?: return
-            val mosaics = dir.listFiles { f ->
-                f.name.startsWith("m") && f.name.endsWith(".jpg")
+            val files = dir.listFiles { f ->
+                (prefix == null || f.name.startsWith(prefix)) && f.name.endsWith(suffix)
             } ?: return
-            var total = mosaics.sumOf { it.length() }
-            if (total <= 250L * 1024 * 1024) return
-            for (f in mosaics.sortedBy { it.lastModified() }) {
+            var total = files.sumOf { it.length() }
+            if (total <= over) return
+            for (f in files.sortedBy { it.lastModified() }) {
                 total -= f.length()
                 f.delete()
-                if (total <= 200L * 1024 * 1024) break
+                if (total <= downTo) break
             }
         } catch (e: Exception) {
             // pruning is housekeeping; failing costs disk, not correctness
@@ -464,6 +474,8 @@ object Imagery {
         try {
             val file = tileFile(zoom, x, y) ?: return null
             if (!file.isFile || file.length() <= 0L) return null
+            // touched, so the prune keeps what is actually being flown over
+            file.setLastModified(System.currentTimeMillis())
             return file.readBytes()
         } catch (e: Exception) {
             return null
