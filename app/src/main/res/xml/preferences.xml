@@ -32,8 +32,8 @@
 
     <SwitchPreference
             app:iconSpaceReserved="false"
-            android:title="Record my position in the log"
-            android:summary="Writes where this phone is, how good the fix is and which way it faces into the CSV, so a replay can put you back where you stood. It travels with the log if you share one."
+            android:title="Record operator position"
+            android:summary="Writes where you stand, how good the fix is and which way you face into the flight's CSV — playback then shows you as the recorded operator: the arrow, its ring and its line. It travels with the log if you share one."
             android:defaultValue="true"
             android:dependency="csv_logging_enabled"
             android:key="log_my_position"/>
