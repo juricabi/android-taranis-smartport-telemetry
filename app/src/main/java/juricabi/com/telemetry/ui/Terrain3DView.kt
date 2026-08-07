@@ -696,18 +696,6 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private var currentLineOn = false
     private var currentLineColor = 0
 
-    /**
-     * The line's own anchor, fed whether or not the live arrow is shown:
-     * hiding the arrow wipes the arrow's position, and the line has its own
-     * switch — a switch that silently drew nothing was worse than none.
-     */
-    private var currentAnchorLat = Double.NaN
-    private var currentAnchorLon = Double.NaN
-
-    fun setCurrentAnchor(lat: Double, lon: Double) {
-        currentAnchorLat = lat
-        currentAnchorLon = lon
-    }
 
     fun setOverlaySettings(homeLine: Boolean, homeColor: Int,
                            headingLine: Boolean, headingColor: Int,
@@ -755,14 +743,19 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // where it is drawing the model. Given as vertices here they jumped to
         // each fix and then waited, while the model glided between them.
         // The current location line: to where this phone is now, live and
-        // playback alike — walking to a downed model is its whole use. The
-        // anchor is fed whether or not the live arrow is shown.
-        val homeLat = if (!currentAnchorLat.isNaN()) currentAnchorLat else myLat
-        val homeLon = if (!currentAnchorLon.isNaN()) currentAnchorLon else myLon
+        // playback alike — walking to a downed model is its whole use. It
+        // stands on the arrow's own position, so hiding the arrow takes the
+        // line with it: a line pointing at nothing points at nothing.
+        val homeLat = myLat
+        val homeLon = myLon
         val home = if (homeLat.isNaN() || homeLon.isNaN()) {
             null
         } else {
-            scene.groundAt(homeLat, homeLon)
+            // The phone routinely stands far outside the flight's loaded
+            // ground during playback. The datum plane then anchors the line
+            // rather than hiding it — the map draws it whatever the distance,
+            // and the two views must agree.
+            scene.groundAt(homeLat, homeLon) ?: scene.originAltitude
         }
         if (homeLineOn && model != null && home != null) {
             val c = colorOf(homeLineColor)

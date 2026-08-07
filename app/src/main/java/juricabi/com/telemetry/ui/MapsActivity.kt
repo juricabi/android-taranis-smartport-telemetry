@@ -233,9 +233,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // built most recently disagreed with the other about whether the
         // phone existed at all.
         val fix = bestPhoneFix ?: myLastKnownFix() ?: return
-        // The replay position line keeps its anchor even with the live
-        // arrow switched off over a replay — the line has its own toggle.
-        terrain3D?.setCurrentAnchor(fix.latitude, fix.longitude)
         if (!showLiveArrow()) return
         map?.setPhoneLocation(
             Position(fix.latitude, fix.longitude),
@@ -266,8 +263,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             tellViewsWhereIAm()
         } else {
             terrain3D?.hideMyLocation()
-            // the arrow is declined, the line's anchor is not
-            terrain3D?.setCurrentAnchor(location.latitude, location.longitude)
         }
     }
 
@@ -1131,7 +1126,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         updateCurrentLine(displayedDrone)
         val line = homeLine ?: return
         line.color = preferenceManager.getHomeLineColor()
-        if (!preferenceManager.isHomeLineEnabled()) {
+        // hidden with its arrow: a line pointing at an arrow that has been
+        // switched off points at nothing
+        if (!preferenceManager.isHomeLineEnabled() || !showLiveArrow()) {
             line.clear()
             return
         }
@@ -2829,6 +2826,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         walkDelayMs = 80L
         headingPolyline?.clear()
         homeLine?.clear()
+        // or its stale segment outlives the replay: with the model gone the
+        // next update returns before it can clear
+        currentLine?.clear()
     }
 
     private fun clearCrsfSystem() {
@@ -3360,6 +3360,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private fun forgetMapOverlays() {
         polyLine = null
         homeLine = null
+        currentLine = null
         headingPolyline = null
         marker = null
         flightPlanLines.clear()

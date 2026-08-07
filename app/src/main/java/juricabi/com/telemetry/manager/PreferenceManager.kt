@@ -426,7 +426,11 @@ class PreferenceManager(context: Context) {
 
     /** The operator position line, playback only: to where they stood then. */
     fun isCurrentLineEnabled(): Boolean {
-        return sharedPreferences.getBoolean("show_current_line", true)
+        // It inherits the old home line's replay role, so it inherits that
+        // switch as its default: whoever turned the drone-to-phone line off
+        // did not ask for a new one in another colour.
+        return sharedPreferences.getBoolean("show_current_line",
+            sharedPreferences.getBoolean("show_home_line", true))
     }
 
     fun getCurrentLineColor(): Int {
