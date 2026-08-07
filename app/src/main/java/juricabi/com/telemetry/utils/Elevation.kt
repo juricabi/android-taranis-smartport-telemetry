@@ -444,12 +444,21 @@ object Elevation {
             connection.connectTimeout = 15000
             connection.readTimeout = 15000
             val code = connection.responseCode
-            // 403 as well as 404: S3 answers 403 for a key that is not there.
-            // Anything else the server may be saying — throttled, down — is a
-            // bad moment, not a missing tile.
-            if (code == HttpURLConnection.HTTP_NOT_FOUND ||
-                code == HttpURLConnection.HTTP_FORBIDDEN) return ABSENT
-            if (code != HttpURLConnection.HTTP_OK) return null
+            // Only 404 is a verdict. S3 answers 403 for a key that is not
+            // there — but also when it throttles a burst, and the difference
+            // cannot be told from here. Remembering a 403 for good turned
+            // one throttled cold-start warm into a block of ground that
+            // stayed coarse for the whole run, rebuilt into the same
+            // instant failure every thirty seconds. Terrarium is global, so
+            // a real miss is an ask that should not have been made at all;
+            // a 403 backs off and asks again like any other bad moment.
+            if (code == HttpURLConnection.HTTP_NOT_FOUND) return ABSENT
+            if (code != HttpURLConnection.HTTP_OK) {
+                // named in the field log: a run of these cost an evening to
+                // find when the only trace was a counter going up
+                DebugLog.note(TAG, "tile $zoom/$x/$y: HTTP $code")
+                return null
+            }
             val out = ByteArrayOutputStream()
             connection.inputStream.use { input ->
                 val buffer = ByteArray(8192)

@@ -587,6 +587,9 @@ class TerrainPager(
                         // the picture is the renderer's to recycle — the one
                         // recycle that survived the ownership rule here was
                         // the same GL-thread race the rule exists to end
+                        DebugLog.note(TAG, "mend ${TerrainScene.zoomOf(key)}/" +
+                            "${TerrainScene.tileXOf(key)}/${TerrainScene.tileYOf(key)}" +
+                            (if (p.dressed) " was dressed" else ""))
                         resident.remove(key)
                         heightRange.remove(key)
                         return true
@@ -607,6 +610,8 @@ class TerrainPager(
                     android.os.SystemClock.elapsedRealtime() + 30_000L
             }
             buildFails++
+            DebugLog.note(TAG, "build failed $z/" +
+                "${TerrainScene.tileXOf(key)}/${TerrainScene.tileYOf(key)}")
             // a verdict, not a hiccup: one transient timeout on a cold start
             // used to flash "No terrain here" and release the held flight
             // over bare mesh while the other roots were still building fine
@@ -837,6 +842,8 @@ class TerrainPager(
                         android.os.SystemClock.elapsedRealtime() + TEXTURE_RETRY_MS
                 }
                 dressFails++
+                DebugLog.note(TAG, "no picture $z/" +
+                    "${TerrainScene.tileXOf(key)}/${TerrainScene.tileYOf(key)}+$extra")
             }
             return
         }
