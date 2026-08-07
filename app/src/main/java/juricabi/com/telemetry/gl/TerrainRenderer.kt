@@ -409,6 +409,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     @Volatile var eyeY = 0f; private set
     @Volatile var eyeZ = 0f; private set
     @Volatile var viewHeightPx = 1; private set
+    @Volatile var viewWidthPx = 1; private set
 
     /** Which way the camera faces, so detail can chase the view. */
     @Volatile var viewDirX = 0f; private set
@@ -955,6 +956,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         surfaceWidth = Math.max(1, width)
         surfaceHeight = Math.max(1, height)
         viewHeightPx = surfaceHeight
+        viewWidthPx = surfaceWidth
         GLES20.glViewport(0, 0, surfaceWidth, surfaceHeight)
         // the projection is rebuilt per frame instead, from how far out we are
     }
@@ -1047,6 +1049,8 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             shownTarget[0], targetY, shownTarget[2], 0f, 1f, 0f)
 
         Matrix.multiplyMM(mvp, 0, projection, 0, view, 0)
+        // this frame's projection, for the screen to pick against on a tap
+        synchronized(this) { System.arraycopy(mvp, 0, pickMvp, 0, 16) }
 
         // The flight before the model, so the model is never painted over.
         //
@@ -1058,8 +1062,29 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // which deliberately leaves no depth, gives way.
         drawTerrain()
         drawLines()
+        drawTraffic()
         drawModelLit()
         drawMyArrow()
+    }
+
+    /** The frame last drawn, so a tap on the screen can be asked in world terms. */
+    private val pickMvp = FloatArray(16)
+    private val pickVec = FloatArray(8)
+
+    /**
+     * A world point onto the screen, in pixels, against the frame last drawn.
+     * False when the point is behind the camera and has no place on screen.
+     */
+    fun projectToScreen(x: Float, y: Float, z: Float, out: FloatArray): Boolean {
+        synchronized(this) {
+            pickVec[0] = x; pickVec[1] = y; pickVec[2] = z; pickVec[3] = 1f
+            Matrix.multiplyMV(pickVec, 4, pickMvp, 0, pickVec, 0)
+            val w = pickVec[7]
+            if (w <= 0f) return false
+            out[0] = (pickVec[4] / w * 0.5f + 0.5f) * viewWidthPx
+            out[1] = (0.5f - pickVec[5] / w * 0.5f) * viewHeightPx
+        }
+        return true
     }
 
     /**
@@ -1705,6 +1730,76 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         GLES20.glDisableVertexAttribArray(aPosition)
         // put back what the ground and the model expect to find
         GLES20.glDisable(GLES20.GL_BLEND)
+    }
+
+    /** Packed [x, y, z, headingDegrees] per aircraft; swapped whole per update. */
+    fun setTraffic(planes: FloatArray) {
+        trafficPlanes = planes
+    }
+
+    @Volatile private var trafficPlanes = FloatArray(0)
+    private var trafficBuffer: FloatBuffer? = null
+    private var trafficCount = 0
+    private val trafficMatrix = FloatArray(16)
+    private val trafficMvp = FloatArray(16)
+
+    /**
+     * Real aircraft as small planes in the traffic orange, at their true
+     * place and track — always the plane mesh, whatever the flown model is.
+     * Sized off each one's own distance, a shade smaller than the model:
+     * traffic is context, and the flight stays the subject.
+     */
+    private fun drawTraffic() {
+        val planes = trafficPlanes
+        if (planes.isEmpty() || modelProgram == 0) return
+        if (trafficBuffer == null) {
+            val mesh = ModelMeshes.plane()
+            trafficBuffer = floats(mesh)
+            trafficCount = mesh.size / MODEL_FLOATS
+        }
+        val buffer = trafficBuffer ?: return
+        if (trafficCount < 3) return
+
+        GLES20.glUseProgram(modelProgram)
+        val aPosition = GLES20.glGetAttribLocation(modelProgram, "aPosition")
+        val aCorner = GLES20.glGetAttribLocation(modelProgram, "aCorner")
+        val aNormal = GLES20.glGetAttribLocation(modelProgram, "aNormal")
+        val uMvp = GLES20.glGetUniformLocation(modelProgram, "uMvp")
+        val uBase = GLES20.glGetUniformLocation(modelProgram, "uBase")
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(modelProgram, "uInk"), 1.3f)
+
+        val stride = MODEL_FLOATS * 4
+        buffer.position(0)
+        GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, stride, buffer)
+        GLES20.glEnableVertexAttribArray(aPosition)
+        buffer.position(3)
+        GLES20.glVertexAttribPointer(aCorner, 3, GLES20.GL_FLOAT, false, stride, buffer)
+        GLES20.glEnableVertexAttribArray(aCorner)
+        buffer.position(6)
+        GLES20.glVertexAttribPointer(aNormal, 3, GLES20.GL_FLOAT, false, stride, buffer)
+        GLES20.glEnableVertexAttribArray(aNormal)
+        GLES20.glUniform3f(uBase, 1f, 0.6f, 0.1f)
+
+        var i = 0
+        while (i + 3 < planes.size) {
+            Matrix.setIdentityM(trafficMatrix, 0)
+            Matrix.translateM(trafficMatrix, 0, planes[i], planes[i + 1], planes[i + 2])
+            Matrix.rotateM(trafficMatrix, 0, -planes[i + 3], 0f, 1f, 0f)
+            val dx = planes[i] - eyeX
+            val dy = planes[i + 1] - eyeY
+            val dz = planes[i + 2] - eyeZ
+            val d = Math.sqrt((dx * dx + dy * dy + dz * dz).toDouble()).toFloat()
+            val s = Math.max(3f, d * 0.015f)
+            Matrix.scaleM(trafficMatrix, 0, s, s, s)
+            Matrix.multiplyMM(trafficMvp, 0, mvp, 0, trafficMatrix, 0)
+            GLES20.glUniformMatrix4fv(uMvp, 1, false, trafficMvp, 0)
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, trafficCount)
+            i += 4
+        }
+
+        GLES20.glDisableVertexAttribArray(aPosition)
+        GLES20.glDisableVertexAttribArray(aCorner)
+        GLES20.glDisableVertexAttribArray(aNormal)
     }
 
     /**

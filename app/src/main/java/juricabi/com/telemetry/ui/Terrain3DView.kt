@@ -862,32 +862,79 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         }
 
         // Traffic, at the height it is actually flying: a post from the ground
-        // up to the aircraft, which is the thing a flat map cannot show you.
+        // up to the aircraft — the thing a flat map cannot show you — with a
+        // small plane on top of it, pointed down its track, in place of the
+        // cross that used to say only "something, somewhere up here".
         if (traffic.isNotEmpty()) {
             val posts = FloatArray(traffic.size * 6)
-            val marks = FloatArray(traffic.size * 12)
+            val planes = FloatArray(traffic.size * 4)
             var p = 0
-            var m = 0
+            var q = 0
             for (plane in traffic) {
                 val lat = plane.lat.toDouble()
                 val lon = plane.lon.toDouble()
                 val ground = scene.groundAt(lat, lon) ?: scene.originAltitude
                 val x = scene.east(lon)
                 val z = -scene.north(lat)
-                val top = plane.altMeters - scene.originAltitude
+                val top = (plane.altMeters - scene.originAltitude).toFloat()
                 posts[p++] = x; posts[p++] = ground - scene.originAltitude; posts[p++] = z
-                posts[p++] = x; posts[p++] = top.toFloat(); posts[p++] = z
-                val arm = Math.max(40f, scene.extent / 12f)
-                marks[m++] = x - arm; marks[m++] = top.toFloat(); marks[m++] = z
-                marks[m++] = x + arm; marks[m++] = top.toFloat(); marks[m++] = z
-                marks[m++] = x; marks[m++] = top.toFloat(); marks[m++] = z - arm
-                marks[m++] = x; marks[m++] = top.toFloat(); marks[m++] = z + arm
+                posts[p++] = x; posts[p++] = top; posts[p++] = z
+                planes[q++] = x; planes[q++] = top; planes[q++] = z
+                planes[q++] = plane.track.toFloat()
             }
             sets.add(TerrainRenderer.LineSet(posts, 1f, 1f, 1f, 0.35f, false, 2f, false))
-            sets.add(TerrainRenderer.LineSet(marks, 1f, 0.6f, 0.1f, 0.95f, false, 3f, false))
+            renderer.setTraffic(planes)
+            // the same aircraft, in the same order, for a tap to ask against
+            trafficShown = traffic
+            trafficPlaces = planes
+        } else {
+            renderer.setTraffic(FloatArray(0))
+            trafficShown = emptyList()
+            trafficPlaces = FloatArray(0)
         }
 
         renderer.setOverlays(sets)
+    }
+
+    /** What a tap can hit: the aircraft drawn, beside where each was drawn. */
+    private var trafficShown: List<juricabi.com.telemetry.manager.Fr24Manager.AirplaneInfo> =
+        emptyList()
+    private var trafficPlaces = FloatArray(0)
+
+    /** Told which aircraft a tap landed on, to say who it is. */
+    var onTrafficTapped: ((juricabi.com.telemetry.manager.Fr24Manager.AirplaneInfo) -> Unit)? =
+        null
+
+    /**
+     * The aircraft nearest the tap, within a finger of it on screen.
+     *
+     * Projected against the frame last drawn, which is what the finger was
+     * aiming at; the world positions are the ones the planes were drawn from,
+     * so the two cannot disagree about where an aircraft is.
+     */
+    private fun pickTraffic(tapX: Float, tapY: Float): Boolean {
+        val shown = trafficShown
+        val places = trafficPlaces
+        if (shown.isEmpty() || places.size < shown.size * 4) return false
+        val reach = 44f * resources.displayMetrics.density
+        val screen = FloatArray(2)
+        var bestAt = -1
+        var bestDist = reach
+        for (i in shown.indices) {
+            val base = i * 4
+            if (!renderer.projectToScreen(places[base], places[base + 1],
+                    places[base + 2], screen)) continue
+            val dx = screen[0] - tapX
+            val dy = screen[1] - tapY
+            val d = Math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+            if (d < bestDist) {
+                bestDist = d
+                bestAt = i
+            }
+        }
+        if (bestAt < 0) return false
+        onTrafficTapped?.invoke(shown[bestAt])
+        return true
     }
 
     /** The model's colour, from the same setting the map marker uses. */
@@ -1109,8 +1156,12 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             MotionEvent.ACTION_DOWN -> {
                 lastX = event.x
                 lastY = event.y
+                downX = event.x
+                downY = event.y
+                tapCandidate = true
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
+                tapCandidate = false
                 lastSpan = spanOf(event)
                 lastAngle = angleOf(event)
                 lastFocusY = focusYOf(event)
@@ -1156,6 +1207,13 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
                     lastAngle = angle
                     lastFocusY = focusY
                 } else {
+                    if (tapCandidate) {
+                        val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+                        if (Math.abs(event.x - downX) > slop ||
+                            Math.abs(event.y - downY) > slop) {
+                            tapCandidate = false
+                        }
+                    }
                     panBy(event.x - lastX, event.y - lastY)
                     lastX = event.x
                     lastY = event.y
@@ -1169,9 +1227,20 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
                 lastX = event.getX(remaining)
                 lastY = event.getY(remaining)
             }
+            MotionEvent.ACTION_UP -> {
+                // a finger that went down and came up where it went down is a
+                // tap, and a tap is a question about what it landed on
+                if (tapCandidate) pickTraffic(event.x, event.y)
+                tapCandidate = false
+            }
+            MotionEvent.ACTION_CANCEL -> tapCandidate = false
         }
         return true
     }
+
+    private var downX = 0f
+    private var downY = 0f
+    private var tapCandidate = false
 
     /** Drag the ground with the finger, scaled by how far out the camera is. */
     private fun panBy(dx: Float, dy: Float) {

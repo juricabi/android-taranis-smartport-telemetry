@@ -3292,6 +3292,16 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         )
         applyTerrainSettings(view)
         view.setTraffic(lastAirplanes)
+        // the same answer a tap on the map's airplane gets, said the 3D way
+        view.onTrafficTapped = { airplane ->
+            runOnUiThread {
+                showDialog(AlertDialog.Builder(this)
+                    .setTitle(airplane.displayName)
+                    .setMessage(airplaneSummary(airplane))
+                    .setPositiveButton(android.R.string.ok, null)
+                    .create())
+            }
+        }
         // Facing the way it was last seen facing. A view is built with a model
         // pointing north and level, and only an arriving attitude turns it — so
         // opening this view with nothing arriving showed the model facing north
@@ -5669,16 +5679,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // Update or create markers
         for (airplane in airplanes) {
             val title = airplane.displayName
-            val snippet = buildString {
-                if (airplane.aircraftType.isNotEmpty()) append(airplane.aircraftType)
-                if (airplane.registration.isNotEmpty()) {
-                    if (isNotEmpty()) append(" | ")
-                    append(airplane.registration)
-                }
-                append("\nAlt: ${airplane.altMeters}m | Spd: ${airplane.speedKmh}km/h")
-                val route = airplane.route
-                if (route.isNotEmpty()) append("\n$route")
-            }
+            val snippet = airplaneSummary(airplane)
 
             val existing = airplaneMarkers[airplane.flightId]
             if (existing != null) {
@@ -5699,6 +5700,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 }
             }
         }
+    }
+
+    /** Who an aircraft is, one text for the map's bubble and the 3D tap alike. */
+    private fun airplaneSummary(airplane: Fr24Manager.AirplaneInfo): String = buildString {
+        if (airplane.aircraftType.isNotEmpty()) append(airplane.aircraftType)
+        if (airplane.registration.isNotEmpty()) {
+            if (isNotEmpty()) append(" | ")
+            append(airplane.registration)
+        }
+        append("\nAlt: ${airplane.altMeters}m | Spd: ${airplane.speedKmh}km/h")
+        val route = airplane.route
+        if (route.isNotEmpty()) append("\n$route")
     }
 
     override fun onProximityWarning(
