@@ -1129,12 +1129,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         updateCurrentLine(displayedDrone)
         val line = homeLine ?: return
         line.color = preferenceManager.getHomeLineColor()
-        // With the playback position line switched on, it has the say: one
-        // line from the drone, to now. The home line yields for the length
-        // of the playback — the precedence the first build of this had by
-        // accident, kept on purpose.
-        val yielded = isInReplayMode() && preferenceManager.isCurrentLineEnabled()
-        if (!preferenceManager.isHomeLineEnabled() || yielded) {
+        if (!preferenceManager.isHomeLineEnabled()) {
             line.clear()
             return
         }

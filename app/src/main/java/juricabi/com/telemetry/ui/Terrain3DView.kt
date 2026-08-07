@@ -773,10 +773,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         } else {
             scene.groundAt(homeLat, homeLon)
         }
-        // the same yield as the map's: a playback position line switched on
-        // speaks for the replay alone
-        val homeYields = homeFromRecorded && currentLineOn
-        if (homeLineOn && !homeYields && model != null && home != null) {
+        if (homeLineOn && model != null && home != null) {
             val c = colorOf(homeLineColor)
             renderer.setHomeLine(true, scene.east(homeLon), home - scene.originAltitude,
                 -scene.north(homeLat), c[0], c[1], c[2], c[3])
