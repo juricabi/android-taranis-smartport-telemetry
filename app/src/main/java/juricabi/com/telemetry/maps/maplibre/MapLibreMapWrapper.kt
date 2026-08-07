@@ -629,6 +629,16 @@ class MapLibreMapWrapper(
         }
     }
 
+    override fun addCurrentLine(width: Float, color: Int): MapLine {
+        // its own slot: the slots are named places, and asking for HOME
+        // twice handed the second line the first one's — the home line
+        // simply stopped existing the moment this one was made
+        return movingLines().makeLine(MapLibreMovingLineLayer.CURRENT).also { line ->
+            line.width = width
+            line.color = color
+        }
+    }
+
     /**
      * Static flight/plan lines, then synchronized lines and model, then the
      * recorded and live phone markers.

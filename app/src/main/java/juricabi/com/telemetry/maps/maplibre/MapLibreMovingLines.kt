@@ -78,7 +78,8 @@ internal class MapLibreMovingLineLayer(
         const val FLIGHT_HEAD = 0
         const val HOME = 1
         const val HEADING = 2
-        private const val SLOT_COUNT = 3
+        const val CURRENT = 3
+        private const val SLOT_COUNT = 4
     }
 
     private val owners = arrayOfNulls<MapLibreMovingLine>(SLOT_COUNT)

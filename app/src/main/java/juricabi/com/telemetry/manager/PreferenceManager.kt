@@ -415,17 +415,18 @@ class PreferenceManager(context: Context) {
     }
 
     fun getHomeLineColor(): Int {
-        return sharedPreferences.getInt("home_line_color", defaultHomeLineColor)
+        // the user flew both lines over real ground and chose: home in the
+        // arrows' blue, the playback position line in the classic orange
+        return sharedPreferences.getInt("home_line_color", defaultPosArrowColor)
     }
 
-    /** Replay only: the line from the drone to where this phone is now. */
+    /** Playback only: the line from the drone to where this phone is now. */
     fun isCurrentLineEnabled(): Boolean {
         return sharedPreferences.getBoolean("show_current_line", false)
     }
 
     fun getCurrentLineColor(): Int {
-        // the live arrow's blue by default: both say "the phone, now"
-        return sharedPreferences.getInt("current_line_color", defaultPosArrowColor)
+        return sharedPreferences.getInt("current_line_color", defaultHomeLineColor)
     }
 
     fun isFr24Enabled(): Boolean {

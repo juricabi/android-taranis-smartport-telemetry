@@ -843,7 +843,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // A missing phone fix can then leave it alone instead of repeatedly
         // dismantling and rebuilding its renderer source.
         homeLine?.addPoints(listOf(lastGPS, lastGPS))
-        currentLine = map?.addHomeLine(LineWeights.HOME, preferenceManager.getCurrentLineColor())
+        currentLine = map?.addCurrentLine(LineWeights.HOME, preferenceManager.getCurrentLineColor())
         currentLine?.addPoints(listOf(lastGPS, lastGPS))
         drawFlightPlans()
         flightHeadLine = map?.addFlightHeadLine(
@@ -1451,10 +1451,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     seekBar.visibility = View.VISIBLE
                     playButton.visibility = View.VISIBLE
                     // The record chosen is the record wanted: it plays without
-                    // a second tap. The ground hold still applies — over the
-                    // 3D view this waits for a dressed world exactly as a
-                    // hand-started replay does.
-                    logPlayer?.startPlayback()
+                    // a second tap — governed by the Playback setting, which
+                    // existed for exactly this and was read by nothing. The
+                    // ground hold still applies over the 3D view.
+                    if (preferenceManager.getPlaybackAutostart()) {
+                        logPlayer?.startPlayback()
+                    }
                     var resumeAfterScrub = false
                     // One decode per hundred milliseconds while the thumb is
                     // down, to wherever it is by then. Every drag event used
