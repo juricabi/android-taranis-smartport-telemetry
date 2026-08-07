@@ -37,6 +37,17 @@ object Imagery {
     private const val TILE_SIZE = 256
     private const val MAX_ZOOM = 19
 
+    /**
+     * The deepest level a mosaic reaches for. Nineteen exists in the tile
+     * scheme, but probed over the places this is flown ArcGIS serves its
+     * "not yet available" watermark there and real ground at eighteen —
+     * the same measured edge the 2D map stops at. Asking for nineteen
+     * cost every fresh leaf a round of watermark fetches just to discover
+     * this; the placeholder detector stays, for the patchy spots where
+     * even eighteen is thin.
+     */
+    private const val DEEPEST_PICTURES = 18
+
     // ESRI orders the path z/y/x - row before column - unlike almost every
     // other slippy source. Swapping the last two still returns a valid tile,
     // just one from the wrong part of the world, so nothing fails loudly.
@@ -165,7 +176,7 @@ object Imagery {
             if (z < 0 || z > MAX_ZOOM) return null
             val n = 1 shl z
             if (x < 0 || x >= n || y < 0 || y >= n) return null
-            val extra = extraZoom.coerceIn(0, min(MAX_EXTRA_ZOOM, MAX_ZOOM - z))
+            val extra = extraZoom.coerceIn(0, min(MAX_EXTRA_ZOOM, DEEPEST_PICTURES - z))
             // The finished picture, remembered. Stitching a sharp mosaic is
             // dozens of decodes and the second the eye waits on every return
             // to ground it has already seen; reading the finished one back is
