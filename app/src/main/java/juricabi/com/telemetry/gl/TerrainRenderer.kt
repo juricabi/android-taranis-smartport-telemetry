@@ -254,14 +254,14 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     private var homeB = 1f
     private var homeA = 1f
 
-    @Volatile private var currOn = false
-    private var currX = 0f
-    private var currY = 0f
-    private var currZ = 0f
-    private var currR = 1f
-    private var currG = 1f
-    private var currB = 1f
-    private var currA = 1f
+    @Volatile private var operatorOn = false
+    private var operatorX = 0f
+    private var operatorY = 0f
+    private var operatorZ = 0f
+    private var operatorR = 1f
+    private var operatorG = 1f
+    private var operatorB = 1f
+    private var operatorA = 1f
 
     @Volatile private var headingOn = false
     private var headR = 1f
@@ -815,13 +815,13 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         homeR = r; homeG = g; homeB = b; homeA = a
     }
 
-    /** The replay's second line: to where the phone is now, not then. */
+    /** The operator line, playback only: to where they stood, then. */
     @Synchronized
-    fun setCurrentLine(on: Boolean, x: Float, y: Float, z: Float,
-                       r: Float, g: Float, b: Float, a: Float) {
-        currOn = on
-        currX = x; currY = y; currZ = z
-        currR = r; currG = g; currB = b; currA = a
+    fun setOperatorLine(on: Boolean, x: Float, y: Float, z: Float,
+                        r: Float, g: Float, b: Float, a: Float) {
+        operatorOn = on
+        operatorX = x; operatorY = y; operatorZ = z
+        operatorR = r; operatorG = g; operatorB = b; operatorA = a
     }
 
     @Synchronized
@@ -1587,17 +1587,17 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glDepthMask(true)
         }
 
-        // the operator line first, the current location line after — the
-        // line a person walks to a downed model by paints over the other
-        if (modelVisible && currOn) {
+        // the operator line first, the home line after — the line a person
+        // walks to a downed model by paints over the other
+        if (modelVisible && operatorOn) {
             synchronized(this) {
                 leaderPair[0] = shownX; leaderPair[1] = shownY; leaderPair[2] = shownZ
-                leaderPair[3] = currX; leaderPair[4] = currY; leaderPair[5] = currZ
+                leaderPair[3] = operatorX; leaderPair[4] = operatorY; leaderPair[5] = operatorZ
             }
             fill(leaderPairBuffer, leaderPair)
             GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12,
                 leaderPairBuffer)
-            GLES20.glUniform4f(uColor, currR, currG, currB, currA)
+            GLES20.glUniform4f(uColor, operatorR, operatorG, operatorB, operatorA)
             GLES20.glLineWidth(3f)
             GLES20.glDrawArrays(GLES20.GL_LINES, 0, 2)
         }

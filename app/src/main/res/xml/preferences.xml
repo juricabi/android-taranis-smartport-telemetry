@@ -157,14 +157,14 @@
                 android:title="Show operator line"
                 android:summary="During playback, draw a line from the drone to the recorded operator's arrow. Hidden with the arrow."
                 android:defaultValue="true"
-                android:key="show_current_line"
+                android:key="show_operator_line"
                 android:dependency="show_recorded_operator"/>
 
         <com.jaredrummler.android.colorpicker.ColorPreferenceCompat
             app:iconSpaceReserved="false"
                 android:defaultValue="@color/colorPosArrowLogged"
-                android:key="current_line_color"
-                android:dependency="show_current_line"
+                android:key="operator_line_color"
+                android:dependency="show_operator_line"
                 app:cpv_showAlphaSlider="true"
                 app:cpv_allowPresets="false"
                 app:cpv_allowCustom="true"

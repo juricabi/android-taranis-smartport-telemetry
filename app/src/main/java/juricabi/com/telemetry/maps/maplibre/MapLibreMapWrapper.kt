@@ -631,7 +631,7 @@ class MapLibreMapWrapper(
         }
     }
 
-    override fun addCurrentLine(width: Float, color: Int): MapLine {
+    override fun addOperatorLine(width: Float, color: Int): MapLine {
         // the operator line, beneath the home line — its own slot either
         // way: asking for one slot twice handed the second line the first
         // one's, and a line simply stopped existing

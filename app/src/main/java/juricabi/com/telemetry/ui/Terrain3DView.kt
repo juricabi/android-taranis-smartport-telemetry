@@ -703,20 +703,20 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private var homeLineColor = 0
     private var headingLineColor = 0
 
-    /** Replay only: the second line, to where the phone is now, not then. */
-    private var currentLineOn = false
-    private var currentLineColor = 0
+    /** Playback only: to where the operator stood, as recorded. */
+    private var operatorLineOn = false
+    private var operatorLineColor = 0
 
 
     fun setOverlaySettings(homeLine: Boolean, homeColor: Int,
                            headingLine: Boolean, headingColor: Int,
-                           currentLine: Boolean, currentColor: Int) {
+                           operatorLine: Boolean, operatorColor: Int) {
         homeLineOn = homeLine
         homeLineColor = homeColor
         headingLineOn = headingLine
         headingLineColor = headingColor
-        currentLineOn = currentLine
-        currentLineColor = currentColor
+        operatorLineOn = operatorLine
+        operatorLineColor = operatorColor
         rebuildOverlays()
     }
 
@@ -744,19 +744,14 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         val sets = ArrayList<TerrainRenderer.LineSet>()
         val model = LiveFlightPath.latest()
 
-        // The line home, which goes to where the phone was standing while the
-        // flight happened — the recorded place while a replay has one, and
-        // where the phone is now otherwise. Drawn to where the phone is now
-        // over a flight recorded elsewhere, it ran off across the county, which
-        // is the whole reason the operator is recorded at all.
+        // The home line: to where this phone is now, live and playback
+        // alike — walking to a downed model is its whole use. It stands on
+        // the arrow's own position, so hiding the arrow takes the line with
+        // it: a line pointing at nothing points at nothing.
         //
-        // Both of these start at the model, so the renderer draws them from
-        // where it is drawing the model. Given as vertices here they jumped to
-        // each fix and then waited, while the model glided between them.
-        // The current location line: to where this phone is now, live and
-        // playback alike — walking to a downed model is its whole use. It
-        // stands on the arrow's own position, so hiding the arrow takes the
-        // line with it: a line pointing at nothing points at nothing.
+        // Both lines start at the model, so the renderer draws them from
+        // where it is drawing the model. Given as vertices here they jumped
+        // to each fix and then waited, while the model glided between them.
         val homeLat = myLat
         val homeLon = myLon
         val home = if (homeLat.isNaN() || homeLon.isNaN()) {
@@ -782,17 +777,17 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // stood as recorded — orange, like the arrow it points at. With no
         // record there is no line; drawn to anywhere else it ran off across
         // the county the flight was not recorded in.
-        val currGround = if (currentLineOn && homeFromRecorded && model != null &&
+        val operatorGround = if (operatorLineOn && homeFromRecorded && model != null &&
             !loggedLat.isNaN() && !loggedLon.isNaN()) {
             scene.groundAt(loggedLat, loggedLon)
         } else null
-        if (currGround != null) {
-            val c = colorOf(currentLineColor)
-            renderer.setCurrentLine(true, scene.east(loggedLon),
-                currGround - scene.originAltitude, -scene.north(loggedLat),
+        if (operatorGround != null) {
+            val c = colorOf(operatorLineColor)
+            renderer.setOperatorLine(true, scene.east(loggedLon),
+                operatorGround - scene.originAltitude, -scene.north(loggedLat),
                 c[0], c[1], c[2], c[3])
         } else {
-            renderer.setCurrentLine(false, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
+            renderer.setOperatorLine(false, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
         }
 
         // The last stretch, from where the track was last built to where the

@@ -175,7 +175,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var homeLine: MapLine? = null
 
     /** Replay only: the line to where this phone is now, not then. */
-    private var currentLine: MapLine? = null
+    private var operatorLine: MapLine? = null
     private var flightHeadLine: MapLine? = null
     /** The fix being believed, so a worse one cannot take its place. */
     @Volatile private var bestPhoneFix: Location? = null
@@ -768,8 +768,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         flightPlanLines.clear()
         homeLine?.remove()
         homeLine = null
-        currentLine?.remove()
-        currentLine = null
+        operatorLine?.remove()
+        operatorLine = null
         marker?.remove();
         marker = null;
         airplaneMarkers.values.forEach { it.remove() }
@@ -838,8 +838,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // A missing phone fix can then leave it alone instead of repeatedly
         // dismantling and rebuilding its renderer source.
         homeLine?.addPoints(listOf(lastGPS, lastGPS))
-        currentLine = map?.addCurrentLine(LineWeights.HOME, preferenceManager.getCurrentLineColor())
-        currentLine?.addPoints(listOf(lastGPS, lastGPS))
+        operatorLine = map?.addOperatorLine(LineWeights.HOME, preferenceManager.getOperatorLineColor())
+        operatorLine?.addPoints(listOf(lastGPS, lastGPS))
         drawFlightPlans()
         flightHeadLine = map?.addFlightHeadLine(
             LineWeights.FLIGHT, preferenceManager.getRouteColor()
@@ -1130,7 +1130,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * arrow that says the same thing.
      */
     private fun updateHomeLine(displayedDrone: Position? = null) {
-        updateCurrentLine(displayedDrone)
+        updateOperatorLine(displayedDrone)
         val line = homeLine ?: return
         line.color = preferenceManager.getHomeLineColor()
         // hidden with its arrow: a line pointing at an arrow that has been
@@ -1156,10 +1156,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * operator stood as recorded. Orange, like the arrow it points at, and
      * gone with it when the recorded operator's main switch is off.
      */
-    private fun updateCurrentLine(displayedDrone: Position? = null) {
-        val line = currentLine ?: return
-        line.color = preferenceManager.getCurrentLineColor()
-        if (!preferenceManager.isCurrentLineEnabled() || !isInReplayMode()) {
+    private fun updateOperatorLine(displayedDrone: Position? = null) {
+        val line = operatorLine ?: return
+        line.color = preferenceManager.getOperatorLineColor()
+        if (!preferenceManager.isOperatorLineEnabled() || !isInReplayMode()) {
             line.clear()
             return
         }
@@ -2840,7 +2840,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         homeLine?.clear()
         // or its stale segment outlives the replay: with the model gone the
         // next update returns before it can clear
-        currentLine?.clear()
+        operatorLine?.clear()
     }
 
     private fun clearCrsfSystem() {
@@ -3369,7 +3369,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private fun forgetMapOverlays() {
         polyLine = null
         homeLine = null
-        currentLine = null
+        operatorLine = null
         headingPolyline = null
         marker = null
         flightPlanLines.clear()
@@ -3395,7 +3395,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         view.setOverlaySettings(
             preferenceManager.isHomeLineEnabled(), preferenceManager.getHomeLineColor(),
             preferenceManager.isHeadingLineEnabled(), preferenceManager.getHeadLineColor(),
-            preferenceManager.isCurrentLineEnabled(), preferenceManager.getCurrentLineColor()
+            preferenceManager.isOperatorLineEnabled(), preferenceManager.getOperatorLineColor()
         )
         val plans = if (preferenceManager.isFlightPlansEnabled()) {
             FlightPlanManager(this).getPlans()

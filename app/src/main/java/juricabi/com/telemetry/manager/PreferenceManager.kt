@@ -20,9 +20,9 @@ class PreferenceManager(context: Context) {
         // inherits that switch as its default — but the settings screen's
         // checkbox cannot express "inherit", so the inherited value is
         // written out once and both read the same stored answer.
-        if (!sharedPreferences.contains("show_current_line")) {
+        if (!sharedPreferences.contains("show_operator_line")) {
             sharedPreferences.edit().putBoolean(
-                "show_current_line",
+                "show_operator_line",
                 sharedPreferences.getBoolean("show_home_line", true)
             ).apply()
         }
@@ -427,10 +427,8 @@ class PreferenceManager(context: Context) {
     }
 
     /**
-     * The current location line: drone to where this phone is now, live and
-     * playback alike. Kept under the home_line keys, which is what this
-     * line was called when it only existed while flying. Blue, like the
-     * arrow saying the same thing.
+     * The home line: drone to where this phone is now, live and playback
+     * alike. Blue, like the arrow saying the same thing.
      */
     fun getHomeLineColor(): Int {
         return sharedPreferences.getInt("home_line_color", defaultPosArrowColor)
@@ -442,13 +440,13 @@ class PreferenceManager(context: Context) {
     }
 
     /** The operator line, playback only: to where they stood then. */
-    fun isCurrentLineEnabled(): Boolean {
-        return sharedPreferences.getBoolean("show_current_line", true)
+    fun isOperatorLineEnabled(): Boolean {
+        return sharedPreferences.getBoolean("show_operator_line", true)
     }
 
-    fun getCurrentLineColor(): Int {
+    fun getOperatorLineColor(): Int {
         // the recorded arrow's orange: the line and the arrow agree
-        return sharedPreferences.getInt("current_line_color", defaultPosArrowLoggedColor)
+        return sharedPreferences.getInt("operator_line_color", defaultPosArrowLoggedColor)
     }
 
     fun isFr24Enabled(): Boolean {

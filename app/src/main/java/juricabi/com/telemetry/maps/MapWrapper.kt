@@ -67,7 +67,7 @@ interface MapWrapper {
     fun addHomeLine(width: Float, color: Int): MapLine = addPolyline(width, color)
 
     /** The operator line, playback only: to where they stood, then. */
-    fun addCurrentLine(width: Float, color: Int): MapLine = addPolyline(width, color)
+    fun addOperatorLine(width: Float, color: Int): MapLine = addPolyline(width, color)
     fun setOnCameraMoveStartedListener(function: () -> Unit)
 
     /**
