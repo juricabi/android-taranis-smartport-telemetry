@@ -57,14 +57,13 @@ object MapLibreStyles {
      */
     fun maxTileZoom(mapType: Int): Float = when (mapType) {
         MAP_TYPE_TOPO -> 17f
-        // Nineteen, which is what this map always went to. Capping at
-        // seventeen — the deepest level ArcGIS has everywhere — traded the
-        // last two zooms of real ground for never seeing a "map data not
-        // yet available" watermark in the patchy places, and standing next
-        // to the model the map read blurrier than the 3D ground beside it,
-        // which fetches nineteen. The occasional watermark at full zoom is
-        // the lesser wrong; it was always there.
-        MAP_TYPE_SATELLITE, MAP_TYPE_SATELLITE_HYBRID -> 19f
+        // Eighteen, measured, not argued about: probed over the places this
+        // is flown, ArcGIS serves real ground at eighteen and its "map data
+        // not yet available" watermark at nineteen. Seventeen was blurry a
+        // zoom early; nineteen wrote on the ground. A raster source cannot
+        // filter the watermark per tile the way the 3D mosaics do, so the
+        // cap has to sit exactly on the data's edge.
+        MAP_TYPE_SATELLITE, MAP_TYPE_SATELLITE_HYBRID -> 18f
         else -> 19f
     }
 
