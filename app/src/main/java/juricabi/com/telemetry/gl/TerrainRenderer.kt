@@ -1124,8 +1124,22 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             if (here != null) {
                 if (mesh.texture != null) {
                     synchronized(this) { pendingPictures.add(mesh) }
+                    continue
                 }
-                continue
+                // A bare mesh for a standing key is a REBUILT shape — a rim
+                // mended, a datum moved — not a duplicate. Dropped here, the
+                // corrected geometry never reached the card: the wall stayed
+                // mended only in the pager's books, and a late datum left
+                // the whole ground on the old one while the flight floated.
+                GLES20.glDeleteBuffers(2,
+                    intArrayOf(here.vertexBuffer, here.indexBuffer), 0)
+                if (here.textureId != 0) {
+                    GLES20.glDeleteTextures(1, intArrayOf(here.textureId), 0)
+                }
+                synchronized(this) {
+                    tiles.remove(mesh.key)
+                    tilesDirty = true
+                }
             }
             val bitmap = mesh.texture
             val texture = if (bitmap != null && !bitmap.isRecycled) {

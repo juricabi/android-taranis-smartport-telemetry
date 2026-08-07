@@ -278,8 +278,19 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             postFromTerrain { groundDressed() }
         }
         pager.onWorldMoved = {
-            // every draped plan was laid against the old world's heights
-            postFromTerrain { drapedPlans.clear() }
+            // Everything laid against the old world's heights: the plans,
+            // the rings — and the flight itself. The tiles are rebuilt on
+            // the new datum, and a track left un-rebuilt sat sunk into or
+            // floating over them by the whole datum delta, with a paused
+            // replay never triggering the rebuild on its own.
+            postFromTerrain {
+                drapedPlans.clear()
+                ringEpoch++
+                seenVersion = -1
+                pickUpNewPoints()
+                placeMyArrow()
+                placeLoggedArrow()
+            }
         }
         pager.onStatus = { message: String ->
             postFromTerrain {
@@ -757,7 +768,9 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             // and the two views must agree.
             scene.groundAt(homeLat, homeLon) ?: scene.originAltitude
         }
-        if (homeLineOn && model != null && home != null) {
+        // myShown too: the map hides this line with the arrow, and a line to
+        // an arrow that is not drawn pointed at nothing — in one view only
+        if (homeLineOn && myShown && model != null && home != null) {
             val c = colorOf(homeLineColor)
             renderer.setHomeLine(true, scene.east(homeLon), home - scene.originAltitude,
                 -scene.north(homeLat), c[0], c[1], c[2], c[3])

@@ -1166,7 +1166,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val drone = if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) {
             displayedDrone ?: presentedPosition()
         } else return
-        val phone = recordedMe ?: return
+        // No record right now — the operator track ran out, or its main
+        // switch went off — means no line NOW: returning without clearing
+        // left the last segment hanging to a vanished arrow.
+        val phone = recordedMe
+        if (phone == null) {
+            line.clear()
+            return
+        }
         line.setPoints(listOf(drone, phone))
     }
 
@@ -1453,13 +1460,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     seekBar.max = size
                     seekBar.visibility = View.VISIBLE
                     playButton.visibility = View.VISIBLE
-                    // The record chosen is the record wanted: it plays without
-                    // a second tap — governed by the Playback setting, which
-                    // existed for exactly this and was read by nothing. The
-                    // ground hold still applies over the 3D view.
-                    if (preferenceManager.getPlaybackAutostart()) {
-                        logPlayer?.startPlayback()
-                    }
+                    // Autostart belongs to LogPlayer, which asks this
+                    // screen's listener and so honours the ground hold. A
+                    // second, direct start here beat the hold to the timer
+                    // and played the opening seconds over an empty world.
                     var resumeAfterScrub = false
                     // One decode per hundred milliseconds while the thumb is
                     // down, to wherever it is by then. Every drag event used

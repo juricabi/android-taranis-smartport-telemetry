@@ -51,21 +51,42 @@ object DebugLog {
         }
     }
 
-    /** Says it to logcat and to the file, in that order of importance. */
-    @Synchronized
+    /**
+     * The writes happen here, alone, off everyone else's back. note() is
+     * called from the GL thread among others, and a synchronized append to
+     * external flash put the render thread behind whichever worker was
+     * mid-write — the diagnostics built to measure stutter causing it.
+     */
+    private val pending = java.util.concurrent.LinkedBlockingQueue<String>(1000)
+
+    private val writer = Thread({
+        android.os.Process.setThreadPriority(
+            android.os.Process.THREAD_PRIORITY_BACKGROUND)
+        while (true) {
+            val line = try { pending.take() } catch (e: InterruptedException) { return@Thread }
+            val f = file ?: continue
+            try {
+                if (f.length() > MOST_BYTES) {
+                    // roll within the run; the prefix prune above reaps these
+                    val old = File(f.parentFile, f.name.removeSuffix(".txt") + ".old.txt")
+                    old.delete()
+                    f.renameTo(old)
+                }
+                f.appendText(line)
+            } catch (e: Exception) {
+                // best effort, every time
+            }
+        }
+    }, "debug-log").apply { isDaemon = true; start() }
+
+    /** Says it to logcat now and queues it for the file; never blocks. */
     fun note(tag: String, message: String) {
         Log.i(tag, message)
-        val f = file ?: return
-        try {
-            if (f.length() > MOST_BYTES) {
-                // roll within the run; the prefix prune above reaps these too
-                val old = File(f.parentFile, f.name.removeSuffix(".txt") + ".old.txt")
-                old.delete()
-                f.renameTo(old)
-            }
-            f.appendText("${stamp.format(Date())} $tag: $message\n")
-        } catch (e: Exception) {
-            // best effort, every time
-        }
+        if (file == null) return
+        // the stamp is taken now — event time, not write time — under its
+        // own hair of a lock, since SimpleDateFormat cannot share threads
+        val at = synchronized(stamp) { stamp.format(Date()) }
+        // offer, not put: a full queue drops the note rather than blocking
+        pending.offer("$at $tag: $message\n")
     }
 }

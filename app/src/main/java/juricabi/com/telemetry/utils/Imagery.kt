@@ -232,11 +232,11 @@ object Imagery {
             // mesh rather than written on by the server.
             if (sawPlaceholder && extra > 0) {
                 mosaic.recycle()
-                val fallback = mosaic(z, x, y, extra - 1, alive)
-                // remembered under what was asked, so the next ask does not
-                // stitch its way down to the same answer again
-                if (fallback != null) writeMosaic(z, x, y, extra, fallback)
-                return fallback
+                // Not written to disk under the sharper key: this level has
+                // no way to know whether the fallback came back whole, and a
+                // holed one cached here was permanent — the fallback level
+                // caches its own result under its own completeness rule.
+                return mosaic(z, x, y, extra - 1, alive)
             }
             // a missing square is only haze on the texture, but all of them means
             // there is no imagery here at all and the caller should not texture
@@ -325,6 +325,8 @@ object Imagery {
     private fun looksLikePlaceholder(bitmap: Bitmap): Boolean {
         var lowest = 255
         var highest = 0
+        var first = 0
+        var identical = 0
         for (sy in 0 until 4) {
             for (sx in 0 until 4) {
                 val pixel = bitmap.getPixel(
@@ -334,11 +336,18 @@ object Imagery {
                 val b = pixel and 0xFF
                 // colour disqualifies at once
                 if (Math.abs(r - g) > 8 || Math.abs(g - b) > 8) return false
+                if (sy == 0 && sx == 0) first = pixel
+                if (pixel == first) identical++
                 if (r < lowest) lowest = r
                 if (r > highest) highest = r
             }
         }
-        return lowest > 180 && highest - lowest < 40
+        // Painted, not photographed: the watermark's background is one exact
+        // colour, so most samples are bit-identical. A snowfield or a salt
+        // flat is pale and low-range too, but a photograph of one never
+        // repeats the same pixel twelve times — requiring it is what keeps
+        // real winter ground from being thrown away as a watermark.
+        return identical >= 12 && lowest > 180 && highest - lowest < 40
     }
 
     private fun decode(bytes: ByteArray): Bitmap? {

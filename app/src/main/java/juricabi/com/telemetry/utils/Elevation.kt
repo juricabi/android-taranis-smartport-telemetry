@@ -351,6 +351,15 @@ object Elevation {
                 }
             }
             if (cached(zoom, x, y) != null) return true
+            // The fetch just waited on may be exactly the one that failed.
+            // Without this recheck every waiter took its own full turn at a
+            // server that had already said no — N serial timeouts instead of
+            // one backoff.
+            val blocked = synchronized(memory) {
+                failed.contains(key) ||
+                    android.os.SystemClock.elapsedRealtime() < (retryAt[key] ?: 0L)
+            }
+            if (blocked) return false
             inFlight.add(key)
         }
         try {

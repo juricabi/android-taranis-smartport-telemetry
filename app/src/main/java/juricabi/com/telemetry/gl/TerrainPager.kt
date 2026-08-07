@@ -162,6 +162,10 @@ class TerrainPager(
     private var buildFails = 0
     private var evictions = 0
 
+    /** When the first mesh stood, and how often its pictures have refused. */
+    @Volatile private var firstBuildAt = 0L
+    @Volatile private var dressFails = 0
+
     private var meshWorker: Thread? = null
     private val texWorkers = ArrayList<Thread>()
     private var startedAt = 0L
@@ -259,6 +263,20 @@ class TerrainPager(
                     burst++
                 }
                 stats()
+                // The ground whatever came of it: meshes standing but every
+                // picture refused — imagery down, blocked, uncached — must
+                // still count as ready, or the flight and any held replay
+                // wait forever over a world that is there and grey. The old
+                // window released on completion for exactly this case.
+                if (!firstDressedFired && firstBuildAt != 0L && dressFails >= 4 &&
+                    android.os.SystemClock.elapsedRealtime() - firstBuildAt > 12_000) {
+                    synchronized(lock) {
+                        if (!firstDressedFired) {
+                            firstDressedFired = true
+                            onFirstDressed?.invoke()
+                        }
+                    }
+                }
                 // short, because a gesture poke should find this loop ready:
                 // half a second of doze here stacked with the workers' own
                 // and turned every camera move into a visible wait
@@ -353,12 +371,17 @@ class TerrainPager(
                 while (true) {
                     if (!resident.containsKey(at) && seen.add(at)) {
                         val z = TerrainScene.zoomOf(at)
-                        val x = TerrainScene.tileXOf(at)
-                        val y = TerrainScene.tileYOf(at)
-                        warm.add(intArrayOf(z, x, y))
-                        warm.add(intArrayOf(z, x + 1, y))
-                        warm.add(intArrayOf(z, x, y + 1))
-                        warm.add(intArrayOf(z, x + 1, y + 1))
+                        // at the level the build will actually sample: the
+                        // heights end at 15, and warming a z16 leaf at its
+                        // own zoom was a guaranteed 404 ahead of every fetch
+                        // the build truly needed
+                        val ez = Math.min(z, 15)
+                        val x = TerrainScene.tileXOf(at) shr (z - ez)
+                        val y = TerrainScene.tileYOf(at) shr (z - ez)
+                        warm.add(intArrayOf(ez, x, y))
+                        warm.add(intArrayOf(ez, x + 1, y))
+                        warm.add(intArrayOf(ez, x, y + 1))
+                        warm.add(intArrayOf(ez, x + 1, y + 1))
                         if (seen.size >= 10) break@outer
                     }
                     if (TerrainScene.zoomOf(at) <= ROOT_ZOOM) break
@@ -584,7 +607,10 @@ class TerrainPager(
                     android.os.SystemClock.elapsedRealtime() + 30_000L
             }
             buildFails++
-            if (synchronized(lock) { resident.isEmpty() }) {
+            // a verdict, not a hiccup: one transient timeout on a cold start
+            // used to flash "No terrain here" and release the held flight
+            // over bare mesh while the other roots were still building fine
+            if (buildFails >= 6 && synchronized(lock) { resident.isEmpty() }) {
                 onStatus?.invoke("No terrain here")
             }
             return true
@@ -604,6 +630,7 @@ class TerrainPager(
         renderer.offer(mesh)
         builds++
         if (builds == 1) {
+            firstBuildAt = android.os.SystemClock.elapsedRealtime()
             DebugLog.note(TAG, "first mesh after " +
                 "${android.os.SystemClock.elapsedRealtime() - startedAt}ms")
         }
@@ -686,8 +713,9 @@ class TerrainPager(
                 // its old picture goes when the new one lands, so only the
                 // difference weighs on the budget
                 if (p.dressed) keptBytes -= p.textureBytes
+                val thinning = if (p.dressed && extra < p.extraDressed) 1L else 0L
                 list.add(longArrayOf(key, extra.toLong(), priority,
-                    p.extraDressed.toLong()))
+                    p.extraDressed.toLong(), thinning))
             }
         }
         list.sortByDescending { it[2] }
@@ -708,8 +736,11 @@ class TerrainPager(
             // An upgrade squeezed below what the tile already wears is not an
             // upgrade any more — unhandled, it went out as an accidental
             // downgrade of exactly the sharpest ground, and the next pass
-            // undid it, forever.
-            if (wearing >= 0 && extra <= wearing) {
+            // undid it, forever. A deliberate thinning is exempt: it is
+            // below-what-it-wears by definition, and this guard cancelling
+            // it made the entire reclaim mechanism unreachable — the card
+            // sat over budget with no way back down.
+            if (entry[4] == 0L && wearing >= 0 && extra <= wearing) {
                 entry[1] = -1
                 continue
             }
@@ -791,9 +822,15 @@ class TerrainPager(
             return
         }
         if (bmp == null) {
-            synchronized(lock) {
-                textureRetryAt[key] =
-                    android.os.SystemClock.elapsedRealtime() + TEXTURE_RETRY_MS
+            // a mosaic aborted by a pause is not a failure — backing off for
+            // it left the ground under the camera soft for fifteen seconds
+            // after every resume
+            if (!paused) {
+                synchronized(lock) {
+                    textureRetryAt[key] =
+                        android.os.SystemClock.elapsedRealtime() + TEXTURE_RETRY_MS
+                }
+                dressFails++
             }
             return
         }
