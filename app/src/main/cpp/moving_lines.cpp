@@ -16,7 +16,9 @@
 namespace {
 
 constexpr char kLogTag[] = "TelemetryMovingLines";
-constexpr int kLineCount = 3;
+// Must match MapLibreMovingLineLayer.SLOT_COUNT: a slot the Kotlin side
+// hands out and this side refuses is a line that silently never draws.
+constexpr int kLineCount = 4;
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kMaxMercatorLatitude = 85.0511287798066;
 
