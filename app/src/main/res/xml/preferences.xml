@@ -96,8 +96,8 @@
                 app:cpv_showAlphaSlider="false"
                 app:cpv_allowPresets="false"
                 app:cpv_allowCustom="true"
-                android:summary="Color of the plane icon on the map"
-                android:title="Plane color"/>
+                android:summary="Color of the model on the map and in 3D"
+                android:title="Model color"/>
 
         <SwitchPreference
             app:iconSpaceReserved="false"

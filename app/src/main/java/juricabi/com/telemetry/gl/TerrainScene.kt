@@ -574,7 +574,15 @@ class TerrainScene {
                         any = true
                     } else {
                         heights[row * grid + col] = Float.NaN
-                        if (row == 0 || col == 0 || row == grid - 1 || col == grid - 1) {
+                        // Missing counts on the rim only while the data may
+                        // yet arrive. A rim that nulls over a HELD tile is
+                        // the dataset's own void — the mend loop rebuilt
+                        // such tiles every twenty seconds forever, throwing
+                        // a dressed picture away each time, for data that
+                        // was never coming.
+                        if ((row == 0 || col == 0 || row == grid - 1 || col == grid - 1) &&
+                            !Elevation.has(ez, Elevation.tileX(lon, ez),
+                                Elevation.tileY(lat, ez))) {
                             rimMissing = true
                         }
                     }
