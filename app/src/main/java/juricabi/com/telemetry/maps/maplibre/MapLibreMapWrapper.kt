@@ -732,9 +732,68 @@ class MapLibreMapWrapper(
         ready.setPadding(left, top, right, bottom)
     }
 
+    /**
+     * The renderer, watched. The map went silently blank — no paints, no
+     * tile requests, no errors, on every style, on builds two versions
+     * apart — which is MapLibre's render thread stalling somewhere below
+     * us. A repaint asked for MUST produce a frame; when two asks in a
+     * row produce none, the surface is bounced through its own pause and
+     * resume, which is what an app restart does and an app restart cures
+     * it. Every incident is named in the field log with its moment, so
+     * whatever the trigger is — a power event, a return from another
+     * app — can be read off the timestamps instead of argued about.
+     */
+    @Volatile private var lastFrameAt = 0L
+    private var stalledProbes = 0
+    private var watching = false
+    private val watchdogHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val watchdog = object : Runnable {
+        override fun run() {
+            if (!watching) return
+            val map = this@MapLibreMapWrapper.map
+            if (map != null) {
+                val before = lastFrameAt
+                map.triggerRepaint()
+                watchdogHandler.postDelayed({
+                    if (!watching) return@postDelayed
+                    if (lastFrameAt == before) {
+                        stalledProbes++
+                        if (stalledProbes >= 2) {
+                            juricabi.com.telemetry.utils.DebugLog.note("Map2D",
+                                "renderer stalled, bouncing the surface")
+                            stalledProbes = 0
+                            mapView.onPause()
+                            mapView.onResume()
+                        }
+                    } else {
+                        stalledProbes = 0
+                    }
+                }, 2_000)
+            }
+            watchdogHandler.postDelayed(this, 5_000)
+        }
+    }
+
+    init {
+        mapView.addOnDidFinishRenderingFrameListener(
+            MapView.OnDidFinishRenderingFrameListener { _, _, _ ->
+                lastFrameAt = android.os.SystemClock.elapsedRealtime()
+            })
+    }
+
     override fun onCreate(bundle: Bundle?) = mapView.onCreate(bundle)
-    override fun onResume() = mapView.onResume()
-    override fun onPause() = mapView.onPause()
+    override fun onResume() {
+        mapView.onResume()
+        watching = true
+        stalledProbes = 0
+        watchdogHandler.removeCallbacks(watchdog)
+        watchdogHandler.postDelayed(watchdog, 5_000)
+    }
+    override fun onPause() {
+        watching = false
+        watchdogHandler.removeCallbacks(watchdog)
+        mapView.onPause()
+    }
     override fun onLowMemory() = mapView.onLowMemory()
     override fun onStart() = mapView.onStart()
     override fun onStop() = mapView.onStop()
