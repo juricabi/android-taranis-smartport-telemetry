@@ -26,12 +26,24 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             attribute vec4 aPosition;
             attribute vec2 aTexture;
             attribute vec3 aNormal;
+            attribute float aParentY;
             uniform float uUvScale;
             uniform vec2 uUvOff;
+            uniform vec3 uEye;
+            uniform vec2 uMorph;
             varying vec2 vTexture;
             varying float vShade;
             void main() {
-                gl_Position = uMvp * aPosition;
+                // The vertex slides onto its parent level's line as its
+                // distance nears the point where the pager would draw the
+                // parent instead — so by the time a coarser neighbour can
+                // stand beside this tile, the shared edge already IS the
+                // coarser line, and no crack ever opens. The same slide,
+                // backwards, is what makes a level switch invisible.
+                float m = clamp((distance(aPosition.xyz, uEye) - uMorph.x) * uMorph.y,
+                    0.0, 1.0);
+                gl_Position = uMvp * vec4(aPosition.x,
+                    mix(aPosition.y, aParentY, m), aPosition.z, 1.0);
                 // A tile whose own picture has not arrived borrows an
                 // ancestor's, reading only its own quarter of a quarter of it:
                 // fine ground with a soft photograph beats grey, and the sharp
@@ -151,7 +163,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         /** How many fixes can arrive between two rebuilds of the flight. */
         private const val SPARE_POINTS = 600
 
-        private const val FLOATS_PER_VERTEX = 8
+        private const val FLOATS_PER_VERTEX = 9
 
         /** The model layout: position, corner weights, normal. */
         private const val MODEL_FLOATS = 9
@@ -1368,9 +1380,15 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val uBase = GLES20.glGetUniformLocation(terrainProgram, "uBase")
         val uUvScale = GLES20.glGetUniformLocation(terrainProgram, "uUvScale")
         val uUvOff = GLES20.glGetUniformLocation(terrainProgram, "uUvOff")
+        val aParentY = GLES20.glGetAttribLocation(terrainProgram, "aParentY")
+        val uEye = GLES20.glGetUniformLocation(terrainProgram, "uEye")
+        val uMorph = GLES20.glGetUniformLocation(terrainProgram, "uMorph")
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
         // the ground's own colour, for a tile whose imagery has not arrived
         GLES20.glUniform3f(uBase, 0.45f, 0.44f, 0.40f)
+        GLES20.glUniform3f(uEye, eyeX, eyeY, eyeZ)
+        // pixels per radian, the same k the pager splits by
+        val k = viewHeightPx / (2.0 * Math.tan(Math.toRadians(FOV_Y / 2.0)))
 
         // The proper answer to two surfaces at the same depth: push the ground
         // back by a hair, in depth only, so anything lying on it wins without
@@ -1409,6 +1427,22 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glEnableVertexAttribArray(aTexture)
             GLES20.glVertexAttribPointer(aNormal, 3, GLES20.GL_FLOAT, false, stride, 5 * 4)
             GLES20.glEnableVertexAttribArray(aNormal)
+            GLES20.glVertexAttribPointer(aParentY, 1, GLES20.GL_FLOAT, false, stride, 8 * 4)
+            GLES20.glEnableVertexAttribArray(aParentY)
+
+            // The band where this level lives, from the same error model the
+            // pager splits by: a level-z tile stands between D and 2D from
+            // the eye, where D is the distance its error reaches the split
+            // threshold. Vertices start sliding onto the parent's line at
+            // 1.4D and lie on it by 1.9D — finished just before the pager
+            // could put the parent's level beside them, so the shared edge
+            // is the coarser line before there is anything to disagree with.
+            val z = TerrainScene.zoomOf(tile.key)
+            val d = TerrainScene.errorOf(z) * k / TerrainScene.SPLIT_ERROR_PX
+            val morphStart = (1.4 * d).toFloat()
+            val morphWidth = (0.5 * d).toFloat()
+            GLES20.glUniform2f(uMorph, morphStart,
+                if (morphWidth > 0f) 1f / morphWidth else 0f)
 
             // Its own picture, or the nearest ancestor's quarter-of-a-quarter
             // while its own is still on the wire — soft beats grey, and the
@@ -1446,6 +1480,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glDisableVertexAttribArray(aPosition)
             GLES20.glDisableVertexAttribArray(aTexture)
             GLES20.glDisableVertexAttribArray(aNormal)
+            GLES20.glDisableVertexAttribArray(aParentY)
         }
         // everything after this draws from ordinary buffers, which a bound
         // vertex buffer would silently override

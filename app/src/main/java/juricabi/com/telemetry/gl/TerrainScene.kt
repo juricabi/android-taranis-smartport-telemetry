@@ -126,6 +126,27 @@ class TerrainScene {
         fun parentOf(key: Long): Long =
             tileKey(zoomOf(key) - 1, tileXOf(key) shr 1, tileYOf(key) shr 1)
 
+        /** The grid a tile of this zoom is built on, one place for the rule. */
+        fun gridFor(z: Int): Int =
+            if (z >= 16) 65 else if (z >= 15) 129 else if (z >= 12) 97 else 65
+
+        /**
+         * Geometric error by zoom — 8m at the source's finest, doubling up —
+         * and the screen error a tile is allowed before the pager splits it.
+         * Here rather than in the pager because the renderer's morphing has
+         * to mirror the pager's splitting exactly: a vertex must finish
+         * lying on its parent's line just before the pager could stand the
+         * parent's level beside it, and the two agreeing about where that
+         * happens is what leaves no crack.
+         */
+        val ERROR_M = FloatArray(20) {
+            (8.0 * Math.pow(2.0, 15.0 - it)).toFloat()
+        }
+
+        fun errorOf(z: Int): Float = ERROR_M[z]
+
+        const val SPLIT_ERROR_PX = 16f
+
         fun tileLon(x: Int, z: Int): Double = x.toDouble() / (1 shl z) * 360.0 - 180.0
 
         fun tileLat(y: Int, z: Int): Double {
@@ -616,7 +637,44 @@ class TerrainScene {
         // Short indices: a finer grid must fail here, not as garbage triangles.
         check(vertexCount <= 32767) { "grid $grid does not fit short indices" }
 
-        val vertices = FloatArray(vertexCount * 8)
+        // The parent's own line under this tile, one lattice of it, so every
+        // vertex can carry where it would stand at the level above. The
+        // renderer slides vertices onto that line as their distance nears
+        // the point where the pager would draw the parent instead — so by
+        // the time a coarser neighbour can stand beside this tile, the
+        // shared edge already IS the coarser line, and nothing cracks. The
+        // lattice is sampled at the parent's own node positions, which two
+        // tiles sharing an edge agree about whether they are siblings or
+        // cousins — the nodes are absolute, not relative.
+        val half = if (z <= 8) 0 else (gridFor(z - 1) - 1) / 2
+        val parentNodes = if (half == 0) null else FloatArray((half + 1) * (half + 1))
+        if (parentNodes != null) {
+            val pz = z - 1
+            val ezP = Math.min(pz, 15)
+            Elevation.warm(listOf(
+                intArrayOf(ezP, tx shr (z - ezP), ty shr (z - ezP)),
+                intArrayOf(ezP, (tx shr (z - ezP)) + 1, ty shr (z - ezP)),
+                intArrayOf(ezP, tx shr (z - ezP), (ty shr (z - ezP)) + 1),
+                intArrayOf(ezP, (tx shr (z - ezP)) + 1, (ty shr (z - ezP)) + 1)))
+            val gp = gridFor(pz)
+            val pNorth = tileLat(ty shr 1, pz)
+            val pSouth = tileLat((ty shr 1) + 1, pz)
+            val pWest = tileLon(tx shr 1, pz)
+            val pEast = tileLon((tx shr 1) + 1, pz)
+            val hx = (tx and 1) * half
+            val hy = (ty and 1) * half
+            for (j in 0..half) {
+                val nodeLat = pNorth + (pSouth - pNorth) * (hy + j) / (gp - 1)
+                for (i in 0..half) {
+                    val nodeLon = pWest + (pEast - pWest) * (hx + i) / (gp - 1)
+                    val ph = Elevation.elevationAt(nodeLat, nodeLon, ezP)
+                    parentNodes[j * (half + 1) + i] =
+                        if (ph != null) ph - originAltitude else Float.NaN
+                }
+            }
+        }
+
+        val vertices = FloatArray(vertexCount * 9)
         val span = Math.abs(east(eastLon) - east(westLon))
         val spacing = span / (grid - 1)
         var v = 0
@@ -642,6 +700,27 @@ class TerrainScene {
                 vertices[v++] = nx / len
                 vertices[v++] = ny / len
                 vertices[v++] = nz / len
+                // where this point stands on the parent's line — itself,
+                // where there is no parent or the parent's data is a void
+                var parentY = h
+                if (parentNodes != null) {
+                    val qx = col.toFloat() / (grid - 1) * half
+                    val qy = row.toFloat() / (grid - 1) * half
+                    val i0 = Math.min(qx.toInt(), half - 1)
+                    val j0 = Math.min(qy.toInt(), half - 1)
+                    val bx = qx - i0
+                    val by = qy - j0
+                    val p00 = parentNodes[j0 * (half + 1) + i0]
+                    val p10 = parentNodes[j0 * (half + 1) + i0 + 1]
+                    val p01 = parentNodes[(j0 + 1) * (half + 1) + i0]
+                    val p11 = parentNodes[(j0 + 1) * (half + 1) + i0 + 1]
+                    if (!p00.isNaN() && !p10.isNaN() && !p01.isNaN() && !p11.isNaN()) {
+                        val top = p00 + (p10 - p00) * bx
+                        val bottom = p01 + (p11 - p01) * bx
+                        parentY = top + (bottom - top) * by
+                    }
+                }
+                vertices[v++] = parentY
             }
         }
 
@@ -659,7 +738,7 @@ class TerrainScene {
         for (col in grid - 1 downTo 1) rimIndices[r++] = (grid - 1) * grid + col
         for (row in grid - 1 downTo 1) rimIndices[r++] = row * grid
         for (k in 0 until rim) {
-            val src = rimIndices[k] * 8
+            val src = rimIndices[k] * 9
             vertices[v++] = vertices[src]
             vertices[v++] = vertices[src + 1] - skirtDepth
             vertices[v++] = vertices[src + 2]
@@ -672,6 +751,8 @@ class TerrainScene {
             vertices[v++] = 0.625f
             vertices[v++] = 0f
             vertices[v++] = -0.781f
+            // the skirt hangs the same depth below wherever its rim morphs to
+            vertices[v++] = vertices[src + 8] - skirtDepth
         }
 
         val indices = ShortArray((grid - 1) * (grid - 1) * 6 + rim * 6)
