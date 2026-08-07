@@ -876,7 +876,13 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
                 val ground = scene.groundAt(lat, lon) ?: scene.originAltitude
                 val x = scene.east(lon)
                 val z = -scene.north(lat)
-                val top = (plane.altMeters - scene.originAltitude).toFloat()
+                // The reported height is barometric — the feed carries no
+                // other — and near high ground it can sit a shade under a
+                // ridge the aircraft really cleared. The true height is not
+                // knowable from here, but the one visible wrong is: nothing
+                // is drawn inside a hill.
+                val top = Math.max((plane.altMeters - scene.originAltitude).toFloat(),
+                    ground - scene.originAltitude + 60f)
                 posts[p++] = x; posts[p++] = ground - scene.originAltitude; posts[p++] = z
                 posts[p++] = x; posts[p++] = top; posts[p++] = z
                 planes[q++] = x; planes[q++] = top; planes[q++] = z
