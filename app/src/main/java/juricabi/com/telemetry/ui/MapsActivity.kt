@@ -1959,6 +1959,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         clock_text.postDelayed(clockTicker, 1000)
         initHeadingLine()
         updateHomeLine()
+        // The recorded-operator switch may have changed in the settings just
+        // left. Applied here, the arrow, its ring and its line change
+        // together — without this they waited for the next tick or scrub of
+        // the replay to notice, which over a paused one was forever.
+        showOperator()
         setPhoneWatch(true)
         startFr24()
     }
