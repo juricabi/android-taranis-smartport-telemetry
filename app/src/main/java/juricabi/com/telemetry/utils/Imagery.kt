@@ -146,7 +146,9 @@ object Imagery {
                alive: () -> Boolean = { true }): Bitmap? {
         val startedNs = System.nanoTime()
         var mosaic: Bitmap? = null
-        var sawPlaceholder = false
+        // atomic: written by pool threads, read after the join — a plain
+        // local has no happens-before through a cancelled job
+        val sawPlaceholder = java.util.concurrent.atomic.AtomicBoolean(false)
         try {
             if (z < 0 || z > MAX_ZOOM) return null
             val n = 1 shl z
@@ -190,7 +192,7 @@ object Imagery {
                                 // into the ground it is white squares with
                                 // writing on them.
                                 if (looksLikePlaceholder(child)) {
-                                    sawPlaceholder = true
+                                    sawPlaceholder.set(true)
                                     return@Runnable
                                 }
                                 // Canvas is not thread safe and every child lands on this one
@@ -230,7 +232,7 @@ object Imagery {
             // Watermarks mean this level does not exist here: step back one
             // and let real pictures fill the whole square, scaled by the
             // mesh rather than written on by the server.
-            if (sawPlaceholder && extra > 0) {
+            if (sawPlaceholder.get() && extra > 0) {
                 mosaic.recycle()
                 // Not written to disk under the sharper key: this level has
                 // no way to know whether the fallback came back whole, and a

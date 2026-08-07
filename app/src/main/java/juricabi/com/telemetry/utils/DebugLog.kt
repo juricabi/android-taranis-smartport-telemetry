@@ -26,6 +26,10 @@ object DebugLog {
 
     fun init() {
         if (file != null) return
+        // Debug builds only. These notes carry coordinates and tile names —
+        // where somebody flies — and a release build writes nobody's
+        // whereabouts to a shared folder they never asked to fill.
+        if (!juricabi.com.telemetry.BuildConfig.DEBUG) return
         try {
             val dir = Environment.getExternalStoragePublicDirectory("TelemetryLogs")
             if (!dir.isDirectory && !dir.mkdirs()) return

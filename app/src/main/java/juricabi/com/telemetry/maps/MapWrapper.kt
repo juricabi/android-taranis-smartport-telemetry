@@ -66,7 +66,7 @@ interface MapWrapper {
     /** The line home, kept above the recorded flight and below the model. */
     fun addHomeLine(width: Float, color: Int): MapLine = addPolyline(width, color)
 
-    /** The playback position line: to where the phone is now, not then. */
+    /** The operator line, playback only: to where they stood, then. */
     fun addCurrentLine(width: Float, color: Int): MapLine = addPolyline(width, color)
     fun setOnCameraMoveStartedListener(function: () -> Unit)
 

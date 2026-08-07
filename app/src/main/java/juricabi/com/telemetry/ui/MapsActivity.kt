@@ -3318,11 +3318,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // it, so the view drops the chase when it is told to stop keeping up.
         view.setFollowing(keepingUp())
         if (chaseMode) view.setChasing(true)
-        // standing where the phone is standing and pointing where it points,
-        // since the readers that know both are on this screen and have been
-        // running all along
-        tellViewsWhereIAm()
-        // and where the operator was, if this is opening over a replay
+        // where the operator was, if this is opening over a replay
         showOperator()
         updateCompassHeading(view.bearing())
         setFollowMode(followMode)
@@ -3349,7 +3345,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         )
         // start() seeds the view from the last-known place with whatever
         // accuracy was lying around — a second location path. The unified
-        // answer, ring and all, goes over the top of it.
+        // answer, ring and all, goes over the top of it, and only after
+        // start: fed before it, the seed just overwrote the answer.
         tellViewsWhereIAm()
     }
 

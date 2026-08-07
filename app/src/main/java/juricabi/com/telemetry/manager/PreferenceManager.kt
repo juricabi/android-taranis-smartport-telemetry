@@ -11,10 +11,22 @@ class PreferenceManager(context: Context) {
     private val defaultHeadlineColor = context.resources.getColor(R.color.colorHeadline)
     private val defaultPlaneColor = context.resources.getColor(R.color.colorPlane)
     private val defaultRouteColor = context.resources.getColor(R.color.colorRoute)
-    private val defaultHomeLineColor = context.resources.getColor(R.color.colorHomeLine)
     private val defaultPosArrowColor = context.resources.getColor(R.color.colorPosArrow)
     private val defaultPosArrowLoggedColor =
         context.resources.getColor(R.color.colorPosArrowLogged)
+
+    init {
+        // The operator line inherits the old home line's replay role, so it
+        // inherits that switch as its default — but the settings screen's
+        // checkbox cannot express "inherit", so the inherited value is
+        // written out once and both read the same stored answer.
+        if (!sharedPreferences.contains("show_current_line")) {
+            sharedPreferences.edit().putBoolean(
+                "show_current_line",
+                sharedPreferences.getBoolean("show_home_line", true)
+            ).apply()
+        }
+    }
 
     companion object {
         val sensors = setOf(
@@ -431,11 +443,7 @@ class PreferenceManager(context: Context) {
 
     /** The operator line, playback only: to where they stood then. */
     fun isCurrentLineEnabled(): Boolean {
-        // It inherits the old home line's replay role, so it inherits that
-        // switch as its default: whoever turned the drone-to-phone line off
-        // did not ask for a new one in another colour.
-        return sharedPreferences.getBoolean("show_current_line",
-            sharedPreferences.getBoolean("show_home_line", true))
+        return sharedPreferences.getBoolean("show_current_line", true)
     }
 
     fun getCurrentLineColor(): Int {

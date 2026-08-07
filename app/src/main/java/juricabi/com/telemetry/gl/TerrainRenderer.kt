@@ -1195,7 +1195,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // stall every touch event could end up waiting behind. It is called
         // every frame; the queue drains in a blink either way.
         var deletes = 16
-        tilesDirty = true
+        var removed = false
         val gone = tiles.entries.iterator()
         while (gone.hasNext() && deletes > 0) {
             val t = gone.next().value
@@ -1204,12 +1204,14 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             if (t.textureId != 0) GLES20.glDeleteTextures(1, intArrayOf(t.textureId), 0)
             GLES20.glDeleteBuffers(2, intArrayOf(t.vertexBuffer, t.indexBuffer), 0)
             gone.remove()
+            removed = true
             deletes--
         }
+        // dirty only when something actually left, or this per-frame call
+        // quietly cancelled the snapshot reuse it sits beside
+        if (removed) tilesDirty = true
     }
 
-    // What the frames actually cost, said out loud every five seconds, so a
-    // stutter is a number in a log and not an argument.
     /**
      * The view is over: everything queued is let go of, so it can be
      * collected the moment the worker threads finish, instead of a dead

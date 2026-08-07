@@ -76,9 +76,11 @@ internal class MapLibreMovingLineLayer(
     companion object {
         const val LAYER_ID = "moving-lines-lyr"
         const val FLIGHT_HEAD = 0
-        const val HOME = 1
+        // named for what stands in them — the crossed HOME/CURRENT naming
+        // this replaces put each line in the slot named for the other
+        const val OPERATOR = 1
         const val HEADING = 2
-        const val CURRENT = 3
+        const val HOME = 3
         private const val SLOT_COUNT = 4
     }
 

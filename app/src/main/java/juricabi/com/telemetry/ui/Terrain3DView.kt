@@ -938,7 +938,6 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         modelRoll = roll
     }
 
-    /** Which way the phone is pointing, so the arrow means something. */
     /** Nothing known about where this phone is: draw neither arrow nor ring. */
     fun hideMyLocation() {
         // The place is kept. Locate is about where to look, not about what is
@@ -951,6 +950,9 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // nothing is what a NaN triangle comes to
         renderer.hideMyLocation()
         renderer.setAccuracyCircle(FloatArray(0))
+        // the ring was just cleared, so the key that said it was built must
+        // go too, or re-showing the arrow at the same fix brings no ring back
+        myRingKey[0] = 0L
     }
 
     /**
@@ -978,6 +980,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         hasLoggedHeading = false
         renderer.hideLoggedLocation()
         renderer.setLoggedCircle(FloatArray(0))
+        loggedRingKey[0] = 0L
         // back to the live phone for the line home
         rebuildOverlays()
     }
@@ -1101,7 +1104,12 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // The camera is about to move, and only gestures move it without a
         // fix arriving: without this nudge the pager slept out its idle
         // timers before noticing a zoom, and the wait read as slow loading.
-        pager.poke()
+        // Only at the gesture's edges — the pager keeps itself awake while
+        // the camera moves, and poking per drag sample fought over its lock.
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN,
+            MotionEvent.ACTION_UP -> pager.poke()
+        }
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 lastX = event.x

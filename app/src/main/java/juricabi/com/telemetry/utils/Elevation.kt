@@ -166,11 +166,6 @@ object Elevation {
 
 
     /**
-     * Fetch every tile over these bounds, blocking the caller - which must not
-     * be the main thread. [onDone] reports usable against total tiles, so an
-     * area with no terrain at all can be told from a partial one.
-     */
-    /**
      * The box, fired into the pool and never waited for.
      *
      * [prefetch] joins its downloads, which is right for a progress dialog
@@ -187,6 +182,11 @@ object Elevation {
         }
     }
 
+    /**
+     * Fetch every tile over these bounds, blocking the caller - which must not
+     * be the main thread. [onDone] reports usable against total tiles, so an
+     * area with no terrain at all can be told from a partial one.
+     */
     fun prefetch(
         minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
         zoom: Int = TILE_ZOOM,

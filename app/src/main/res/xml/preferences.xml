@@ -113,8 +113,8 @@
                 app:cpv_showAlphaSlider="false"
                 app:cpv_allowPresets="false"
                 app:cpv_allowCustom="true"
-                android:summary="Colour of the arrow showing where this phone is"
-                android:title="My position colour"/>
+                android:summary="Color of the arrow showing where this phone is"
+                android:title="My position color"/>
 
         <SwitchPreference
             app:iconSpaceReserved="false"
@@ -149,8 +149,8 @@
                 app:cpv_showAlphaSlider="false"
                 app:cpv_allowPresets="false"
                 app:cpv_allowCustom="true"
-                android:summary="Colour of the recorded operator's arrow"
-                android:title="Recorded operator colour"/>
+                android:summary="Color of the recorded operator's arrow"
+                android:title="Recorded operator color"/>
 
         <SwitchPreference
             app:iconSpaceReserved="false"

@@ -80,10 +80,10 @@ class TerrainPager(
 
         /**
          * What the pictures may hold on the card, counted as RGB_565 plus a
-         * third for mipmaps. Two hundred, measured: it is what one sharp
-         * ring around the camera plus a mid-resolution middle distance
-         * actually costs, and the device carried three times this without
-         * complaint while the budget was broken.
+         * third for mipmaps. Measured: it is what one sharp ring around the
+         * camera plus a mid-resolution middle distance actually costs, and
+         * the device carried well over this without complaint while the
+         * budget was broken.
          */
         private const val TEXTURE_BUDGET_BYTES = 280L * 1024 * 1024
         private const val RESIDENT_MOST = 400
@@ -741,6 +741,10 @@ class TerrainPager(
             // it made the entire reclaim mechanism unreachable — the card
             // sat over budget with no way back down.
             if (entry[4] == 0L && wearing >= 0 && extra <= wearing) {
+                // the tile keeps the picture it wears, so the bytes credited
+                // away when it was listed come back out of the budget before
+                // a poorer tile is allowed to spend them
+                budgetLeft = Math.max(0, budgetLeft - bytesAt(wearing))
                 entry[1] = -1
                 continue
             }
@@ -802,6 +806,10 @@ class TerrainPager(
             val key = job[0]
             try {
                 fetchAndDress(key, job[1].toInt(), job[3].toInt())
+            } catch (e: Throwable) {
+                // a worker that dies of one bad tile is a quarter of the
+                // dressing capacity gone for the life of the view
+                DebugLog.note(TAG, "dress failed: ${e.message}")
             } finally {
                 synchronized(lock) { texInFlight.remove(key) }
             }

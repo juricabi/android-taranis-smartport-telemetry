@@ -452,7 +452,6 @@ class TerrainScene {
             // above the sea asks on every one — waiting here for the network
             // was the screen freezing under fast scrubbing. referenceOf reads
             // only what is in memory and answers "not yet" until these land.
-            val now = android.os.SystemClock.elapsedRealtime()
             if (now >= altitudeWarmAt) {
                 altitudeWarmAt = now + 3_000
                 Elevation.warmBox(s, w, n, e, Elevation.TILE_ZOOM)
