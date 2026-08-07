@@ -692,12 +692,19 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private var homeLineColor = 0
     private var headingLineColor = 0
 
+    /** Replay only: the second line, to where the phone is now, not then. */
+    private var currentLineOn = false
+    private var currentLineColor = 0
+
     fun setOverlaySettings(homeLine: Boolean, homeColor: Int,
-                           headingLine: Boolean, headingColor: Int) {
+                           headingLine: Boolean, headingColor: Int,
+                           currentLine: Boolean, currentColor: Int) {
         homeLineOn = homeLine
         homeLineColor = homeColor
         headingLineOn = headingLine
         headingLineColor = headingColor
+        currentLineOn = currentLine
+        currentLineColor = currentColor
         rebuildOverlays()
     }
 
@@ -759,6 +766,23 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
                 -scene.north(homeLat), c[0], c[1], c[2], c[3])
         } else {
             renderer.setHomeLine(false, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
+        }
+
+        // The replay's second line, to where the phone is standing right
+        // now. The home line above answers "where was it flown from"; this
+        // one answers "and where am I" — in the live arrow's colour, since
+        // both say the same thing about the same phone.
+        val currGround = if (currentLineOn && homeFromRecorded && model != null &&
+            !myLat.isNaN() && !myLon.isNaN()) {
+            scene.groundAt(myLat, myLon)
+        } else null
+        if (currGround != null) {
+            val c = colorOf(currentLineColor)
+            renderer.setCurrentLine(true, scene.east(myLon),
+                currGround - scene.originAltitude, -scene.north(myLat),
+                c[0], c[1], c[2], c[3])
+        } else {
+            renderer.setCurrentLine(false, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
         }
 
         // The last stretch, from where the track was last built to where the

@@ -254,6 +254,15 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     private var homeB = 1f
     private var homeA = 1f
 
+    @Volatile private var currOn = false
+    private var currX = 0f
+    private var currY = 0f
+    private var currZ = 0f
+    private var currR = 1f
+    private var currG = 1f
+    private var currB = 1f
+    private var currA = 1f
+
     @Volatile private var headingOn = false
     private var headR = 1f
     private var headG = 1f
@@ -804,6 +813,15 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         homeOn = on
         homeX = x; homeY = y; homeZ = z
         homeR = r; homeG = g; homeB = b; homeA = a
+    }
+
+    /** The replay's second line: to where the phone is now, not then. */
+    @Synchronized
+    fun setCurrentLine(on: Boolean, x: Float, y: Float, z: Float,
+                       r: Float, g: Float, b: Float, a: Float) {
+        currOn = on
+        currX = x; currY = y; currZ = z
+        currR = r; currG = g; currB = b; currA = a
     }
 
     @Synchronized
@@ -1562,6 +1580,18 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12,
                 leaderPairBuffer)
             GLES20.glUniform4f(uColor, homeR, homeG, homeB, homeA)
+            GLES20.glLineWidth(3f)
+            GLES20.glDrawArrays(GLES20.GL_LINES, 0, 2)
+        }
+        if (modelVisible && currOn) {
+            synchronized(this) {
+                leaderPair[0] = shownX; leaderPair[1] = shownY; leaderPair[2] = shownZ
+                leaderPair[3] = currX; leaderPair[4] = currY; leaderPair[5] = currZ
+            }
+            fill(leaderPairBuffer, leaderPair)
+            GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12,
+                leaderPairBuffer)
+            GLES20.glUniform4f(uColor, currR, currG, currB, currA)
             GLES20.glLineWidth(3f)
             GLES20.glDrawArrays(GLES20.GL_LINES, 0, 2)
         }

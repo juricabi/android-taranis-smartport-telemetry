@@ -173,6 +173,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var headingPolyline: MapLine? = null
     private var flightPlanLines: MutableList<MapLine> = mutableListOf()
     private var homeLine: MapLine? = null
+
+    /** Replay only: the line to where this phone is now, not then. */
+    private var currentLine: MapLine? = null
     private var flightHeadLine: MapLine? = null
     /** The fix being believed, so a worse one cannot take its place. */
     @Volatile private var bestPhoneFix: Location? = null
@@ -765,6 +768,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         flightPlanLines.clear()
         homeLine?.remove()
         homeLine = null
+        currentLine?.remove()
+        currentLine = null
         marker?.remove();
         marker = null;
         airplaneMarkers.values.forEach { it.remove() }
@@ -833,6 +838,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // A missing phone fix can then leave it alone instead of repeatedly
         // dismantling and rebuilding its renderer source.
         homeLine?.addPoints(listOf(lastGPS, lastGPS))
+        currentLine = map?.addHomeLine(LineWeights.HOME, preferenceManager.getCurrentLineColor())
+        currentLine?.addPoints(listOf(lastGPS, lastGPS))
         drawFlightPlans()
         flightHeadLine = map?.addFlightHeadLine(
             LineWeights.FLIGHT, preferenceManager.getRouteColor()
@@ -1114,6 +1121,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         if (isInReplayMode()) recordedMe else myLastKnownPlace()
 
     private fun updateHomeLine(displayedDrone: Position? = null) {
+        updateCurrentLine(displayedDrone)
         val line = homeLine ?: return
         line.color = preferenceManager.getHomeLineColor()
         if (!preferenceManager.isHomeLineEnabled()) {
@@ -1130,6 +1138,27 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // fix, and the line home waited all of it. Replaying, it is where the
         // phone was then — there is no line to draw without that.
         val phone = wherePhoneIs() ?: return
+        line.setPoints(listOf(drone, phone))
+    }
+
+    /**
+     * The replay's second line: to where this phone is standing right now.
+     * The home line above anchors to the operator as recorded; this one
+     * answers "and where am I, relative to that flight" — off by default,
+     * in the live arrow's colour, since both say the same thing about the
+     * same phone.
+     */
+    private fun updateCurrentLine(displayedDrone: Position? = null) {
+        val line = currentLine ?: return
+        line.color = preferenceManager.getCurrentLineColor()
+        if (!preferenceManager.isCurrentLineEnabled() || !isInReplayMode()) {
+            line.clear()
+            return
+        }
+        val drone = if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) {
+            displayedDrone ?: presentedPosition()
+        } else return
+        val phone = myLastKnownPlace() ?: return
         line.setPoints(listOf(drone, phone))
     }
 
@@ -3350,7 +3379,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         view.setModelColor(preferenceManager.getPlaneColor())
         view.setOverlaySettings(
             preferenceManager.isHomeLineEnabled(), preferenceManager.getHomeLineColor(),
-            preferenceManager.isHeadingLineEnabled(), preferenceManager.getHeadLineColor()
+            preferenceManager.isHeadingLineEnabled(), preferenceManager.getHeadLineColor(),
+            preferenceManager.isCurrentLineEnabled(), preferenceManager.getCurrentLineColor()
         )
         val plans = if (preferenceManager.isFlightPlansEnabled()) {
             FlightPlanManager(this).getPlans()

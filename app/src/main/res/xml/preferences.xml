@@ -209,6 +209,23 @@
                 android:summary="Color of the line between drone and phone"
                 android:title="Home line color"/>
 
+        <SwitchPreference
+            app:iconSpaceReserved="false"
+                android:title="Show replay position line"
+                android:summary="Over a replay, draw a line from the drone to where this phone is now"
+                android:defaultValue="false"
+                android:key="show_current_line"/>
+
+        <com.jaredrummler.android.colorpicker.ColorPreferenceCompat
+            app:iconSpaceReserved="false"
+                android:defaultValue="@color/colorPosArrow"
+                android:key="current_line_color"
+                app:cpv_showAlphaSlider="true"
+                app:cpv_allowPresets="false"
+                app:cpv_allowCustom="true"
+                android:summary="Color of the replay position line — the location arrow's blue by default"
+                android:title="Replay position line color"/>
+
     </PreferenceCategory>
 
     <PreferenceCategory
