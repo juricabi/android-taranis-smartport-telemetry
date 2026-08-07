@@ -424,7 +424,12 @@ class PreferenceManager(context: Context) {
         return sharedPreferences.getInt("home_line_color", defaultPosArrowColor)
     }
 
-    /** The operator position line, playback only: to where they stood then. */
+    /** The recorded operator, whole: arrow, ring and line together. */
+    fun isRecordedOperatorShown(): Boolean {
+        return sharedPreferences.getBoolean("show_recorded_operator", true)
+    }
+
+    /** The operator line, playback only: to where they stood then. */
     fun isCurrentLineEnabled(): Boolean {
         // It inherits the old home line's replay role, so it inherits that
         // switch as its default: whoever turned the drone-to-phone line off

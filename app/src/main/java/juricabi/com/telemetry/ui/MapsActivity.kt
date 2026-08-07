@@ -1024,9 +1024,19 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * happens to be now, the line home crosses the county.
      */
     private fun showOperator() {
-        // the ground view decides its home line by the same rule the map does
+        // the ground view decides its operator line by the same rule the map does
         terrain3D?.homeFromRecorded = isInReplayMode()
         if (!isInReplayMode()) return
+        // The recorded operator has a main switch: off, the arrow, its ring
+        // and its line go together — a line pointing at a hidden arrow
+        // points at nothing.
+        if (!preferenceManager.isRecordedOperatorShown()) {
+            map?.showRecordedLocation(null, 0f, 0f)
+            terrain3D?.hideLoggedLocation()
+            recordedMe = null
+            updateHomeLine()
+            return
+        }
         val track = operatorTrack
         val now = replayTimeNow()
         if (track == null || now == null) {
@@ -1114,13 +1124,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     /**
-     * The current location line: from the drone to where this phone is now,
-     * live or playing back alike — walking to a downed model is its whole
-     * use, which is also why it draws above every other line. Blue, like
-     * the arrow that says the same thing.
-     *
-     * Held in the fields named home*, which is what this line used to be
-     * called when it only existed while flying.
+     * The home line: from the drone to where this phone is now, live or
+     * playing back alike — walking to a downed model is its whole use,
+     * which is also why it draws above every other line. Blue, like the
+     * arrow that says the same thing.
      */
     private fun updateHomeLine(displayedDrone: Position? = null) {
         updateCurrentLine(displayedDrone)
@@ -1145,8 +1152,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     /**
-     * The operator position line, playback only: from the drone to where
-     * the operator stood as recorded. Orange, like the arrow it points at.
+     * The operator line, playback only: from the drone to where the
+     * operator stood as recorded. Orange, like the arrow it points at, and
+     * gone with it when the recorded operator's main switch is off.
      */
     private fun updateCurrentLine(displayedDrone: Position? = null) {
         val line = currentLine ?: return

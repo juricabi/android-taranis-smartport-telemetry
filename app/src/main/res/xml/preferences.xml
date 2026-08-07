@@ -118,7 +118,7 @@
 
         <SwitchPreference
             app:iconSpaceReserved="false"
-                android:title="Show current location line"
+                android:title="Show home line"
                 android:summary="Draw a line from the drone to my position arrow — live and during playback, for walking to a downed model. Hidden with the arrow."
                 android:defaultValue="true"
                 android:key="show_home_line"/>
@@ -130,8 +130,15 @@
                 app:cpv_showAlphaSlider="true"
                 app:cpv_allowPresets="false"
                 app:cpv_allowCustom="true"
-                android:summary="Color of the current location line — the arrow's blue by default"
-                android:title="Current location line color"/>
+                android:summary="Color of the home line — the arrow's blue by default"
+                android:title="Home line color"/>
+
+        <SwitchPreference
+            app:iconSpaceReserved="false"
+                android:title="Show recorded operator"
+                android:summary="During playback, show where the operator stood as recorded — the arrow, its ring and its line together"
+                android:defaultValue="true"
+                android:key="show_recorded_operator"/>
 
         <com.jaredrummler.android.colorpicker.ColorPreferenceCompat
             app:iconSpaceReserved="false"
@@ -140,13 +147,13 @@
                 app:cpv_showAlphaSlider="false"
                 app:cpv_allowPresets="false"
                 app:cpv_allowCustom="true"
-                android:summary="Colour of the arrow showing where you stood while a replayed flight was recorded"
-                android:title="Recorded position colour"/>
+                android:summary="Colour of the recorded operator's arrow"
+                android:title="Recorded operator colour"/>
 
         <SwitchPreference
             app:iconSpaceReserved="false"
-                android:title="Show operator position line"
-                android:summary="During playback, draw a line from the drone to the recorded position arrow. Hidden with the arrow."
+                android:title="Show operator line"
+                android:summary="During playback, draw a line from the drone to the recorded operator's arrow. Hidden with the arrow."
                 android:defaultValue="true"
                 android:key="show_current_line"/>
 
@@ -157,8 +164,8 @@
                 app:cpv_showAlphaSlider="true"
                 app:cpv_allowPresets="false"
                 app:cpv_allowCustom="true"
-                android:summary="Color of the operator position line — the arrow's orange by default"
-                android:title="Operator position line color"/>
+                android:summary="Color of the operator line — the arrow's orange by default"
+                android:title="Operator line color"/>
 
         <SwitchPreference
             app:iconSpaceReserved="false"
