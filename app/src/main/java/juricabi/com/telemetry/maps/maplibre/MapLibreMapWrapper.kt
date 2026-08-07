@@ -735,6 +735,9 @@ class MapLibreMapWrapper(
         // the first tiles are still coming — would keep the lot.
         pending.clear()
         mapView.removeCallbacks(releaseRasterMotion)
+        // the glide too: left posted, one callback could write to a camera
+        // whose map view has already been through onDestroy
+        mapView.removeCallbacks(glide)
         if (rasterMotionHeld) {
             map?.let { TrackingTransform.setInProgress(it, false) }
             rasterMotionHeld = false

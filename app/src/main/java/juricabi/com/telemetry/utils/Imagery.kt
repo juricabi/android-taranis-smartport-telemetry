@@ -94,12 +94,20 @@ object Imagery {
     @Volatile
     private var cacheDir: File? = null
 
+    @Volatile
+    private var prunedThisRun = false
+
     fun init(context: Context) {
         try {
             val dir = File(context.applicationContext.cacheDir, "imagery")
             if (!dir.isDirectory) dir.mkdirs()
             cacheDir = dir
-            pool.submit { pruneMosaics() }
+            // once per process: init comes round with every 3D view, and the
+            // prune walks a quarter-gigabyte directory
+            if (!prunedThisRun) {
+                prunedThisRun = true
+                pool.submit { pruneMosaics() }
+            }
         } catch (e: Exception) {
             // no disk cache is survivable; every tile just costs a download
             Log.w(TAG, "no imagery cache dir: ${e.message}")
@@ -129,8 +137,13 @@ object Imagery {
      * One bitmap covering exactly the tile (z, x, y), assembled from the
      * tiles [extraZoom] levels further in. Blocking; call from a worker.
      * Returns null if nothing could be fetched.
+     *
+     * [alive] is asked between fetches: a caller being torn down answers
+     * false and the assembly stops there, instead of a dead view's worker
+     * serving out two minutes of timeouts with the thread pool in its hand.
      */
-    fun mosaic(z: Int, x: Int, y: Int, extraZoom: Int): Bitmap? {
+    fun mosaic(z: Int, x: Int, y: Int, extraZoom: Int,
+               alive: () -> Boolean = { true }): Bitmap? {
         val startedNs = System.nanoTime()
         var mosaic: Bitmap? = null
         var sawPlaceholder = false
@@ -169,6 +182,7 @@ object Imagery {
                     val top = j * TILE_SIZE
                     jobs.add(pool.submit(Runnable {
                         try {
+                            if (!alive()) return@Runnable
                             val child = fetch(childZoom, childX, childY) ?: return@Runnable
                             try {
                                 // ArcGIS serves a "not yet available" watermark
@@ -201,18 +215,24 @@ object Imagery {
             }
             val deadline = System.currentTimeMillis() + MOSAIC_TIMEOUT_MS
             for (job in jobs) {
+                if (!alive()) break
                 try {
                     job.get(max(0L, deadline - System.currentTimeMillis()), TimeUnit.MILLISECONDS)
                 } catch (e: Exception) {
                     job.cancel(true)
                 }
             }
+            if (!alive()) {
+                for (job in jobs) job.cancel(true)
+                mosaic.recycle()
+                return null
+            }
             // Watermarks mean this level does not exist here: step back one
             // and let real pictures fill the whole square, scaled by the
             // mesh rather than written on by the server.
             if (sawPlaceholder && extra > 0) {
                 mosaic.recycle()
-                val fallback = mosaic(z, x, y, extra - 1)
+                val fallback = mosaic(z, x, y, extra - 1, alive)
                 // remembered under what was asked, so the next ask does not
                 // stitch its way down to the same answer again
                 if (fallback != null) writeMosaic(z, x, y, extra, fallback)
@@ -284,6 +304,10 @@ object Imagery {
                 return null
             }
             if (!fromDisk) writeDisk(zoom, x, y, bytes)
+            // fetched after all, so the bad moment is forgotten — left in,
+            // one entry per square ever missed accumulated for the whole
+            // life of the process
+            synchronized(failed) { retryAt.remove(key) }
             return bitmap
         } catch (e: Exception) {
             return null

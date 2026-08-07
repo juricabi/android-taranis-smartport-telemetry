@@ -1178,6 +1178,25 @@ class TerrainRenderer : GLSurfaceView.Renderer {
 
     // What the frames actually cost, said out loud every five seconds, so a
     // stutter is a number in a log and not an argument.
+    /**
+     * The view is over: everything queued is let go of, so it can be
+     * collected the moment the worker threads finish, instead of a dead
+     * renderer holding a loading burst's worth of meshes and pictures for
+     * as long as the slowest fetch takes to time out. References only — no
+     * recycle here, since the dying GL thread may hold some of these in a
+     * local list mid-upload; unreachable bitmaps free themselves.
+     */
+    @Synchronized
+    fun shutdown() {
+        pending.clear()
+        pendingPictures.clear()
+        tiles.clear()
+        tilesSnapshot = HashMap()
+        tilesDirty = true
+        drawSet = null
+        drawSetWanted = null
+    }
+
     /** The map drawTerrain reads; rebuilt only when the tile set changes. */
     private var tilesSnapshot = HashMap<Long, Tile>()
     private var tilesDirty = true

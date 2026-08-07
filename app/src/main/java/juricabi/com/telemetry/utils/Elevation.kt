@@ -45,12 +45,13 @@ object Elevation {
     private const val TILE_URL = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium"
 
     /**
-     * ~128 KB of heights each, so this is about twenty megabytes — the
-     * cheapest memory in the whole system. The pyramid's working set spans
-     * every zoom at once plus the warm-ahead; at sixty-four tiles the cache
-     * evicted what a build was standing on between the fetch and the
-     * sample, the build failed its rim check, and whole regions sat grey
-     * on five-second retries.
+     * ~128 KB of heights each, so this is a forty-megabyte floor for the
+     * life of the process — held knowingly: the cheapest memory in the
+     * whole system, and what keeps a revisit from paying the network
+     * again. The pyramid's working set spans every zoom at once plus the
+     * warm-ahead; at sixty-four tiles the cache evicted what a build was
+     * standing on between the fetch and the sample, the build failed its
+     * rim check, and whole regions sat grey on five-second retries.
      */
     private const val MEMORY_TILES = 320
 

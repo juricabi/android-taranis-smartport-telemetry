@@ -515,7 +515,12 @@ class TerrainScene {
         Elevation.warm(listOf(
             intArrayOf(ez, etx, ety), intArrayOf(ez, etx + 1, ety),
             intArrayOf(ez, etx, ety + 1), intArrayOf(ez, etx + 1, ety + 1)))
+        // Each ensure can wait out a slow network. A view being torn down
+        // must not serve the full sentence — its threads hold the renderer
+        // and everything it queued until they exit.
+        if (abandoned) return null
         Elevation.ensure(ez, etx, ety)
+        if (abandoned) return null
         // The east column and south row of the grid lie exactly on the tile
         // boundary, and a boundary coordinate resolves in the next tile over —
         // so the very edge of every tile is sampled from its neighbours. When
@@ -524,8 +529,11 @@ class TerrainScene {
         // stretched texture along the join — with a black crack beside it once
         // the honest neighbour tile was built against it.
         Elevation.ensure(ez, etx + 1, ety)
+        if (abandoned) return null
         Elevation.ensure(ez, etx, ety + 1)
+        if (abandoned) return null
         Elevation.ensure(ez, etx + 1, ety + 1)
+        if (abandoned) return null
         val westLon = tileLon(tx, z)
         val eastLon = tileLon(tx + 1, z)
         val northLat = tileLat(ty, z)

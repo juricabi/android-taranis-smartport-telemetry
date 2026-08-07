@@ -117,6 +117,23 @@ class TerrainPager(
 
     private val lock = Object()
     @Volatile private var abandoned = false
+
+    /**
+     * A paused screen must not keep loading. The GL thread is the only thing
+     * that drains what these workers produce, and it stops with the screen —
+     * backgrounding mid-load let the pager fill an undrainable queue with
+     * hundreds of megabytes of pictures nobody could show.
+     */
+    @Volatile private var paused = false
+
+    fun pause() {
+        paused = true
+    }
+
+    fun resume() {
+        paused = false
+        poke()
+    }
     private var firstDressedFired = false
 
     /** Everything built, by key, in access order so eviction is LRU. */
@@ -224,6 +241,12 @@ class TerrainPager(
                                 TerrainScene.tileXOf(it), TerrainScene.tileYOf(it))
                         }
                     Elevation.warm(warmRoots)
+                }
+                if (paused) {
+                    synchronized(lock) {
+                        if (!abandoned && paused) lock.wait(500)
+                    }
+                    continue
                 }
                 pass()
                 // A few builds per look around, not one: rebuilding the whole
@@ -538,8 +561,9 @@ class TerrainPager(
                 for (key in cut) {
                     val p = resident[key] ?: continue
                     if (!p.rimComplete && now >= (buildRetryAt[key] ?: 0L)) {
-                        val bmp = p.mesh.texture
-                        if (bmp != null && !bmp.isRecycled) bmp.recycle()
+                        // the picture is the renderer's to recycle — the one
+                        // recycle that survived the ownership rule here was
+                        // the same GL-thread race the rule exists to end
                         resident.remove(key)
                         heightRange.remove(key)
                         return true
@@ -718,6 +742,12 @@ class TerrainPager(
         android.os.Process.setThreadPriority(
             android.os.Process.THREAD_PRIORITY_BACKGROUND)
         while (!abandoned) {
+            if (paused) {
+                synchronized(lock) {
+                    if (!abandoned && paused) lock.wait(500)
+                }
+                continue
+            }
             val job = synchronized(lock) {
                 val found = wantedTextures.firstOrNull { entry ->
                     // Direction matters. "Not what it wears" alone spun
@@ -750,7 +780,9 @@ class TerrainPager(
     private fun fetchAndDress(key: Long, extra: Int, was: Int) {
         val z = TerrainScene.zoomOf(key)
         val bmp = try {
-            Imagery.mosaic(z, TerrainScene.tileXOf(key), TerrainScene.tileYOf(key), extra)
+            Imagery.mosaic(z, TerrainScene.tileXOf(key), TerrainScene.tileYOf(key), extra) {
+                !abandoned && !paused
+            }
         } catch (e: Throwable) {
             null
         }
@@ -841,6 +873,7 @@ class TerrainPager(
             textureTotal -= entry.value.textureBytes
             heightRange.remove(key)
             textureRetryAt.remove(key)
+            buildRetryAt.remove(key)
             it.remove()
             evictions++
         }

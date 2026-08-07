@@ -636,7 +636,8 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
                     onBearingChanged?.invoke(now)
                 }
             }
-            postOnAnimation(this)
+            // a released view must not keep a Choreographer callback alive
+            if (!released) postOnAnimation(this)
         }
     }
 
@@ -1251,11 +1252,17 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
 
     fun onResume() {
         surface.onResume()
+        pager.resume()
         watch()
     }
 
     fun onPause() {
         surface.onPause()
+        // The GL thread stops with the surface, and it is the only thing
+        // that drains what the pager produces — left running, the pager
+        // filled an undrainable queue for as long as the app sat in the
+        // background.
+        pager.pause()
         ticker.removeCallbacks(poll)
         polling = false
         removeCallbacks(bearingWatch)
@@ -1281,6 +1288,8 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // and the ground: the thread loading it holds this view, and its
         // pictures are the largest thing the app ever has in its hands
         scene.abandon()
+        // whatever was queued for a GL thread that is now gone
+        renderer.shutdown()
     }
 
     /** A worker may finish after this view has been detached. */
