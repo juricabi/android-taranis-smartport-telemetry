@@ -660,7 +660,7 @@ class NetworkDataPoller(
             // ignore
         }
         try {
-            udpSocket?.close()
+            if (!farewellOwnsUdp) udpSocket?.close()
         } catch (e: Exception) {
             // ignore
         }
@@ -676,26 +676,41 @@ class NetworkDataPoller(
         Handler(Looper.getMainLooper()).post { runnable.run() }
     }
 
+    /**
+     * The farewell owns the socket's close. Spawning the goodbye and closing
+     * the socket on the main thread a few microseconds later meant the thread
+     * never won: it cannot even start before three close() calls finish. So
+     * when a farewell is owed, the teardown leaves the UDP socket to it — it
+     * sends, then closes, a millisecond later than the teardown would have.
+     */
+    @Volatile
+    private var farewellOwnsUdp = false
+
     /** Main thread, so it must not block: closing the socket unblocks the reader. */
     override fun disconnect() {
-        // The farewell first, for its head start: a courtesy disable so the
-        // modem is not left streaming at nobody. Its own thread, because this
-        // runs on the main thread where a socket write throws — and
-        // best-effort by nature, since the teardown below races it for the
-        // socket and UDP owes no answer either way.
-        if (highLatency && heardTelemetry) {
+        // A courtesy disable, so the modem is not left streaming at nobody.
+        // Its own thread, because this runs on the main thread where a socket
+        // write throws. UDP owes no answer, so it stays best-effort.
+        if (highLatency && heardTelemetry && !farewellOwnsUdp) {
             val socket = udpSocket
-            Thread({
-                try {
-                    socket?.let {
-                        sendToTargets(it,
+            if (socket != null) {
+                farewellOwnsUdp = true
+                Thread({
+                    try {
+                        sendToTargets(socket,
                             juricabi.com.telemetry.protocol.MavCommands
                                 .controlHighLatency(false, 0))
+                    } catch (e: Exception) {
+                        // nothing owed
+                    } finally {
+                        try {
+                            socket.close()
+                        } catch (e: Exception) {
+                            // ignore
+                        }
                     }
-                } catch (e: Exception) {
-                    // a closed socket is the race lost, and that is fine
-                }
-            }, "hl-farewell").start()
+                }, "hl-farewell").start()
+            }
         }
         stopping = true
         thread.interrupt()
@@ -707,7 +722,7 @@ class NetworkDataPoller(
             // ignore
         }
         try {
-            udpSocket?.close()
+            if (!farewellOwnsUdp) udpSocket?.close()
         } catch (e: Exception) {
             // ignore
         }
