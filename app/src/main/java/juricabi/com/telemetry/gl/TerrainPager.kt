@@ -676,15 +676,13 @@ class TerrainPager(
                 ).toInt().coerceIn(0, Math.min(3, 19 - z))
                 // First dress in a handful of fetches, full sharpness a
                 // breath later through the upgrade path: a cold view reads
-                // as ready seconds sooner, and ends just as sharp. Ground
-                // already seen skips the ladder — the cache hands back the
-                // sharpest picture it holds whatever is asked.
+                // as ready seconds sooner, and ends just as sharp.
                 if (!p.dressed && extra > 1) extra = 1
                 // Sharpening climbs one level per picture rather than leaping
                 // to the top: each step is a quarter of the next one's
                 // fetches, so the view visibly improves on the way instead of
-                // once, all at the end. Ground already seen skips the climb —
-                // the cache hands back the sharpest picture it holds.
+                // once, all at the end. On ground already seen each step is
+                // one cached read, so the climb stays quick.
                 if (p.dressed && extra > p.extraDressed + 1) {
                     extra = p.extraDressed + 1
                 }
@@ -858,12 +856,12 @@ class TerrainPager(
                 p.mesh = TerrainScene.TileMesh(old.key, old.vertices, old.indices,
                     bmp, old.minX, old.maxX, old.minY, old.maxY, old.minZ, old.maxZ)
                 p.dressed = true
-                // The larger of what was asked and what arrived. Sharper than
-                // asked is the cache being generous — record the truth or an
-                // "upgrade" to the worn picture queues forever. Softer than
+                // The larger of what was asked and what arrived. Softer than
                 // asked is the imagery's ceiling where ArcGIS ends — record
                 // the ask as satisfied or the pager re-asks for a sharpness
-                // that does not exist, forever. Both forevers were measured.
+                // that does not exist, forever. Measured. Sharper than asked
+                // no longer arrives: the cache scales its answer to the ask,
+                // because pictures the budget never granted broke it.
                 var worn = 0
                 var w = bmp.width
                 while (w > 256) {

@@ -158,12 +158,23 @@ object Imagery {
             // dozens of decodes and the second the eye waits on every return
             // to ground it has already seen; reading the finished one back is
             // a single decode. A sharper remembered one serves a softer ask —
-            // the ask varies with camera distance, the ground does not.
+            // but scaled down to it. Returned at full size, the caller wore
+            // hundreds of megabytes its budget never granted, and thinning
+            // could not thin: the same picture came straight back at the
+            // same size, two tiles refetched every 40ms for minutes.
             for (have in extra..MAX_EXTRA_ZOOM) {
                 readMosaic(z, x, y, have)?.let {
+                    val wantedSide = TILE_SIZE shl extra
+                    val fit = if (it.width > wantedSide) {
+                        val scaled = Bitmap.createScaledBitmap(
+                            it, wantedSide,
+                            Math.max(1, it.height * wantedSide / it.width), true)
+                        it.recycle()
+                        scaled
+                    } else it
                     DebugLog.note(TAG, "mosaic $z/$x/$y+$extra cached " +
                         "${(System.nanoTime() - startedNs) / 1_000_000}ms")
-                    return it
+                    return fit
                 }
             }
             val side = 1 shl extra
