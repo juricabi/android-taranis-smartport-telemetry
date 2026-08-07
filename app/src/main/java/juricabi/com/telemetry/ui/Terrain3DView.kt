@@ -696,6 +696,19 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private var currentLineOn = false
     private var currentLineColor = 0
 
+    /**
+     * The line's own anchor, fed whether or not the live arrow is shown:
+     * hiding the arrow wipes the arrow's position, and the line has its own
+     * switch — a switch that silently drew nothing was worse than none.
+     */
+    private var currentAnchorLat = Double.NaN
+    private var currentAnchorLon = Double.NaN
+
+    fun setCurrentAnchor(lat: Double, lon: Double) {
+        currentAnchorLat = lat
+        currentAnchorLon = lon
+    }
+
     fun setOverlaySettings(homeLine: Boolean, homeColor: Int,
                            headingLine: Boolean, headingColor: Int,
                            currentLine: Boolean, currentColor: Int) {
@@ -773,13 +786,13 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // one answers "and where am I" — in the live arrow's colour, since
         // both say the same thing about the same phone.
         val currGround = if (currentLineOn && homeFromRecorded && model != null &&
-            !myLat.isNaN() && !myLon.isNaN()) {
-            scene.groundAt(myLat, myLon)
+            !currentAnchorLat.isNaN() && !currentAnchorLon.isNaN()) {
+            scene.groundAt(currentAnchorLat, currentAnchorLon)
         } else null
         if (currGround != null) {
             val c = colorOf(currentLineColor)
-            renderer.setCurrentLine(true, scene.east(myLon),
-                currGround - scene.originAltitude, -scene.north(myLat),
+            renderer.setCurrentLine(true, scene.east(currentAnchorLon),
+                currGround - scene.originAltitude, -scene.north(currentAnchorLat),
                 c[0], c[1], c[2], c[3])
         } else {
             renderer.setCurrentLine(false, 0f, 0f, 0f, 0f, 0f, 0f, 0f)

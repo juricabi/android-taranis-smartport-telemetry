@@ -232,8 +232,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // ground view waited for a live fix — and whichever view had been
         // built most recently disagreed with the other about whether the
         // phone existed at all.
-        if (!showLiveArrow()) return
         val fix = bestPhoneFix ?: myLastKnownFix() ?: return
+        // The replay position line keeps its anchor even with the live
+        // arrow switched off over a replay — the line has its own toggle.
+        terrain3D?.setCurrentAnchor(fix.latitude, fix.longitude)
+        if (!showLiveArrow()) return
         map?.setPhoneLocation(
             Position(fix.latitude, fix.longitude),
             if (fix.hasAccuracy()) fix.accuracy else Float.NaN
@@ -263,6 +266,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             tellViewsWhereIAm()
         } else {
             terrain3D?.hideMyLocation()
+            // the arrow is declined, the line's anchor is not
+            terrain3D?.setCurrentAnchor(location.latitude, location.longitude)
         }
     }
 
