@@ -1,6 +1,7 @@
 package juricabi.com.telemetry.gl
 
 import android.graphics.Bitmap
+import juricabi.com.telemetry.utils.DebugLog
 import juricabi.com.telemetry.utils.Elevation
 import juricabi.com.telemetry.utils.Imagery
 
@@ -499,40 +500,7 @@ class TerrainScene {
         // The heights end at zoom 15; a finer tile samples that same data
         // over its quarter of the span, and earns its keep through the
         // sharper photograph its size allows.
-        val ez = Math.min(z, 15)
-        val etx = tx shr (z - ez)
-        val ety = ty shr (z - ez)
-        // The heights were prefetched, but into a memory shared with the
-        // altitude profile and with a load still finishing on a scene already
-        // left behind, either of which may have pushed this tile out again.
-        // Read it back — from disk, nearly always — rather than sample thirty-
-        // seven thousand nulls and hand back no tile, which is how a switch to
-        // this view sometimes came up with holes in the ground.
-        // All four through the pool first, side by side; the serial ensures
-        // below then find them arriving rather than each paying its own
-        // round trip in a row — which was most of a cold view's first wait.
-        Elevation.warm(listOf(
-            intArrayOf(ez, etx, ety), intArrayOf(ez, etx + 1, ety),
-            intArrayOf(ez, etx, ety + 1), intArrayOf(ez, etx + 1, ety + 1)))
-        // Each ensure can wait out a slow network. A view being torn down
-        // must not serve the full sentence — its threads hold the renderer
-        // and everything it queued until they exit.
-        if (abandoned) return null
-        Elevation.ensure(ez, etx, ety)
-        if (abandoned) return null
-        // The east column and south row of the grid lie exactly on the tile
-        // boundary, and a boundary coordinate resolves in the next tile over —
-        // so the very edge of every tile is sampled from its neighbours. When
-        // a neighbour was not loaded, the border came back NaN, fillGaps
-        // swapped it for the tile-wide average, and that baked a wall of
-        // stretched texture along the join — with a black crack beside it once
-        // the honest neighbour tile was built against it.
-        Elevation.ensure(ez, etx + 1, ety)
-        if (abandoned) return null
-        Elevation.ensure(ez, etx, ety + 1)
-        if (abandoned) return null
-        Elevation.ensure(ez, etx + 1, ety + 1)
-        if (abandoned) return null
+        var ez = Math.min(z, 15)
         val westLon = tileLon(tx, z)
         val eastLon = tileLon(tx + 1, z)
         val northLat = tileLat(ty, z)
@@ -551,24 +519,70 @@ class TerrainScene {
         var rimMissing = false
         var lowest = Float.MAX_VALUE
         var highest = -Float.MAX_VALUE
-        for (row in 0 until grid) {
-            val lat = northLat + (southLat - northLat) * row / (grid - 1)
-            for (col in 0 until grid) {
-                val lon = westLon + (eastLon - westLon) * col / (grid - 1)
-                val h = Elevation.elevationAt(lat, lon, ez)
-                if (h != null) {
-                    val rel = h - originAltitude
-                    heights[row * grid + col] = rel
-                    if (rel < lowest) lowest = rel
-                    if (rel > highest) highest = rel
-                    any = true
-                } else {
-                    heights[row * grid + col] = Float.NaN
-                    if (row == 0 || col == 0 || row == grid - 1 || col == grid - 1) {
-                        rimMissing = true
+        // Down the pyramid until a level has heights. Terrarium is damaged
+        // in stripes: whole columns at z14 and z15 answer a 270-byte void —
+        // every sample NO_DATA — while z13 under them is whole. Refusing to
+        // build put a permanent hole at the start of a real flight, and the
+        // hole wore a coarse ancestor whose rim stood as a cliff beside the
+        // honest ground next to it. Coarser truth beats no ground.
+        while (true) {
+            val etx = tx shr (z - ez)
+            val ety = ty shr (z - ez)
+            // The heights were prefetched, but into a memory shared with the
+            // altitude profile and with a load still finishing on a scene
+            // already left behind, either of which may have pushed this tile
+            // out again. Read it back — from disk, nearly always — rather
+            // than sample thirty-seven thousand nulls and hand back no tile.
+            // All four through the pool first, side by side; the serial
+            // ensures below then find them arriving rather than each paying
+            // its own round trip in a row.
+            Elevation.warm(listOf(
+                intArrayOf(ez, etx, ety), intArrayOf(ez, etx + 1, ety),
+                intArrayOf(ez, etx, ety + 1), intArrayOf(ez, etx + 1, ety + 1)))
+            // Each ensure can wait out a slow network. A view being torn down
+            // must not serve the full sentence — its threads hold the renderer
+            // and everything it queued until they exit.
+            if (abandoned) return null
+            Elevation.ensure(ez, etx, ety)
+            if (abandoned) return null
+            // The east column and south row of the grid lie exactly on the
+            // tile boundary, and a boundary coordinate resolves in the next
+            // tile over — so the very edge of every tile is sampled from its
+            // neighbours. When a neighbour was not loaded, the border came
+            // back NaN, fillGaps swapped it for the tile-wide average, and
+            // that baked a wall of stretched texture along the join.
+            Elevation.ensure(ez, etx + 1, ety)
+            if (abandoned) return null
+            Elevation.ensure(ez, etx, ety + 1)
+            if (abandoned) return null
+            Elevation.ensure(ez, etx + 1, ety + 1)
+            if (abandoned) return null
+            any = false
+            rimMissing = false
+            lowest = Float.MAX_VALUE
+            highest = -Float.MAX_VALUE
+            for (row in 0 until grid) {
+                val lat = northLat + (southLat - northLat) * row / (grid - 1)
+                for (col in 0 until grid) {
+                    val lon = westLon + (eastLon - westLon) * col / (grid - 1)
+                    val h = Elevation.elevationAt(lat, lon, ez)
+                    if (h != null) {
+                        val rel = h - originAltitude
+                        heights[row * grid + col] = rel
+                        if (rel < lowest) lowest = rel
+                        if (rel > highest) highest = rel
+                        any = true
+                    } else {
+                        heights[row * grid + col] = Float.NaN
+                        if (row == 0 || col == 0 || row == grid - 1 || col == grid - 1) {
+                            rimMissing = true
+                        }
                     }
                 }
             }
+            if (any || ez <= 8) break
+            DebugLog.note("TerrainScene", "no heights at z$ez for $z/$tx/$ty, stepping down")
+            ez--
         }
         if (!any) return null
         // A rim with no data means a neighbour tile has not arrived. Refusing
