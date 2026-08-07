@@ -581,6 +581,16 @@ class TerrainScene {
                 }
             }
             if (any || ez <= 8) break
+            // Only a level that is HERE and all void steps down — that is the
+            // dataset's hole and no retry will fill it. Fetches that simply
+            // failed keep the old road: no tile now, try again in thirty
+            // seconds, and end up sharp once the signal returns — stepping
+            // down on a bad-signal field built permanently coarse ground
+            // where waiting would have built it right.
+            if (!Elevation.has(ez, etx, ety) || !Elevation.has(ez, etx + 1, ety) ||
+                !Elevation.has(ez, etx, ety + 1) || !Elevation.has(ez, etx + 1, ety + 1)) {
+                return null
+            }
             DebugLog.note("TerrainScene", "no heights at z$ez for $z/$tx/$ty, stepping down")
             ez--
         }

@@ -310,6 +310,13 @@ object Elevation {
     fun ensure(zoom: Int, x: Int, y: Int): Boolean = load(zoom, x, y)
 
     /**
+     * Whether the tile is in memory at all — held even when every sample in
+     * it is a void. Tells "the data really has a hole here" apart from "the
+     * fetch failed", which no sample can: both answer null.
+     */
+    fun has(zoom: Int, x: Int, y: Int): Boolean = cached(zoom, x, y) != null
+
+    /**
      * Start fetching a set of tiles through the pool and return at once.
      *
      * Waiting for them was six grey seconds at the start of the 3D view:
