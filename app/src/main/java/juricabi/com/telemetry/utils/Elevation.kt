@@ -138,17 +138,20 @@ object Elevation {
         }
     }
 
-    /** The newest ~150MB of heights; pruning is housekeeping, not correctness. */
+    /**
+     * The newest ~375MB of heights — its share of the two-gigabyte cache
+     * budget, beside the imagery. Pruning is housekeeping, not correctness.
+     */
     private fun pruneDisk() {
         try {
             val dir = cacheDir ?: return
             val files = dir.listFiles { f -> f.name.endsWith(".png") } ?: return
             var total = files.sumOf { it.length() }
-            if (total <= 150L * 1024 * 1024) return
+            if (total <= 375L * 1024 * 1024) return
             for (f in files.sortedBy { it.lastModified() }) {
                 total -= f.length()
                 f.delete()
-                if (total <= 120L * 1024 * 1024) break
+                if (total <= 300L * 1024 * 1024) break
             }
         } catch (e: Exception) {
         }
