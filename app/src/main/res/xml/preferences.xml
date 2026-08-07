@@ -127,6 +127,7 @@
             app:iconSpaceReserved="false"
                 android:defaultValue="@color/colorPosArrow"
                 android:key="home_line_color"
+                android:dependency="show_home_line"
                 app:cpv_showAlphaSlider="true"
                 app:cpv_allowPresets="false"
                 app:cpv_allowCustom="true"
@@ -144,6 +145,7 @@
             app:iconSpaceReserved="false"
                 android:defaultValue="@color/colorPosArrowLogged"
                 android:key="pos_arrow_logged_color"
+                android:dependency="show_recorded_operator"
                 app:cpv_showAlphaSlider="false"
                 app:cpv_allowPresets="false"
                 app:cpv_allowCustom="true"
@@ -155,12 +157,14 @@
                 android:title="Show operator line"
                 android:summary="During playback, draw a line from the drone to the recorded operator's arrow. Hidden with the arrow."
                 android:defaultValue="true"
-                android:key="show_current_line"/>
+                android:key="show_current_line"
+                android:dependency="show_recorded_operator"/>
 
         <com.jaredrummler.android.colorpicker.ColorPreferenceCompat
             app:iconSpaceReserved="false"
                 android:defaultValue="@color/colorPosArrowLogged"
                 android:key="current_line_color"
+                android:dependency="show_current_line"
                 app:cpv_showAlphaSlider="true"
                 app:cpv_allowPresets="false"
                 app:cpv_allowCustom="true"
