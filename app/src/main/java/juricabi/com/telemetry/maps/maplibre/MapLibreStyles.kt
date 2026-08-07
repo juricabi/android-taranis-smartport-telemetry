@@ -57,12 +57,14 @@ object MapLibreStyles {
      */
     fun maxTileZoom(mapType: Int): Float = when (mapType) {
         MAP_TYPE_TOPO -> 17f
-        // Seventeen: the deepest level ArcGIS has pictures for everywhere.
-        // Its coverage past that is patchy, and it does not refuse a tile it
-        // lacks — it serves a "map data not yet available" watermark, which
-        // is white ground with writing on it. Seventeen everywhere, scaled
-        // up past it: blurry, never blank.
-        MAP_TYPE_SATELLITE, MAP_TYPE_SATELLITE_HYBRID -> 17f
+        // Nineteen, which is what this map always went to. Capping at
+        // seventeen — the deepest level ArcGIS has everywhere — traded the
+        // last two zooms of real ground for never seeing a "map data not
+        // yet available" watermark in the patchy places, and standing next
+        // to the model the map read blurrier than the 3D ground beside it,
+        // which fetches nineteen. The occasional watermark at full zoom is
+        // the lesser wrong; it was always there.
+        MAP_TYPE_SATELLITE, MAP_TYPE_SATELLITE_HYBRID -> 19f
         else -> 19f
     }
 
