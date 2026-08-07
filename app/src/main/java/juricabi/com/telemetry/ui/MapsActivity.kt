@@ -1119,12 +1119,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     /**
-     * Where the phone is, for the line home and anything else drawn from it: as
-     * recorded while replaying, and as it is now otherwise.
+     * The current location line: from the drone to where this phone is now,
+     * live or playing back alike — walking to a downed model is its whole
+     * use, which is also why it draws above every other line. Blue, like
+     * the arrow that says the same thing.
+     *
+     * Held in the fields named home*, which is what this line used to be
+     * called when it only existed while flying.
      */
-    private fun wherePhoneIs(): Position? =
-        if (isInReplayMode()) recordedMe else myLastKnownPlace()
-
     private fun updateHomeLine(displayedDrone: Position? = null) {
         updateCurrentLine(displayedDrone)
         val line = homeLine ?: return
@@ -1140,18 +1142,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         } else return
         // where this phone is, from the system if the map's own overlay has
         // not found it yet: a newly built map takes a while to get its first
-        // fix, and the line home waited all of it. Replaying, it is where the
-        // phone was then — there is no line to draw without that.
-        val phone = wherePhoneIs() ?: return
+        // fix, and the line waited all of it
+        val phone = myLastKnownPlace() ?: return
         line.setPoints(listOf(drone, phone))
     }
 
     /**
-     * The replay's second line: to where this phone is standing right now.
-     * The home line above anchors to the operator as recorded; this one
-     * answers "and where am I, relative to that flight" — off by default,
-     * in the live arrow's colour, since both say the same thing about the
-     * same phone.
+     * The operator position line, playback only: from the drone to where
+     * the operator stood as recorded. Orange, like the arrow it points at.
      */
     private fun updateCurrentLine(displayedDrone: Position? = null) {
         val line = currentLine ?: return
@@ -1163,7 +1161,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val drone = if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) {
             displayedDrone ?: presentedPosition()
         } else return
-        val phone = myLastKnownPlace() ?: return
+        val phone = recordedMe ?: return
         line.setPoints(listOf(drone, phone))
     }
 

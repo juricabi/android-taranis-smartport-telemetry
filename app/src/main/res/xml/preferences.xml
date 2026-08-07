@@ -190,12 +190,12 @@
 
     <PreferenceCategory
             android:layout="@layout/preference_category_title"
-            app:iconSpaceReserved="false" android:title="Home line">
+            app:iconSpaceReserved="false" android:title="Current location line">
 
         <SwitchPreference
             app:iconSpaceReserved="false"
-                android:title="Show home line"
-                android:summary="Draw a line from the drone to the phone's current position"
+                android:title="Show current location line"
+                android:summary="Draw a line from the drone to where this phone is now — live and during playback, for walking to a downed model"
                 android:defaultValue="true"
                 android:key="show_home_line"/>
 
@@ -206,8 +206,8 @@
                 app:cpv_showAlphaSlider="true"
                 app:cpv_allowPresets="false"
                 app:cpv_allowCustom="true"
-                android:summary="Color of the line between drone and phone"
-                android:title="Home line color"/>
+                android:summary="Color of the current location line — the location arrow's blue by default"
+                android:title="Current location line color"/>
 
     </PreferenceCategory>
 
@@ -238,20 +238,20 @@
 
         <SwitchPreference
             app:iconSpaceReserved="false"
-                android:title="Show playback position line"
-                android:summary="During playback, draw a line from the drone to where this phone is now"
-                android:defaultValue="false"
+                android:title="Show operator position line"
+                android:summary="During playback, draw a line from the drone to where the operator stood as recorded"
+                android:defaultValue="true"
                 android:key="show_current_line"/>
 
         <com.jaredrummler.android.colorpicker.ColorPreferenceCompat
             app:iconSpaceReserved="false"
-                android:defaultValue="@color/colorHomeLine"
+                android:defaultValue="@color/colorPosArrowLogged"
                 android:key="current_line_color"
                 app:cpv_showAlphaSlider="true"
                 app:cpv_allowPresets="false"
                 app:cpv_allowCustom="true"
-                android:summary="Color of the playback position line"
-                android:title="Playback position line color"/>
+                android:summary="Color of the operator position line — the recorded arrow's orange by default"
+                android:title="Operator position line color"/>
 
     </PreferenceCategory>
 

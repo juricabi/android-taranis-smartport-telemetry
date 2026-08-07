@@ -754,20 +754,11 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // Both of these start at the model, so the renderer draws them from
         // where it is drawing the model. Given as vertices here they jumped to
         // each fix and then waited, while the model glided between them.
-        // Over a replay, only the recorded operator may anchor it: with no
-        // record there is no line, exactly as the map decides. Falling back
-        // to where the phone is now drew the line off across the county the
-        // flight was not recorded in.
-        val homeLat = when {
-            !loggedLat.isNaN() -> loggedLat
-            homeFromRecorded -> Double.NaN
-            else -> myLat
-        }
-        val homeLon = when {
-            !loggedLon.isNaN() -> loggedLon
-            homeFromRecorded -> Double.NaN
-            else -> myLon
-        }
+        // The current location line: to where this phone is now, live and
+        // playback alike — walking to a downed model is its whole use. The
+        // anchor is fed whether or not the live arrow is shown.
+        val homeLat = if (!currentAnchorLat.isNaN()) currentAnchorLat else myLat
+        val homeLon = if (!currentAnchorLon.isNaN()) currentAnchorLon else myLon
         val home = if (homeLat.isNaN() || homeLon.isNaN()) {
             null
         } else {
@@ -781,18 +772,18 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             renderer.setHomeLine(false, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
         }
 
-        // The replay's second line, to where the phone is standing right
-        // now. The home line above answers "where was it flown from"; this
-        // one answers "and where am I" — in the live arrow's colour, since
-        // both say the same thing about the same phone.
+        // The operator position line, playback only: to where the operator
+        // stood as recorded — orange, like the arrow it points at. With no
+        // record there is no line; drawn to anywhere else it ran off across
+        // the county the flight was not recorded in.
         val currGround = if (currentLineOn && homeFromRecorded && model != null &&
-            !currentAnchorLat.isNaN() && !currentAnchorLon.isNaN()) {
-            scene.groundAt(currentAnchorLat, currentAnchorLon)
+            !loggedLat.isNaN() && !loggedLon.isNaN()) {
+            scene.groundAt(loggedLat, loggedLon)
         } else null
         if (currGround != null) {
             val c = colorOf(currentLineColor)
-            renderer.setCurrentLine(true, scene.east(currentAnchorLon),
-                currGround - scene.originAltitude, -scene.north(currentAnchorLat),
+            renderer.setCurrentLine(true, scene.east(loggedLon),
+                currGround - scene.originAltitude, -scene.north(loggedLat),
                 c[0], c[1], c[2], c[3])
         } else {
             renderer.setCurrentLine(false, 0f, 0f, 0f, 0f, 0f, 0f, 0f)

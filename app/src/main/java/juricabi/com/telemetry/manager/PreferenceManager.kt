@@ -414,19 +414,24 @@ class PreferenceManager(context: Context) {
         return sharedPreferences.getBoolean("show_home_line", true)
     }
 
+    /**
+     * The current location line: drone to where this phone is now, live and
+     * playback alike. Kept under the home_line keys, which is what this
+     * line was called when it only existed while flying. Blue, like the
+     * arrow saying the same thing.
+     */
     fun getHomeLineColor(): Int {
-        // the user flew both lines over real ground and chose: home in the
-        // arrows' blue, the playback position line in the classic orange
         return sharedPreferences.getInt("home_line_color", defaultPosArrowColor)
     }
 
-    /** Playback only: the line from the drone to where this phone is now. */
+    /** The operator position line, playback only: to where they stood then. */
     fun isCurrentLineEnabled(): Boolean {
-        return sharedPreferences.getBoolean("show_current_line", false)
+        return sharedPreferences.getBoolean("show_current_line", true)
     }
 
     fun getCurrentLineColor(): Int {
-        return sharedPreferences.getInt("current_line_color", defaultHomeLineColor)
+        // the recorded arrow's orange: the line and the arrow agree
+        return sharedPreferences.getInt("current_line_color", defaultPosArrowLoggedColor)
     }
 
     fun isFr24Enabled(): Boolean {

@@ -623,17 +623,19 @@ class MapLibreMapWrapper(
     }
 
     override fun addHomeLine(width: Float, color: Int): MapLine {
-        return movingLines().makeLine(MapLibreMovingLineLayer.HOME).also { line ->
+        // The current location line rides the TOP slot: it is what a person
+        // walks to a downed model by, and it must not hide under anything.
+        return movingLines().makeLine(MapLibreMovingLineLayer.CURRENT).also { line ->
             line.width = width
             line.color = color
         }
     }
 
     override fun addCurrentLine(width: Float, color: Int): MapLine {
-        // its own slot: the slots are named places, and asking for HOME
-        // twice handed the second line the first one's — the home line
-        // simply stopped existing the moment this one was made
-        return movingLines().makeLine(MapLibreMovingLineLayer.CURRENT).also { line ->
+        // the operator position line, beneath the current location line —
+        // its own slot either way: asking for one slot twice handed the
+        // second line the first one's, and a line simply stopped existing
+        return movingLines().makeLine(MapLibreMovingLineLayer.HOME).also { line ->
             line.width = width
             line.color = color
         }

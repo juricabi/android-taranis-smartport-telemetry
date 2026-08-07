@@ -1571,18 +1571,8 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glDepthMask(true)
         }
 
-        if (modelVisible && homeOn) {
-            synchronized(this) {
-                leaderPair[0] = shownX; leaderPair[1] = shownY; leaderPair[2] = shownZ
-                leaderPair[3] = homeX; leaderPair[4] = homeY; leaderPair[5] = homeZ
-            }
-            fill(leaderPairBuffer, leaderPair)
-            GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12,
-                leaderPairBuffer)
-            GLES20.glUniform4f(uColor, homeR, homeG, homeB, homeA)
-            GLES20.glLineWidth(3f)
-            GLES20.glDrawArrays(GLES20.GL_LINES, 0, 2)
-        }
+        // the operator line first, the current location line after — the
+        // line a person walks to a downed model by paints over the other
         if (modelVisible && currOn) {
             synchronized(this) {
                 leaderPair[0] = shownX; leaderPair[1] = shownY; leaderPair[2] = shownZ
@@ -1592,6 +1582,18 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12,
                 leaderPairBuffer)
             GLES20.glUniform4f(uColor, currR, currG, currB, currA)
+            GLES20.glLineWidth(3f)
+            GLES20.glDrawArrays(GLES20.GL_LINES, 0, 2)
+        }
+        if (modelVisible && homeOn) {
+            synchronized(this) {
+                leaderPair[0] = shownX; leaderPair[1] = shownY; leaderPair[2] = shownZ
+                leaderPair[3] = homeX; leaderPair[4] = homeY; leaderPair[5] = homeZ
+            }
+            fill(leaderPairBuffer, leaderPair)
+            GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, 12,
+                leaderPairBuffer)
+            GLES20.glUniform4f(uColor, homeR, homeG, homeB, homeA)
             GLES20.glLineWidth(3f)
             GLES20.glDrawArrays(GLES20.GL_LINES, 0, 2)
         }
