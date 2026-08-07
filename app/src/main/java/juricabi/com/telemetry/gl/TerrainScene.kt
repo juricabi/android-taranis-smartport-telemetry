@@ -126,10 +126,6 @@ class TerrainScene {
         fun parentOf(key: Long): Long =
             tileKey(zoomOf(key) - 1, tileXOf(key) shr 1, tileYOf(key) shr 1)
 
-        /** The grid a tile of this zoom is built on, one place for the rule. */
-        fun gridFor(z: Int): Int =
-            if (z >= 16) 65 else if (z >= 15) 129 else if (z >= 12) 97 else 65
-
         fun tileLon(x: Int, z: Int): Double = x.toDouble() / (1 shl z) * 360.0 - 180.0
 
         fun tileLat(y: Int, z: Int): Double {
@@ -500,12 +496,7 @@ class TerrainScene {
     var launchGroundElevation = 0f
         private set
 
-    /**
-     * The edge levels a build conforms to: the zoom each neighbouring square
-     * is drawn at — [west, east, north, south] — or this tile's own zoom
-     * where the neighbour is as fine or finer and no conformance is owed.
-     */
-    internal fun buildTile(z: Int, tx: Int, ty: Int, edgeNz: IntArray? = null): TileMesh? {
+    internal fun buildTile(z: Int, tx: Int, ty: Int): TileMesh? {
         // The heights end at zoom 15; a finer tile samples that same data
         // over its quarter of the span, and earns its keep through the
         // sharper photograph its size allows.
@@ -522,7 +513,7 @@ class TerrainScene {
         // metres, and every miss stood as a wall along the join.
         // the z16 span is a quarter of z15's, so 65 samples already read the
         // source twice per pixel — a denser grid there is triangles for nothing
-        val grid = gridFor(z)
+        val grid = if (z >= 16) 65 else if (z >= 15) 129 else if (z >= 12) 97 else 65
         val heights = FloatArray(grid * grid)
         var any = false
         var rimMissing = false
@@ -583,15 +574,7 @@ class TerrainScene {
                         any = true
                     } else {
                         heights[row * grid + col] = Float.NaN
-                        // Missing counts on the rim only while the data may
-                        // yet arrive. A rim that nulls over a HELD tile is
-                        // the dataset's own void — the mend loop rebuilt
-                        // such tiles every twenty seconds forever, throwing
-                        // a dressed picture away each time, for data that
-                        // was never coming.
-                        if ((row == 0 || col == 0 || row == grid - 1 || col == grid - 1) &&
-                            !Elevation.has(ez, Elevation.tileX(lon, ez),
-                                Elevation.tileY(lat, ez))) {
+                        if (row == 0 || col == 0 || row == grid - 1 || col == grid - 1) {
                             rimMissing = true
                         }
                     }
@@ -618,25 +601,6 @@ class TerrainScene {
         // while the camera flew on. Built anyway, the world stays covered and
         // the flag sends it back to be built right once the data lands.
         fillGaps(heights)
-
-        // The edges, laid on the coarser neighbour's own line. Two tiles at
-        // different levels reconstruct their shared edge from the same
-        // heights at different densities, and the finer one follows ridges
-        // the coarser one cuts across — tens of metres on karst, standing
-        // as a wall the skirt then wears. The levels themselves agree to a
-        // couple of metres (measured over the escarpment), so the fine side
-        // lays its edge exactly on the line the coarse side will draw,
-        // computed from the same data without the two ever meeting; the
-        // skirt still covers what little remains.
-        if (edgeNz != null) {
-            conformEdges(z, tx, ty, edgeNz, grid, heights,
-                westLon, eastLon, northLat, southLat)
-        }
-        // after the conforming, which may move an edge past what was seen
-        for (h in heights) {
-            if (h < lowest) lowest = h
-            if (h > highest) highest = h
-        }
 
         // the rim again as a skirt ring, so the box and the buffers hold both
         val rim = 4 * (grid - 1)
@@ -732,99 +696,6 @@ class TerrainScene {
             lowest - skirtDepth, highest,
             -north(northLat), -north(southLat),
             rimComplete = !rimMissing)
-    }
-
-    private fun conformEdges(
-        z: Int, tx: Int, ty: Int, edgeNz: IntArray, grid: Int, heights: FloatArray,
-        westLon: Double, eastLon: Double, northLat: Double, southLat: Double
-    ) {
-        conformVertical(z, ty, edgeNz[0], grid, heights, 0, westLon, northLat, southLat)
-        conformVertical(z, ty, edgeNz[1], grid, heights, grid - 1, eastLon, northLat, southLat)
-        conformHorizontal(z, tx, edgeNz[2], grid, heights, 0, northLat, westLon, eastLon)
-        conformHorizontal(z, tx, edgeNz[3], grid, heights, grid - 1, southLat, westLon, eastLon)
-    }
-
-    /**
-     * One edge onto the neighbour's line: each edge vertex becomes the
-     * linear interpolation between the two of the coarser level's own
-     * samples that bracket it — the very line that neighbour draws. A
-     * sample the data cannot answer leaves the vertex as it was.
-     */
-    private fun conformVertical(
-        z: Int, ty: Int, nz: Int, grid: Int, heights: FloatArray,
-        col: Int, lon: Double, northLat: Double, southLat: Double
-    ) {
-        if (nz >= z) return
-        val ezN = Math.min(nz, 15)
-        val gridN = gridFor(nz)
-        // the neighbouring square's ancestor as drawn: its span is what its
-        // grid rows divide, and this tile's edge is a slice of it
-        val ay = ty shr (z - nz)
-        val aNorth = tileLat(ay, nz)
-        val aSouth = tileLat(ay + 1, nz)
-        warmEdge(ezN, true, lon, northLat, southLat)
-        for (row in 0 until grid) {
-            val lat = northLat + (southLat - northLat) * row / (grid - 1)
-            val jf = (lat - aNorth) / (aSouth - aNorth) * (gridN - 1)
-            val j0 = Math.floor(jf).toInt().coerceIn(0, gridN - 1)
-            val j1 = Math.min(j0 + 1, gridN - 1)
-            val a = (jf - j0).toFloat()
-            val h0 = Elevation.elevationAt(
-                aNorth + (aSouth - aNorth) * j0 / (gridN - 1), lon, ezN) ?: continue
-            val h1 = Elevation.elevationAt(
-                aNorth + (aSouth - aNorth) * j1 / (gridN - 1), lon, ezN) ?: continue
-            heights[row * grid + col] = h0 + (h1 - h0) * a - originAltitude
-        }
-    }
-
-    private fun conformHorizontal(
-        z: Int, tx: Int, nz: Int, grid: Int, heights: FloatArray,
-        row: Int, lat: Double, westLon: Double, eastLon: Double
-    ) {
-        if (nz >= z) return
-        val ezN = Math.min(nz, 15)
-        val gridN = gridFor(nz)
-        val ax = tx shr (z - nz)
-        val aWest = tileLon(ax, nz)
-        val aEast = tileLon(ax + 1, nz)
-        warmEdge(ezN, false, lat, westLon, eastLon)
-        for (col in 0 until grid) {
-            val lon = westLon + (eastLon - westLon) * col / (grid - 1)
-            val jf = (lon - aWest) / (aEast - aWest) * (gridN - 1)
-            val j0 = Math.floor(jf).toInt().coerceIn(0, gridN - 1)
-            val j1 = Math.min(j0 + 1, gridN - 1)
-            val a = (jf - j0).toFloat()
-            val h0 = Elevation.elevationAt(
-                lat, aWest + (aEast - aWest) * j0 / (gridN - 1), ezN) ?: continue
-            val h1 = Elevation.elevationAt(
-                lat, aWest + (aEast - aWest) * j1 / (gridN - 1), ezN) ?: continue
-            heights[row * grid + col] = h0 + (h1 - h0) * a - originAltitude
-        }
-    }
-
-    /** The heights an edge conforms to, present before they are asked for. */
-    private fun warmEdge(ez: Int, vertical: Boolean, fixed: Double, a0: Double, a1: Double) {
-        if (vertical) {
-            val x = Elevation.tileX(fixed, ez)
-            val y0 = Elevation.tileY(a0, ez)
-            val y1 = Elevation.tileY(a1, ez)
-            for (y in Math.min(y0, y1)..Math.max(y0, y1)) {
-                if (abandoned) return
-                // both sides of the line: a boundary coordinate's bilinear
-                // reads the tile to its west as well as its own
-                Elevation.ensure(ez, Math.max(0, x - 1), y)
-                Elevation.ensure(ez, x, y)
-            }
-        } else {
-            val y = Elevation.tileY(fixed, ez)
-            val x0 = Elevation.tileX(a0, ez)
-            val x1 = Elevation.tileX(a1, ez)
-            for (x in Math.min(x0, x1)..Math.max(x0, x1)) {
-                if (abandoned) return
-                Elevation.ensure(ez, x, Math.max(0, y - 1))
-                Elevation.ensure(ez, x, y)
-            }
-        }
     }
 
     /** A hole in the data becomes the average of what is around it, not a pit. */

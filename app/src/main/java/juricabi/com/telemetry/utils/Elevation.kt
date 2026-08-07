@@ -118,39 +118,14 @@ object Elevation {
     @Volatile
     private var cacheDir: File? = null
 
-    @Volatile
-    private var prunedThisRun = false
-
     fun init(context: Context) {
         try {
             val dir = File(context.applicationContext.cacheDir, "terrain")
             if (!dir.isDirectory) dir.mkdirs()
             cacheDir = dir
-            // once per process: the heights had no ceiling either, and at
-            // ninety kilobytes a tile they quietly follow the imagery up
-            if (!prunedThisRun) {
-                prunedThisRun = true
-                pool.submit { pruneDisk() }
-            }
         } catch (e: Exception) {
             // no disk cache is survivable; every tile just costs a download
             Log.w(TAG, "no terrain cache dir: ${e.message}")
-        }
-    }
-
-    /** The newest ~150MB of heights; pruning is housekeeping, not correctness. */
-    private fun pruneDisk() {
-        try {
-            val dir = cacheDir ?: return
-            val files = dir.listFiles { f -> f.name.endsWith(".png") } ?: return
-            var total = files.sumOf { it.length() }
-            if (total <= 150L * 1024 * 1024) return
-            for (f in files.sortedBy { it.lastModified() }) {
-                total -= f.length()
-                f.delete()
-                if (total <= 120L * 1024 * 1024) break
-            }
-        } catch (e: Exception) {
         }
     }
 
@@ -517,8 +492,6 @@ object Elevation {
         try {
             val file = tileFile(zoom, x, y) ?: return null
             if (!file.isFile || file.length() <= 0L) return null
-            // touched, so the prune keeps what is actually being flown over
-            file.setLastModified(System.currentTimeMillis())
             return file.readBytes()
         } catch (e: Exception) {
             return null
