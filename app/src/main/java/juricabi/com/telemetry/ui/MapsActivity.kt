@@ -471,7 +471,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
         // diagnostics into the file "Copy debug info" copies, so a tester
         // away from the desk can send what logcat would have said — crashes too
-        juricabi.com.telemetry.utils.DebugLog.init(applicationContext)
+        juricabi.com.telemetry.utils.DebugLog.init()
 
         preferenceManager = PreferenceManager(this)
 

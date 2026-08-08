@@ -1,6 +1,6 @@
 package juricabi.com.telemetry.utils
 
-import android.content.Context
+import android.os.Environment
 import android.util.Log
 import java.io.File
 import java.text.SimpleDateFormat
@@ -8,14 +8,12 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * The terrain diagnostics, in the file "Copy debug info" already copies.
- *
- * adb only reaches a phone that is on the same network as the desk. Away
- * from it, everything this app says about itself — the pager's counters,
- * the frame costs, a crash's stack — was locked inside logcat. It lands in
- * the file the settings screen puts on the clipboard, so sending it is a
- * feature the tester already knows; a parallel file of its own under
- * TelemetryLogs was a second place for the same thing.
+ * The terrain diagnostics, in one file both roads read: "Copy debug info"
+ * puts it on the clipboard, and it lives in TelemetryLogs beside the
+ * flight recordings, which the phone already syncs off-device. adb only
+ * reaches a phone that is on the same network as the desk; the sync
+ * reaches the field. One file, a fixed name — sessions are told apart by
+ * their "session start" lines, not by a folder of dated copies.
  */
 object DebugLog {
 
@@ -24,13 +22,16 @@ object DebugLog {
     private var file: File? = null
     private val stamp = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US)
 
-    fun init(context: Context) {
+    fun init() {
         if (file != null) return
         // Debug builds only. These notes carry coordinates and tile names —
         // where somebody flies — and a release build writes nobody's
         // whereabouts down unasked.
         if (!juricabi.com.telemetry.BuildConfig.DEBUG) return
-        file = File(context.filesDir, "log.txt")
+        // Until the storage permission is granted — first launch, before the
+        // dialog — appends fail and drop, like every other touch of it.
+        file = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"),
+            "debug-log.txt").also { it.parentFile?.mkdirs() }
         // A crash belongs in it more than anything else does: "it
         // crashed, don't know why" should answer itself from the file.
         val previous = Thread.getDefaultUncaughtExceptionHandler()
