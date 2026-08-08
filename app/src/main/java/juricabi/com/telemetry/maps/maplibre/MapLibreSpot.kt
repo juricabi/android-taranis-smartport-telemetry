@@ -151,7 +151,12 @@ class MapLibreSpot(
         val moved = where != position
         val accuracyChanged = !same(accuracy, accuracyMetres)
         val bearingChanged = !same(bearing, headingDegrees)
-        if (!moved && !accuracyChanged && !bearingChanged) return
+        // An arrow not yet revealed keeps asking: the reveal rides whenReady,
+        // and a style busy loading a planet of tiles drops the work rather
+        // than queue it — a phone lying still then never asked again, and
+        // the arrow stayed missing for the whole session.
+        val unrevealed = !spotDisplayed && position != null && shown
+        if (!moved && !accuracyChanged && !bearingChanged && !unrevealed) return
         where = position
         accuracy = accuracyMetres
         bearing = headingDegrees
@@ -160,8 +165,8 @@ class MapLibreSpot(
         // rewrote both sources every display tick even through CSV rows whose
         // recorded place had not changed. Keep each renderer source tied only
         // to the facts that can change what it draws.
-        if (moved || bearingChanged) pushArrow(moved, bearingChanged)
-        if (moved || accuracyChanged) pushRing()
+        if (moved || bearingChanged || unrevealed) pushArrow(moved, bearingChanged)
+        if (moved || accuracyChanged || unrevealed) pushRing()
     }
 
     fun position(): Position? = where

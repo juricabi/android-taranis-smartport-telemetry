@@ -669,8 +669,26 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         renderer.target = floatArrayOf(scene.east(lon), height, -scene.north(lat))
     }
 
+    /**
+     * Whether a place stands on ground this world can ever load. The roots
+     * ring the origin two hundred kilometres out; past them there is only
+     * the void, and no control should take the camera there.
+     */
+    private fun inWorld(lat: Double, lon: Double): Boolean {
+        if (lat.isNaN() || lon.isNaN()) return false
+        return Math.abs(scene.east(lon)) < 200_000f &&
+            Math.abs(scene.north(lat)) < 200_000f
+    }
+
     fun goToMyLocation(): Boolean {
         if (myLat.isNaN() || myLon.isNaN()) return false
+        // Replaying a flight from another country, the phone stands outside
+        // the flight's whole world — flying the camera there showed the
+        // dark past the world's edge, with no word why.
+        if (!inWorld(myLat, myLon)) {
+            status.text = "You are beyond this flight's ground"
+            return true
+        }
         // asked for somewhere else entirely, which is a different thing from
         // leaning out of the chase
         followingOff()
@@ -1066,7 +1084,8 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     var groundFollowsPhone = true
 
     private fun placeMyArrow() {
-        if (!myShown) {
+        // beyond the world's edge there is no ground to stand it on
+        if (!myShown || !inWorld(myLat, myLon)) {
             renderer.hideMyLocation()
             renderer.setAccuracyCircle(FloatArray(0))
             return
