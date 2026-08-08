@@ -624,6 +624,42 @@ class TerrainScene {
             ez--
         }
         if (!any) return null
+        // Every lattice and edge-agreement tile this build will wait on
+        // below, in ONE wave through the pool: fetched block by block they
+        // were four round-trip generations, and fresh ground built at a
+        // crawl exactly where the eye was waiting for it.
+        run {
+            val wave = ArrayList<IntArray>(16)
+            val bx = tx shr (z - ez)
+            val by = ty shr (z - ez)
+            wave.add(intArrayOf(ez, bx - 1, by))
+            wave.add(intArrayOf(ez, bx - 1, by + 1))
+            wave.add(intArrayOf(ez, bx, by - 1))
+            wave.add(intArrayOf(ez, bx + 1, by - 1))
+            if (z > 8) {
+                val pez = Math.min(z - 1, 15)
+                val ptx = tx shr (z - pez)
+                val pty = ty shr (z - pez)
+                wave.add(intArrayOf(pez, ptx, pty))
+                wave.add(intArrayOf(pez, ptx + 1, pty))
+                wave.add(intArrayOf(pez, ptx, pty + 1))
+                wave.add(intArrayOf(pez, ptx + 1, pty + 1))
+                wave.add(intArrayOf(pez, ptx - 1, pty))
+                wave.add(intArrayOf(pez, ptx - 1, pty + 1))
+                wave.add(intArrayOf(pez, ptx, pty - 1))
+                wave.add(intArrayOf(pez, ptx + 1, pty - 1))
+            }
+            if (z - 2 >= 8) {
+                val gez = Math.min(z - 2, 15)
+                val gtx = tx shr (z - gez)
+                val gty = ty shr (z - gez)
+                wave.add(intArrayOf(gez, gtx, gty))
+                wave.add(intArrayOf(gez, gtx + 1, gty))
+                wave.add(intArrayOf(gez, gtx, gty + 1))
+                wave.add(intArrayOf(gez, gtx + 1, gty + 1))
+            }
+            Elevation.warm(wave)
+        }
         // A rim with no data means a neighbour tile has not arrived. Refusing
         // to build was a storm: one failed fetch put a thirty second hole in
         // the data, and every tile touching it failed on five second retries
@@ -639,9 +675,6 @@ class TerrainScene {
         run {
             val bx = tx shr (z - ez)
             val by = ty shr (z - ez)
-            Elevation.warm(listOf(
-                intArrayOf(ez, bx - 1, by), intArrayOf(ez, bx - 1, by + 1),
-                intArrayOf(ez, bx, by - 1), intArrayOf(ez, bx + 1, by - 1)))
             if (abandoned) return null
             Elevation.ensure(ez, bx - 1, by)
             Elevation.ensure(ez, bx - 1, by + 1)
@@ -680,15 +713,10 @@ class TerrainScene {
             ezP = Math.min(pz, 15)
             val ptx = tx shr (z - ezP)
             val pty = ty shr (z - ezP)
-            Elevation.warm(listOf(
-                intArrayOf(ezP, ptx, pty), intArrayOf(ezP, ptx + 1, pty),
-                intArrayOf(ezP, ptx, pty + 1), intArrayOf(ezP, ptx + 1, pty + 1),
-                // the parent-shade taps step one parent pitch west and north
-                // of a west or north child's edge — same crease, one level up
-                intArrayOf(ezP, ptx - 1, pty), intArrayOf(ezP, ptx - 1, pty + 1),
-                intArrayOf(ezP, ptx, pty - 1), intArrayOf(ezP, ptx + 1, pty - 1)))
             if (abandoned) return null
             Elevation.ensure(ezP, ptx, pty)
+            // the parent-shade taps step one parent pitch west and north
+            // of a west or north child's edge — same crease, one level up
             Elevation.ensure(ezP, ptx + 1, pty)
             Elevation.ensure(ezP, ptx, pty + 1)
             Elevation.ensure(ezP, ptx + 1, pty + 1)
@@ -724,9 +752,6 @@ class TerrainScene {
             val ezG = Math.min(gz, 15)
             val gtx = tx shr (z - ezG)
             val gty = ty shr (z - ezG)
-            Elevation.warm(listOf(
-                intArrayOf(ezG, gtx, gty), intArrayOf(ezG, gtx + 1, gty),
-                intArrayOf(ezG, gtx, gty + 1), intArrayOf(ezG, gtx + 1, gty + 1)))
             if (abandoned) return null
             Elevation.ensure(ezG, gtx, gty)
             Elevation.ensure(ezG, gtx + 1, gty)
@@ -760,7 +785,7 @@ class TerrainScene {
         // of a shared edge compute the identical shade — the permanent
         // brightness crease along every border goes with the one-sided
         // difference that made it.
-        val vertices = FloatArray(vertexCount * 9)
+        val vertices = FloatArray(vertexCount * 10)
         val span = Math.abs(east(eastLon) - east(westLon))
         val spacing = span / (grid - 1)
         val pitchLat = (southLat - northLat) / (grid - 1)
@@ -815,6 +840,18 @@ class TerrainScene {
                     if (lerped != null) grandY = lerped
                 }
                 vertices[v++] = grandY
+                // Which of the tile's edges this vertex lies on — west 1,
+                // north 2, east 3, south 4, a corner both — packed as one
+                // small number. The renderer forces the morph to completion
+                // on an edge that faces a coarser drawn neighbour, and this
+                // is how the shader knows which vertices that means.
+                var ea = 0
+                var eb = 0
+                if (col == 0) ea = 1
+                if (row == 0) { if (ea == 0) ea = 2 else eb = 2 }
+                if (col == grid - 1) { if (ea == 0) ea = 3 else eb = 3 }
+                if (row == grid - 1) { if (ea == 0) ea = 4 else eb = 4 }
+                vertices[v++] = (ea * 5 + eb).toFloat()
             }
         }
 
@@ -832,7 +869,7 @@ class TerrainScene {
         for (col in grid - 1 downTo 1) rimIndices[r++] = (grid - 1) * grid + col
         for (row in grid - 1 downTo 1) rimIndices[r++] = row * grid
         for (k in 0 until rim) {
-            val src = rimIndices[k] * 9
+            val src = rimIndices[k] * 10
             vertices[v++] = vertices[src]
             vertices[v++] = vertices[src + 1] - skirtDepth
             vertices[v++] = vertices[src + 2]
@@ -844,6 +881,9 @@ class TerrainScene {
             // the skirt hangs the same depth below wherever its rim morphs
             vertices[v++] = vertices[src + 7] - skirtDepth
             vertices[v++] = vertices[src + 8] - skirtDepth
+            // and follows its rim vertex through an edge forced to the
+            // coarser line, or the forcing would open the very crack it closes
+            vertices[v++] = vertices[src + 9]
         }
 
         val indices = ShortArray((grid - 1) * (grid - 1) * 6 + rim * 6)

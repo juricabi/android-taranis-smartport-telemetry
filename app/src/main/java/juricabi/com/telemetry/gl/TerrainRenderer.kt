@@ -28,10 +28,12 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             attribute vec2 aShades;
             attribute float aParentY;
             attribute float aGrandY;
+            attribute float aEdge;
             uniform float uUvScale;
             uniform vec2 uUvOff;
             uniform vec3 uEye;
             uniform vec2 uMorph;
+            uniform float uForce[5];
             varying vec2 vTexture;
             varying float vShade;
             void main() {
@@ -44,9 +46,22 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                 // its own band (twice this tile's distances), so the slide
                 // aims at that moving line — aimed at the parent's raw
                 // data, every swap heaved the far half of the square.
+                //
+                // The stitch: on an edge that faces a coarser DRAWN
+                // neighbour, the slide is forced to completion whatever the
+                // distance — boundaries born of hysteresis, of the behind
+                // economy, or of tiles still building all put a coarser
+                // tile beside a barely-morphed fine one, and the step
+                // between them stood as the wall. An edge lying fully on
+                // the neighbour's own line has nothing to step over.
+                float fa = uForce[int(floor(aEdge / 5.0))];
+                float fb = uForce[int(mod(aEdge, 5.0))];
+                float f = max(fa, fb);
                 float d = distance(aPosition.xyz, uEye);
                 float m = clamp((d - uMorph.x) * uMorph.y, 0.0, 1.0);
+                m = max(m, min(f, 1.0));
                 float m2 = clamp((d - 2.0 * uMorph.x) * uMorph.y * 0.5, 0.0, 1.0);
+                m2 = max(m2, clamp(f - 1.0, 0.0, 1.0));
                 gl_Position = uMvp * vec4(aPosition.x,
                     mix(aPosition.y, mix(aParentY, aGrandY, m2), m),
                     aPosition.z, 1.0);
@@ -165,7 +180,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         /** How many fixes can arrive between two rebuilds of the flight. */
         private const val SPARE_POINTS = 600
 
-        private const val FLOATS_PER_VERTEX = 9
+        private const val FLOATS_PER_VERTEX = 10
 
         /** The model layout: position, corner weights, normal. */
         private const val MODEL_FLOATS = 9
@@ -1471,6 +1486,11 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val uEye = GLES20.glGetUniformLocation(terrainProgram, "uEye")
         val uMorph = GLES20.glGetUniformLocation(terrainProgram, "uMorph")
         val uAlpha = GLES20.glGetUniformLocation(terrainProgram, "uAlpha")
+        val aEdge = GLES20.glGetAttribLocation(terrainProgram, "aEdge")
+        // an array uniform is "uForce[0]" to some drivers and "uForce" to
+        // others; ask both ways, or the stitch silently never engages
+        var uForce = GLES20.glGetUniformLocation(terrainProgram, "uForce")
+        if (uForce < 0) uForce = GLES20.glGetUniformLocation(terrainProgram, "uForce[0]")
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
         // the ground's own colour, for a tile whose imagery has not arrived
         GLES20.glUniform3f(uBase, 0.45f, 0.44f, 0.40f)
@@ -1527,6 +1547,34 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         extractFrustum()
         val stride = FLOATS_PER_VERTEX * 4
 
+        // Which edges of this tile face a coarser tile the standing draw
+        // list actually shows: 0 none, 1 the parent's level, 2 the
+        // grandparent's. One scratch array — this runs per tile per frame,
+        // and a fresh allocation each time is steady work for the collector
+        // on the one thread that cannot pause for it.
+        val force = FloatArray(5)
+        fun fillForce(tile: Tile) {
+            force[1] = 0f; force[2] = 0f; force[3] = 0f; force[4] = 0f
+            val set = drawn ?: return
+            val z = TerrainScene.zoomOf(tile.key)
+            val x = TerrainScene.tileXOf(tile.key)
+            val y = TerrainScene.tileYOf(tile.key)
+            val side = 1 shl z
+            for (e in 0..3) {
+                val nx = x + when (e) { 0 -> -1; 2 -> 1; else -> 0 }
+                val ny = y + when (e) { 1 -> -1; 3 -> 1; else -> 0 }
+                if (nx < 0 || ny < 0 || nx >= side || ny >= side) continue
+                val n = TerrainScene.tileKey(z, nx, ny)
+                if (set.contains(n)) continue
+                val p = TerrainScene.parentOf(n)
+                if (set.contains(p)) {
+                    force[e + 1] = 1f
+                    continue
+                }
+                if (set.contains(TerrainScene.parentOf(p))) force[e + 1] = 2f
+            }
+        }
+
         // One tile, bound and drawn; the caller has chosen its picture and
         // its alpha. Everything per-tile lives here so the dissolve passes
         // below draw exactly what the opaque pass draws — above all the
@@ -1544,6 +1592,10 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glEnableVertexAttribArray(aParentY)
             GLES20.glVertexAttribPointer(aGrandY, 1, GLES20.GL_FLOAT, false, stride, 8 * 4)
             GLES20.glEnableVertexAttribArray(aGrandY)
+            GLES20.glVertexAttribPointer(aEdge, 1, GLES20.GL_FLOAT, false, stride, 9 * 4)
+            GLES20.glEnableVertexAttribArray(aEdge)
+            fillForce(tile)
+            GLES20.glUniform1fv(uForce, 5, force, 0)
 
             // The band where this level lives, from the same error model the
             // pager splits by: a level-z tile stands between D and 2D from
@@ -1578,6 +1630,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glDisableVertexAttribArray(aShades)
             GLES20.glDisableVertexAttribArray(aParentY)
             GLES20.glDisableVertexAttribArray(aGrandY)
+            GLES20.glDisableVertexAttribArray(aEdge)
         }
 
         val fadeIn = ArrayList<Tile>()

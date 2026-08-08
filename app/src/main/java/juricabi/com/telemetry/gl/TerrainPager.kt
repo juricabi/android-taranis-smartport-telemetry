@@ -599,23 +599,37 @@ class TerrainPager(
                     wanted = nearest
                 }
             }
-            // then the cut in need, worst error first — and every missing
-            // ancestor before its child, since the ancestor is what stands in
-            if (wanted == null) for (key in cut) {
-                var candidate = -1L
-                var at = key
-                while (true) {
-                    if (!resident.containsKey(at) &&
-                        now >= (buildRetryAt[at] ?: 0L)) {
-                        candidate = at
+            // then the cut in need, NEAREST first — and every missing
+            // ancestor before its child, since the ancestor is what stands
+            // in. The cut's own order is the tree walk's, which sharpened
+            // whichever corner the traversal happened to reach first while
+            // the ground underfoot waited its turn.
+            if (wanted == null) {
+                val ex = renderer.eyeX
+                val ey = renderer.eyeY
+                val ez = renderer.eyeZ
+                var best = -1L
+                var bestD = Double.MAX_VALUE
+                for (key in cut) {
+                    var candidate = -1L
+                    var at = key
+                    while (true) {
+                        if (!resident.containsKey(at) &&
+                            now >= (buildRetryAt[at] ?: 0L)) {
+                            candidate = at
+                        }
+                        if (TerrainScene.zoomOf(at) <= ROOT_ZOOM) break
+                        at = TerrainScene.parentOf(at)
                     }
-                    if (TerrainScene.zoomOf(at) <= ROOT_ZOOM) break
-                    at = TerrainScene.parentOf(at)
+                    if (candidate != -1L) {
+                        val d = distanceTo(key, ex, ey, ez)
+                        if (d < bestD) {
+                            bestD = d
+                            best = candidate
+                        }
+                    }
                 }
-                if (candidate != -1L) {
-                    wanted = candidate
-                    break
-                }
+                if (best != -1L) wanted = best
             }
             if (wanted == null) {
                 // Nothing missing: mend one tile that was built blind, by
