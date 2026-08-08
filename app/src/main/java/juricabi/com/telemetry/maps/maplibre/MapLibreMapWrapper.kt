@@ -315,11 +315,33 @@ class MapLibreMapWrapper(
         }
     }
 
+    /** When the current unbroken hold began, and when holding may resume. */
+    private var heldSince = 0L
+    private var holdCooldownUntil = 0L
+
     private fun holdRasterMotion(ready: MapLibreMap) {
+        val now = android.os.SystemClock.elapsedRealtime()
         mapView.removeCallbacks(releaseRasterMotion)
-        if (!rasterMotionHeld) {
+        // Held without a break, this flag starves the whole map. MapLibre
+        // treats every tile begun during a gesture as cancellable — real
+        // gestures end within a second, so nothing is lost. A follow that
+        // writes the camera every frame held it for minutes: fresh ground
+        // completed its fetches and had them cancelled in the same
+        // millisecond, forever, while cached ground drew on — the map that
+        // "loads where the drone rides but nowhere else", two days of it.
+        // So the hold breathes: at most a third of a second held, then a
+        // window for the loads to commit; the pixel-snap it exists to
+        // prevent gets those brief windows, which is the lesser wrong.
+        if (rasterMotionHeld && now - heldSince > 300L) {
+            TrackingTransform.setInProgress(ready, false)
+            rasterMotionHeld = false
+            holdCooldownUntil = now + 100L
+            return
+        }
+        if (!rasterMotionHeld && now >= holdCooldownUntil) {
             TrackingTransform.setInProgress(ready, true)
             rasterMotionHeld = true
+            heldSince = now
         }
         // Longer than an isolated slow frame, short enough to become crisp
         // immediately when a model stops.
@@ -458,6 +480,7 @@ class MapLibreMapWrapper(
         wroteLat = position.lat
         wroteLon = position.lon
         wroteBearing = orientationDegrees
+        cameraWrites++
 
         glideTo = null
         glideBearing = Double.NaN
@@ -770,9 +793,24 @@ class MapLibreMapWrapper(
     private var stalledProbes = 0
     private var watching = false
     private val watchdogHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    /** Camera writes since the last heartbeat, for the storm to name itself. */
+    private var cameraWrites = 0
+
     private val watchdog = object : Runnable {
         override fun run() {
             if (!watching) return
+            // The heartbeat: everything that can quietly starve the map, on
+            // one line every five seconds, so the next silent failure is a
+            // read of the log and not a night of theories. Frames since the
+            // last beat, whether MapLibre believes the network is up, and
+            // how hard the camera is being written.
+            val beatFrames = framesSinceBeat
+            framesSinceBeat = 0
+            val beatWrites = cameraWrites
+            cameraWrites = 0
+            juricabi.com.telemetry.utils.DebugLog.note("Map2D",
+                "beat: frames=$beatFrames writes=$beatWrites " +
+                    "online=${org.maplibre.android.MapLibre.isConnected()}")
             val map = this@MapLibreMapWrapper.map
             if (map != null) {
                 val before = lastFrameAt
@@ -805,11 +843,19 @@ class MapLibreMapWrapper(
         }
     }
 
+    /** Frames since the last heartbeat; written on the GL callback thread. */
+    @Volatile private var framesSinceBeat = 0
+
     init {
         mapView.addOnDidFinishRenderingFrameListener(
             MapView.OnDidFinishRenderingFrameListener { _, _, _ ->
                 lastFrameAt = android.os.SystemClock.elapsedRealtime()
+                framesSinceBeat++
             })
+        // armed from birth: a map is built after its screen's resume, so
+        // waiting for the next resume left the first session unwatched
+        watching = true
+        watchdogHandler.postDelayed(watchdog, 5_000)
     }
 
     override fun onCreate(bundle: Bundle?) = mapView.onCreate(bundle)
