@@ -77,6 +77,10 @@ android {
         debug {
             applicationIdSuffix ".debug"
             signingConfig signingConfigs.main
+            // Its own name on the launcher. The two builds install side by
+            // side and looked identical there, and a walls fix was once
+            // tested against the build that did not contain it.
+            resValue "string", "app_name", "Telemetry DEBUG"
         }
     }
 

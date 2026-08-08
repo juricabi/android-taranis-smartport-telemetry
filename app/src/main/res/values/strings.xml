@@ -1,4 +1,6 @@
 <resources>
+    <!-- The release name; the debug build overrides this from build.gradle
+         so the two side-by-side installs can be told apart on the launcher. -->
     <string name="app_name">Telemetry viewer</string>
     <string name="title_activity_maps">Map</string>
     <string name="connecting">Connecting…</string>
