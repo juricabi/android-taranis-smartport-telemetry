@@ -85,8 +85,14 @@ class TerrainPager(
          * the device carried well over this without complaint while the
          * budget was broken.
          */
-        private const val TEXTURE_BUDGET_BYTES = 280L * 1024 * 1024
-        private const val RESIDENT_MOST = 400
+        // Sized when the horizon could still order 2048-pixel mosaics: a
+        // wide session's cut alone wore 300-370MB, so the 280MB ceiling put
+        // the evictor over budget on every pass — a thousand LRU evictions
+        // in two minutes, each one a tile rebuilt seconds later. With the
+        // far rings capped a step above base, the near ground gets the
+        // headroom instead of the churn.
+        private const val TEXTURE_BUDGET_BYTES = 420L * 1024 * 1024
+        private const val RESIDENT_MOST = 480
 
         /** A mosaic that failed is asked again this much later, not sooner. */
         private const val TEXTURE_RETRY_MS = 15_000L
