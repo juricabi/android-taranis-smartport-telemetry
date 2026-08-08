@@ -793,28 +793,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // and the cache serves, which is the behaviour wanted anyway.
         org.maplibre.android.MapLibre.setConnected(true)
         juricabi.com.telemetry.utils.DebugLog.note("Map2D", "connectivity pinned online")
-        // The tile database remembers failures as well as tiles, with expiry
-        // times — and a night of broken runs filled it with poison: the map
-        // asked it for fresh ground, was told "known failure", and created
-        // no request at all, online or not. Cleared once per process start
-        // while this is being hunted; the log says what clearing found.
-        try {
-            org.maplibre.android.offline.OfflineManager.getInstance(this)
-                .clearAmbientCache(object :
-                    org.maplibre.android.offline.OfflineManager.FileSourceCallback {
-                    override fun onSuccess() {
-                        juricabi.com.telemetry.utils.DebugLog.note("Map2D",
-                            "ambient cache cleared")
-                    }
-                    override fun onError(message: String) {
-                        juricabi.com.telemetry.utils.DebugLog.note("Map2D",
-                            "ambient cache clear failed: $message")
-                    }
-                })
-        } catch (e: Throwable) {
-            juricabi.com.telemetry.utils.DebugLog.note("Map2D",
-                "ambient cache clear unavailable: ${e.message}")
-        }
         val mapView = org.maplibre.android.maps.MapView(this)
         // A MapLibre view renders nothing until it has been through these, and
         // a map built here has already missed the screen's own — the type can
