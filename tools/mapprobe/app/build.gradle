@@ -1,0 +1,26 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace 'juricabi.com.mapprobe'
+    compileSdk 35
+    defaultConfig {
+        applicationId "juricabi.com.mapprobe"
+        minSdk 23
+        targetSdk 28
+        versionCode 1
+        versionName "1.0"
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+    // exactly the version the telemetry app pins, or the probe answers a
+    // different question
+    implementation 'org.maplibre.gl:android-sdk-opengl:13.4.1'
+}

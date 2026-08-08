@@ -1,0 +1,19 @@
+// The probe is its own project on purpose: the question it answers is
+// phone-versus-process, so nothing of the app may be in it. Build with
+// the repo's wrapper: ./gradlew -p tools/mapprobe :app:assembleDebug
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.10.1'
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}

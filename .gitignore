@@ -22,3 +22,7 @@ usbCamera/build
 app/debug.keystore
 debug.keystore
 release.keystore
+
+# the 2D raster probe builds in place
+tools/mapprobe/build
+tools/mapprobe/app/build
