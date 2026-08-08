@@ -133,6 +133,10 @@ dependencies {
     // Drawn by the GPU, so a flight line costs the same however many points
     // are in it. It replaced osmdroid, which was archived in November 2024.
     implementation 'org.maplibre.gl:android-sdk-opengl:13.4.1'
+    // Already in the APK through MapLibre; declared to be visible at compile
+    // time, pinned to the exact version MapLibre resolves, so the map's HTTP
+    // client can be replaced with one that has timeouts.
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     implementation 'com.google.protobuf:protobuf-javalite:3.21.12'
     testImplementation 'junit:junit:4.13.2'
 	implementation 'com.google.android:flexbox:2.0.1'
