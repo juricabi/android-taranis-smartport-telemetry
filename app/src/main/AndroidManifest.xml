@@ -41,8 +41,13 @@
             android:theme="@style/AppTheme">
 
 
+        <!-- singleTask, not singleInstance: there is still ever one map, and
+             a USB plug-in still lands on it, but Settings may share its task.
+             Alone in its own task, Settings was where the launcher icon led
+             after Home, and back from there went home - the map was
+             unreachable. -->
         <activity
-                android:launchMode="singleInstance"
+                android:launchMode="singleTask"
                 android:name=".ui.MapsActivity"
                 android:theme="@style/AppTheme"
                 android:label="@string/app_name">
