@@ -86,8 +86,28 @@ object Imagery {
     /** [download]'s way of saying the server answered no, against not answering. */
     private val ABSENT = ByteArray(0)
 
-    private val pool by lazy {
-        Executors.newFixedThreadPool(POOL_THREADS, ThreadFactory { runnable ->
+    /**
+     * Ranked, not FIFO. Four mosaics dress at once and a plain queue
+     * interleaves their squares, so all four crossed the line together —
+     * the ground cleared up in sweeps of four, and at a virgin region the
+     * first sweep was most of the view arriving at once. Every square
+     * carries its mosaic's birth order instead: the oldest mosaic owns the
+     * whole pool, finishes in a quarter of the lockstep time, and tiles
+     * land one by one.
+     */
+    private val mosaicSeq = java.util.concurrent.atomic.AtomicLong()
+
+    private class Ranked(val rank: Long, val body: Runnable) : Runnable {
+        override fun run() = body.run()
+    }
+
+    private class RankedFuture<T>(val rank: Long, c: java.util.concurrent.Callable<T>) :
+        java.util.concurrent.FutureTask<T>(c), Comparable<RankedFuture<*>> {
+        override fun compareTo(other: RankedFuture<*>) = rank.compareTo(other.rank)
+    }
+
+    private val pool: java.util.concurrent.ExecutorService by lazy {
+        val factory = ThreadFactory { runnable ->
             val thread = Thread({
                 // Sixteen decoding threads at normal priority outmuscled the
                 // renderer and the replay for cores while an area loaded; the
@@ -98,7 +118,18 @@ object Imagery {
             }, "imagery")
             thread.isDaemon = true
             thread
-        })
+        }
+        object : java.util.concurrent.ThreadPoolExecutor(
+            POOL_THREADS, POOL_THREADS, 0L, TimeUnit.MILLISECONDS,
+            java.util.concurrent.PriorityBlockingQueue(), factory) {
+            override fun <T> newTaskFor(c: java.util.concurrent.Callable<T>):
+                java.util.concurrent.RunnableFuture<T> =
+                RankedFuture(mosaicSeq.getAndIncrement(), c)
+            override fun <T> newTaskFor(r: Runnable, v: T):
+                java.util.concurrent.RunnableFuture<T> =
+                RankedFuture((r as? Ranked)?.rank ?: mosaicSeq.getAndIncrement(),
+                    java.util.concurrent.Callable { r.run(); v })
+        }
     }
 
     @Volatile
@@ -210,13 +241,16 @@ object Imagery {
             canvas.drawColor(MISSING_COLOR)
             val drawn = AtomicInteger(0)
             val jobs = ArrayList<Future<*>>(side * side)
+            // one rank for the whole mosaic, so its squares stay together
+            // in the pool ahead of every mosaic born after it
+            val rank = mosaicSeq.getAndIncrement()
             for (i in 0 until side) {
                 for (j in 0 until side) {
                     val childX = x * side + i
                     val childY = y * side + j
                     val left = i * TILE_SIZE
                     val top = j * TILE_SIZE
-                    jobs.add(pool.submit(Runnable {
+                    jobs.add(pool.submit(Ranked(rank, Runnable {
                         try {
                             if (!alive()) return@Runnable
                             val child = fetch(childZoom, childX, childY) ?: return@Runnable
@@ -246,7 +280,7 @@ object Imagery {
                             // nothing may escape a pool thread, and a mosaic abandoned
                             // below may already have been recycled under this draw
                         }
-                    }))
+                    })))
                 }
             }
             val deadline = System.currentTimeMillis() + MOSAIC_TIMEOUT_MS

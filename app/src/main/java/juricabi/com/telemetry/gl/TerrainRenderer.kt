@@ -342,6 +342,9 @@ class TerrainRenderer : GLSurfaceView.Renderer {
 
     private var terrainProgram = 0
     private var modelProgram = 0
+
+    /** One haze-grey texel for ground whose ancestry has no picture yet. */
+    private var bareTex = 0
     private var lineProgram = 0
 
     private val projection = FloatArray(16)
@@ -994,6 +997,25 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         GLES20.glClearColor(0.09f, 0.11f, 0.14f, 1f)
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
         terrainProgram = program(TERRAIN_VERTEX, TERRAIN_FRAGMENT)
+        // At a virgin region there is no ancestor picture to borrow, and a
+        // tile drawn with texture 0 samples an incomplete texture: black
+        // ground over a black void, seconds of a world that was standing
+        // there invisibly. Bare ground wears the mosaics' own haze grey
+        // instead, and the vertex shade carves the relief into it — the
+        // mountains' shape shows the moment the first mesh stands.
+        val ids = IntArray(1)
+        GLES20.glGenTextures(1, ids, 0)
+        bareTex = ids[0]
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, bareTex)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,
+            GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,
+            GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_NEAREST)
+        val haze = ByteBuffer.allocateDirect(3).put(
+            byteArrayOf(128.toByte(), 128.toByte(), 128.toByte()))
+        haze.position(0)
+        GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGB, 1, 1, 0,
+            GLES20.GL_RGB, GLES20.GL_UNSIGNED_BYTE, haze)
         // even lines where the driver can measure a pixel, plain ones where
         // it cannot; the extension is old and common, but not promised
         modelProgram = program(MODEL_VERTEX, MODEL_FRAGMENT_EVEN)
@@ -1678,6 +1700,11 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                     scale *= 0.5f
                     at = TerrainScene.parentOf(at)
                     texId = snapshot[at]?.textureId ?: 0
+                }
+                // no picture anywhere in the ancestry: bare shaded ground
+                if (texId == 0) {
+                    texId = bareTex
+                    scale = 1f; offU = 0f; offV = 0f
                 }
             }
             drawOne(tile, texId, scale, offU, offV)
