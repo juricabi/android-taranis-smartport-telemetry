@@ -6,11 +6,12 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
 import juricabi.com.telemetry.maps.Position
-import org.maplibre.android.location.ModelIndicator
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.Point
@@ -35,17 +36,19 @@ class MapLibreSpot(
 ) {
 
     private val arrowLyrId = "spot-arrow-lyr-$id"
+    private val arrowSrcId = "spot-arrow-src-$id"
     private val ringSrcId = "spot-ring-src-$id"
     private val ringLyrId = "spot-ring-lyr-$id"
     private val ringEdgeLyrId = "spot-ring-edge-lyr-$id"
     private var imageVersion = 0
     private fun arrowImageId() = "spot-arrow-img-$id-$imageVersion"
     private fun dotImageId() = "spot-dot-img-$id-$imageVersion"
-    private val arrow = ModelIndicator(arrowLyrId)
 
     val arrowLayer: String get() = arrowLyrId
 
     private var ringSrc: GeoJsonSource? = null
+    private var arrowSrc: GeoJsonSource? = null
+    private var arrowLyr: SymbolLayer? = null
 
     private var where: Position? = null
     private var accuracy = 0f
@@ -88,16 +91,29 @@ class MapLibreSpot(
             )
             ringSrc = ring
 
-            // Like the aircraft, the arrow is a renderer property rather than
-            // a GeoJSON point. A compass update used to rebuild and tile this
-            // source on every display tick; the two arrows alone accounted for
-            // almost nine thousand tile parses in the 43-second stress replay.
-            arrow.set(
-                ModelIndicator.image(dotImageId()),
-                ModelIndicator.imageScale(1f),
-                ModelIndicator.visible(false)
+            // An ordinary symbol, deliberately. This arrow spent a while as
+            // MapLibre's own LocationIndicatorLayer — renderer properties,
+            // no source to retile — and two of those standing in the style
+            // stopped every raster tile on this phone from being DRAWN:
+            // fetches completed, the ground stayed grey anywhere the camera
+            // was not writing, and a week of blaming the network followed.
+            // A symbol has no such opinions. The old cost that pushed the
+            // arrow off GeoJSON is still respected below: only a moved FIX
+            // touches the source; a compass tick turns the layer property
+            // and retiles nothing.
+            val arrowSource = GeoJsonSource(arrowSrcId)
+            s.addSource(arrowSource)
+            val arrow = SymbolLayer(arrowLyrId, arrowSrcId).withProperties(
+                PropertyFactory.iconImage(dotImageId()),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.iconRotationAlignment(
+                    Property.ICON_ROTATION_ALIGNMENT_MAP),
+                PropertyFactory.visibility(Property.NONE)
             )
-            s.addLayer(arrow.asLayer)
+            s.addLayer(arrow)
+            arrowSrc = arrowSource
+            arrowLyr = arrow
             push()
         }
     }
@@ -113,8 +129,8 @@ class MapLibreSpot(
             imageVersion++
             s.addImage(arrowImageId(), arrowBitmap(value))
             s.addImage(dotImageId(), dotBitmap(value))
-            arrow.set(
-                ModelIndicator.image(
+            arrowLyr?.setProperties(
+                PropertyFactory.iconImage(
                     if (bearing.isNaN()) dotImageId() else arrowImageId()
                 )
             )
@@ -157,12 +173,15 @@ class MapLibreSpot(
             s.removeLayer(arrowLyrId)
             s.removeLayer(ringEdgeLyrId)
             s.removeLayer(ringLyrId)
+            s.removeSource(arrowSrcId)
             s.removeSource(ringSrcId)
             s.removeImage(arrowImageId())
             s.removeImage(dotImageId())
         }
         spotDisplayed = false
         ringSrc = null
+        arrowSrc = null
+        arrowLyr = null
     }
 
     /** Keep the arrow above native moving lines while its ring stays below. */
@@ -181,13 +200,15 @@ class MapLibreSpot(
         positionChanged: Boolean = true,
         bearingChanged: Boolean = true
     ) = whenReady {
+        val lyr = arrowLyr ?: return@whenReady
+        val src = arrowSrc ?: return@whenReady
         val at = where
         val shouldDisplay = at != null && shown
         if (!shouldDisplay) {
             // Visibility is a layout property. Cross that boundary only once;
             // reapplying it at compass rate makes the layer shimmer.
             if (spotDisplayed) {
-                arrow.set(ModelIndicator.visible(false))
+                lyr.setProperties(PropertyFactory.visibility(Property.NONE))
                 spotDisplayed = false
             }
             return@whenReady
@@ -195,38 +216,28 @@ class MapLibreSpot(
 
         val revealing = !spotDisplayed
         val pointing = !bearing.isNaN()
-        val image = if (pointing) arrowImageId() else dotImageId()
-        // A compass event changes only the bearing. Do not resend the same
-        // location and visibility with every sensor sample.
-        when {
-            revealing && pointing -> arrow.set(
-                ModelIndicator.image(image),
-                ModelIndicator.place(at!!.lat, at.lon),
-                ModelIndicator.turn(bearing.toDouble()),
-                ModelIndicator.visible(true)
-            )
-            revealing -> arrow.set(
-                ModelIndicator.image(image),
-                ModelIndicator.place(at!!.lat, at.lon),
-                ModelIndicator.visible(true)
-            )
-            positionChanged && bearingChanged && pointing -> arrow.set(
-                ModelIndicator.image(image),
-                ModelIndicator.place(at!!.lat, at.lon),
-                ModelIndicator.turn(bearing.toDouble())
-            )
-            positionChanged && bearingChanged -> arrow.set(
-                ModelIndicator.image(image),
-                ModelIndicator.place(at!!.lat, at.lon)
-            )
-            positionChanged -> arrow.set(ModelIndicator.place(at!!.lat, at.lon))
-            bearingChanged && pointing -> arrow.set(
-                ModelIndicator.image(image),
-                ModelIndicator.turn(bearing.toDouble())
-            )
-            bearingChanged -> arrow.set(ModelIndicator.image(image))
+        // Only a moved fix touches the source; a compass event turns the
+        // layer property and never resends the place with the sample.
+        if (revealing || positionChanged) {
+            src.setGeoJson(Feature.fromGeometry(Point.fromLngLat(at!!.lon, at.lat)))
         }
-        if (revealing) spotDisplayed = true
+        if (revealing || bearingChanged) {
+            if (pointing) {
+                lyr.setProperties(
+                    PropertyFactory.iconImage(arrowImageId()),
+                    PropertyFactory.iconRotate(bearing)
+                )
+            } else {
+                lyr.setProperties(
+                    PropertyFactory.iconImage(dotImageId()),
+                    PropertyFactory.iconRotate(0f)
+                )
+            }
+        }
+        if (revealing) {
+            lyr.setProperties(PropertyFactory.visibility(Property.VISIBLE))
+            spotDisplayed = true
+        }
     }
 
     private fun pushRing() = whenReady {
