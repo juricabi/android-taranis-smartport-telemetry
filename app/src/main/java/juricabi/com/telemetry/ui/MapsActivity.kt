@@ -793,7 +793,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // and the cache serves, which is the behaviour wanted anyway.
         org.maplibre.android.MapLibre.setConnected(true)
         juricabi.com.telemetry.utils.DebugLog.note("Map2D", "connectivity pinned online")
-        raiseTileStoreCeiling()
+        guardTileStore()
         val mapView = org.maplibre.android.maps.MapView(this)
         // A MapLibre view renders nothing until it has been through these, and
         // a map built here has already missed the screen's own — the type can
@@ -818,30 +818,27 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     /**
-     * MapLibre's own tile store defaults to fifty megabytes, and was found
-     * pegged at exactly that after a night of flying — from then on every
-     * move onto fresh ground was cache misses under constant eviction:
-     * whole zoom pyramids re-requested, their answers landing after the
-     * view had moved on, cancelled, and the ground grey. Half a gigabyte
-     * instead. And a store so broken it cannot even take the setting is
-     * cleared and asked once more — the recovery for the corruption the
-     * long hunt kept circling, never on a store that still answers,
-     * because clearing a healthy cache on every start cost exactly the
-     * ground it was meant to protect.
+     * MapLibre's tile store keeps its stock fifty megabytes — the app's own
+     * caches are the ones meant to grow — but it no longer gets to be
+     * silently broken. Asking it to hold its own ceiling is a health probe:
+     * a store that cannot even take a setting is corrupt, and only then is
+     * it cleared and asked once more. Never on a store that still answers —
+     * clearing a healthy cache on every start was tried during the long
+     * hunt and cost exactly the ground it was meant to protect.
      */
-    private fun raiseTileStoreCeiling() {
+    private fun guardTileStore() {
         val manager = org.maplibre.android.offline.OfflineManager.getInstance(this)
-        val ceiling = 512L * 1024 * 1024
+        val ceiling = 50L * 1024 * 1024
         manager.setMaximumAmbientCacheSize(ceiling,
             object : org.maplibre.android.offline.OfflineManager.FileSourceCallback {
                 override fun onSuccess() {
                     juricabi.com.telemetry.utils.DebugLog.note(
-                        "Map2D", "ambient cache ceiling 512MB")
+                        "Map2D", "ambient cache healthy, 50MB")
                 }
 
                 override fun onError(message: String) {
                     juricabi.com.telemetry.utils.DebugLog.note(
-                        "Map2D", "ambient cache resize failed: $message — clearing")
+                        "Map2D", "ambient cache refused a setting: $message — clearing")
                     manager.clearAmbientCache(object :
                         org.maplibre.android.offline.OfflineManager.FileSourceCallback {
                         override fun onSuccess() {
