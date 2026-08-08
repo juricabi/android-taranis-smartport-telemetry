@@ -112,7 +112,9 @@ class TerrainPager(
         /** How sharp the picture it wears is, so approaching can sharpen it. */
         @Volatile var extraDressed: Int = -1,
         /** False when the rim was built blind; rebuilt once data exists. */
-        @Volatile var rimComplete: Boolean = true
+        @Volatile var rimComplete: Boolean = true,
+        /** What it wore before a mend rebuilt it, so re-dressing starts there. */
+        val wornBefore: Int = 0
     )
 
     private val lock = Object()
@@ -156,6 +158,9 @@ class TerrainPager(
 
     /** A build that failed steps aside briefly, or it would block the queue. */
     private val buildRetryAt = HashMap<Long, Long>()
+
+    /** The sharpness a tile sent back for a mend wore, until it rebuilds. */
+    private val mendWorn = HashMap<Long, Int>()
 
     private var statsAt = 0L
     private var builds = 0
@@ -357,7 +362,9 @@ class TerrainPager(
             evictLocked(cutSet)
             renderer.keepOnly(HashSet(resident.keys))
         }
-        renderer.setDrawSet(newCover)
+        // the k this cut was selected under rides with it, so the morph
+        // bands belong to the cut they guard, not to this frame's surface
+        renderer.setDrawSet(newCover, k)
         wantTextures(cutSet, eyeX, eyeY, eyeZ, k)
 
         // The heights for the next handful of builds, fired into the pool —
@@ -428,29 +435,35 @@ class TerrainPager(
         }
     }
 
-    /** Whether the tile's middle lies behind the camera's shoulder. */
+    /**
+     * Whether the tile lies wholly behind the camera's shoulder.
+     *
+     * Every corner, not the middle: a large tile's near corner can be on
+     * screen while its centre is a quarter turn behind, and holding such a
+     * tile coarse put a visible detail step at the screen's edge — the
+     * morph cannot cover a boundary that direction, not distance, decides.
+     * A tile underfoot always has a corner ahead, so the old underfoot
+     * exemption is subsumed — one rule for one thing.
+     */
     private fun behind(key: Long, ex: Float, ey: Float, ez: Float): Boolean {
         val z = TerrainScene.zoomOf(key)
         val x = TerrainScene.tileXOf(key)
         val y = TerrainScene.tileYOf(key)
-        val cx = (scene.east(TerrainScene.tileLon(x, z)) +
-            scene.east(TerrainScene.tileLon(x + 1, z))) / 2f
-        val cz = -(scene.north(TerrainScene.tileLat(y, z)) +
-            scene.north(TerrainScene.tileLat(y + 1, z))) / 2f
-        // never the ground underfoot: looking forward from over a tile puts
-        // its middle behind the shoulder, and underfoot is where detail
-        // matters most
-        val span = spanOf(key).toFloat()
-        if (Math.abs(cx - ex) < span && Math.abs(cz - ez) < span) return false
-        // Well behind, not a degree past sideways: the chase camera yaws
-        // constantly, and a boundary that swept across the visible edge of
-        // the screen flicked tiles between detail levels in plain sight.
-        // A quarter back puts the change far off screen.
-        val dx = cx - ex
-        val dz = cz - ez
-        val len = Math.sqrt((dx * dx + dz * dz).toDouble()).toFloat()
-        if (len < 1f) return false
-        return (dx * renderer.viewDirX + dz * renderer.viewDirZ) / len < -0.25f
+        val west = scene.east(TerrainScene.tileLon(x, z))
+        val east = scene.east(TerrainScene.tileLon(x + 1, z))
+        val north = -scene.north(TerrainScene.tileLat(y, z))
+        val south = -scene.north(TerrainScene.tileLat(y + 1, z))
+        val vx = renderer.viewDirX
+        val vz = renderer.viewDirZ
+        for (corner in 0..3) {
+            val dx = (if (corner and 1 == 0) west else east) - ex
+            val dz = (if (corner and 2 == 0) north else south) - ez
+            val len = Math.sqrt((dx * dx + dz * dz).toDouble()).toFloat()
+            // a corner at the eye is never behind
+            if (len < 1f) return false
+            if ((dx * vx + dz * vz) / len >= -0.25f) return false
+        }
+        return true
     }
 
     /** The tile's error in screen pixels, from the eye to its box. */
@@ -506,7 +519,35 @@ class TerrainPager(
     private fun cover(key: Long, cutSet: Set<Long>, out: HashSet<Long>): Boolean {
         val z = TerrainScene.zoomOf(key)
         if (cutSet.contains(key) || z >= LEAF_ZOOM) {
-            if (!resident.containsKey(key)) return false
+            val p = resident[key] ?: return false
+            // A merge must never soften what is on screen. A parent that
+            // has not dressed yet borrowed wallpaper from far up while its
+            // children's sharp pictures still sat on the card — so the
+            // children keep standing for it until its own picture lands,
+            // and the flip then arrives under the dissolve. An undressed
+            // child borrows the same ancestor the parent would, so the
+            // quartet is never softer than the parent it stands for.
+            if (!p.dressed && z < LEAF_ZOOM) {
+                val x = TerrainScene.tileXOf(key)
+                val y = TerrainScene.tileYOf(key)
+                var quartet = true
+                for (cy in 0..1) {
+                    for (cx in 0..1) {
+                        if (!resident.containsKey(
+                                TerrainScene.tileKey(z + 1, x * 2 + cx, y * 2 + cy))) {
+                            quartet = false
+                        }
+                    }
+                }
+                if (quartet) {
+                    for (cy in 0..1) {
+                        for (cx in 0..1) {
+                            out.add(TerrainScene.tileKey(z + 1, x * 2 + cx, y * 2 + cy))
+                        }
+                    }
+                    return true
+                }
+            }
             out.add(key)
             return true
         }
@@ -590,6 +631,9 @@ class TerrainPager(
                         DebugLog.note(TAG, "mend ${TerrainScene.zoomOf(key)}/" +
                             "${TerrainScene.tileXOf(key)}/${TerrainScene.tileYOf(key)}" +
                             (if (p.dressed) " was dressed" else ""))
+                        if (p.dressed && p.extraDressed > 0) {
+                            mendWorn[key] = p.extraDressed
+                        }
                         resident.remove(key)
                         heightRange.remove(key)
                         return true
@@ -624,7 +668,8 @@ class TerrainPager(
         synchronized(lock) {
             if (abandoned) return false
             resident[key] = Paged(mesh, dressed = false, textureBytes = 0,
-                rimComplete = mesh.rimComplete)
+                rimComplete = mesh.rimComplete,
+                wornBefore = mendWorn.remove(key) ?: 0)
             heightRange[key] = floatArrayOf(mesh.minY, mesh.maxY)
             // built blind: come back for it when its neighbours have landed
             if (!mesh.rimComplete) {
@@ -681,8 +726,13 @@ class TerrainPager(
                 ).toInt().coerceIn(0, Math.min(3, 19 - z))
                 // First dress in a handful of fetches, full sharpness a
                 // breath later through the upgrade path: a cold view reads
-                // as ready seconds sooner, and ends just as sharp.
-                if (!p.dressed && extra > 1) extra = 1
+                // as ready seconds sooner, and ends just as sharp. A tile
+                // back from a mend is no first dress: the renderer kept its
+                // picture on and every read up to what it wore is cached —
+                // dropped to one fetch, sharp ground faded soft and climbed
+                // the whole ladder back on every rim repair.
+                val firstAsk = Math.max(1, p.wornBefore)
+                if (!p.dressed && extra > firstAsk) extra = firstAsk
                 // Sharpening climbs one level per picture rather than leaping
                 // to the top: each step is a quarter of the next one's
                 // fetches, so the view visibly improves on the way instead of

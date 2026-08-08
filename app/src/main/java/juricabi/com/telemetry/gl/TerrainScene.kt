@@ -631,31 +631,72 @@ class TerrainScene {
         // the flag sends it back to be built right once the data lands.
         fillGaps(heights)
 
+        // The shade taps below read one pitch past the WEST and NORTH edges
+        // too, and those land in tiles the rim ensures above never touched —
+        // so the brightness crease stayed on exactly those two borders.
+        // Tried, not required: a miss just degrades that tap to its
+        // one-sided fallback, the same as before.
+        run {
+            val bx = tx shr (z - ez)
+            val by = ty shr (z - ez)
+            Elevation.warm(listOf(
+                intArrayOf(ez, bx - 1, by), intArrayOf(ez, bx - 1, by + 1),
+                intArrayOf(ez, bx, by - 1), intArrayOf(ez, bx + 1, by - 1)))
+            if (abandoned) return null
+            Elevation.ensure(ez, bx - 1, by)
+            Elevation.ensure(ez, bx - 1, by + 1)
+            Elevation.ensure(ez, bx, by - 1)
+            Elevation.ensure(ez, bx + 1, by - 1)
+            if (abandoned) return null
+        }
+
         // the rim again as a skirt ring, so the box and the buffers hold both
         val rim = 4 * (grid - 1)
         val vertexCount = grid * grid + rim
         // Short indices: a finer grid must fail here, not as garbage triangles.
         check(vertexCount <= 32767) { "grid $grid does not fit short indices" }
 
-        // The parent's own line under this tile, one lattice of it, so every
-        // vertex can carry where it would stand at the level above. The
-        // renderer slides vertices onto that line as their distance nears
-        // the point where the pager would draw the parent instead — so by
-        // the time a coarser neighbour can stand beside this tile, the
-        // shared edge already IS the coarser line, and nothing cracks. The
-        // lattice is sampled at the parent's own node positions, which two
-        // tiles sharing an edge agree about whether they are siblings or
-        // cousins — the nodes are absolute, not relative.
+        // The parent's own line under this tile — and the grandparent's
+        // beneath that — one lattice of each, so every vertex carries where
+        // it would stand one and two levels up. The renderer slides
+        // vertices onto the parent line as their distance nears the band
+        // where the pager would draw the parent instead; and because the
+        // parent as DRAWN is itself part-way to the grandparent inside its
+        // own band, the slide targets that moving line, not the parent's
+        // raw data — a one-level chain heaved the far half of every square
+        // by several pixels at each swap. Node positions are absolute, so
+        // cousins agree about shared edges. The lattice tiles are ensured
+        // like the rim's, or a cold miss silently baked a vertex that
+        // never morphs for the tile's whole residency.
+        val ezSelf = ez
         val half = if (z <= 8) 0 else (gridFor(z - 1) - 1) / 2
         val parentNodes = if (half == 0) null else FloatArray((half + 1) * (half + 1))
+        var ezP = 0
+        var parentSpacing = 0f
+        var pPitchLat = 0.0
+        var pPitchLon = 0.0
         if (parentNodes != null) {
             val pz = z - 1
-            val ezP = Math.min(pz, 15)
+            ezP = Math.min(pz, 15)
+            val ptx = tx shr (z - ezP)
+            val pty = ty shr (z - ezP)
             Elevation.warm(listOf(
-                intArrayOf(ezP, tx shr (z - ezP), ty shr (z - ezP)),
-                intArrayOf(ezP, (tx shr (z - ezP)) + 1, ty shr (z - ezP)),
-                intArrayOf(ezP, tx shr (z - ezP), (ty shr (z - ezP)) + 1),
-                intArrayOf(ezP, (tx shr (z - ezP)) + 1, (ty shr (z - ezP)) + 1)))
+                intArrayOf(ezP, ptx, pty), intArrayOf(ezP, ptx + 1, pty),
+                intArrayOf(ezP, ptx, pty + 1), intArrayOf(ezP, ptx + 1, pty + 1),
+                // the parent-shade taps step one parent pitch west and north
+                // of a west or north child's edge — same crease, one level up
+                intArrayOf(ezP, ptx - 1, pty), intArrayOf(ezP, ptx - 1, pty + 1),
+                intArrayOf(ezP, ptx, pty - 1), intArrayOf(ezP, ptx + 1, pty - 1)))
+            if (abandoned) return null
+            Elevation.ensure(ezP, ptx, pty)
+            Elevation.ensure(ezP, ptx + 1, pty)
+            Elevation.ensure(ezP, ptx, pty + 1)
+            Elevation.ensure(ezP, ptx + 1, pty + 1)
+            Elevation.ensure(ezP, ptx - 1, pty)
+            Elevation.ensure(ezP, ptx - 1, pty + 1)
+            Elevation.ensure(ezP, ptx, pty - 1)
+            Elevation.ensure(ezP, ptx + 1, pty - 1)
+            if (abandoned) return null
             val gp = gridFor(pz)
             val pNorth = tileLat(ty shr 1, pz)
             val pSouth = tileLat((ty shr 1) + 1, pz)
@@ -663,6 +704,9 @@ class TerrainScene {
             val pEast = tileLon((tx shr 1) + 1, pz)
             val hx = (tx and 1) * half
             val hy = (ty and 1) * half
+            pPitchLat = (pSouth - pNorth) / (gp - 1)
+            pPitchLon = (pEast - pWest) / (gp - 1)
+            parentSpacing = Math.abs(east(westLon + pPitchLon) - east(westLon))
             for (j in 0..half) {
                 val nodeLat = pNorth + (pSouth - pNorth) * (hy + j) / (gp - 1)
                 for (i in 0..half) {
@@ -673,10 +717,54 @@ class TerrainScene {
                 }
             }
         }
+        val quarter = if (z - 2 < 8) 0 else (gridFor(z - 2) - 1) / 4
+        val grandNodes = if (quarter == 0) null else FloatArray((quarter + 1) * (quarter + 1))
+        if (grandNodes != null) {
+            val gz = z - 2
+            val ezG = Math.min(gz, 15)
+            val gtx = tx shr (z - ezG)
+            val gty = ty shr (z - ezG)
+            Elevation.warm(listOf(
+                intArrayOf(ezG, gtx, gty), intArrayOf(ezG, gtx + 1, gty),
+                intArrayOf(ezG, gtx, gty + 1), intArrayOf(ezG, gtx + 1, gty + 1)))
+            if (abandoned) return null
+            Elevation.ensure(ezG, gtx, gty)
+            Elevation.ensure(ezG, gtx + 1, gty)
+            Elevation.ensure(ezG, gtx, gty + 1)
+            Elevation.ensure(ezG, gtx + 1, gty + 1)
+            if (abandoned) return null
+            val gq = gridFor(gz)
+            val gNorth = tileLat(ty shr 2, gz)
+            val gSouth = tileLat((ty shr 2) + 1, gz)
+            val gWest = tileLon(tx shr 2, gz)
+            val gEast = tileLon((tx shr 2) + 1, gz)
+            val ghx = (tx and 3) * quarter
+            val ghy = (ty and 3) * quarter
+            for (j in 0..quarter) {
+                val nodeLat = gNorth + (gSouth - gNorth) * (ghy + j) / (gq - 1)
+                for (i in 0..quarter) {
+                    val nodeLon = gWest + (gEast - gWest) * (ghx + i) / (gq - 1)
+                    val gh = Elevation.elevationAt(nodeLat, nodeLon, ezG)
+                    grandNodes[j * (quarter + 1) + i] =
+                        if (gh != null) gh - originAltitude else Float.NaN
+                }
+            }
+        }
 
+        // Shade is baked. The light has always been a compile-time constant
+        // and the shade a scalar of it — carried as data instead of normals
+        // it can MORPH with the heights (fine relief no longer rides on
+        // geometry that has flattened to the coarse line) and it can agree
+        // across edges: the rim's missing side is read one pitch beyond the
+        // edge from the very tiles the rim ensures fetched, so both tiles
+        // of a shared edge compute the identical shade — the permanent
+        // brightness crease along every border goes with the one-sided
+        // difference that made it.
         val vertices = FloatArray(vertexCount * 9)
         val span = Math.abs(east(eastLon) - east(westLon))
         val spacing = span / (grid - 1)
+        val pitchLat = (southLat - northLat) / (grid - 1)
+        val pitchLon = (eastLon - westLon) / (grid - 1)
         var v = 0
         for (row in 0 until grid) {
             val lat = northLat + (southLat - northLat) * row / (grid - 1)
@@ -688,48 +776,54 @@ class TerrainScene {
                 vertices[v++] = -north(lat)
                 vertices[v++] = col.toFloat() / (grid - 1)
                 vertices[v++] = row.toFloat() / (grid - 1)
-                // normal from the neighbouring heights, for a little relief
-                val hl = heights[row * grid + Math.max(0, col - 1)]
-                val hr = heights[row * grid + Math.min(grid - 1, col + 1)]
-                val hu = heights[Math.max(0, row - 1) * grid + col]
-                val hd = heights[Math.min(grid - 1, row + 1) * grid + col]
-                val nx = (hl - hr)
-                val nz = (hu - hd)
-                val ny = if (spacing > 0.01f) 2f * spacing else 1f
-                val len = Math.sqrt((nx * nx + ny * ny + nz * nz).toDouble()).toFloat()
-                vertices[v++] = nx / len
-                vertices[v++] = ny / len
-                vertices[v++] = nz / len
+                val hl = if (col > 0) heights[row * grid + col - 1]
+                    else beyondRim(lat, lon - pitchLon, ezSelf) ?: h
+                val hr = if (col < grid - 1) heights[row * grid + col + 1]
+                    else beyondRim(lat, lon + pitchLon, ezSelf) ?: h
+                val hu = if (row > 0) heights[(row - 1) * grid + col]
+                    else beyondRim(lat - pitchLat, lon, ezSelf) ?: h
+                val hd = if (row < grid - 1) heights[(row + 1) * grid + col]
+                    else beyondRim(lat + pitchLat, lon, ezSelf) ?: h
+                val shade = shadeOf(hl - hr, hu - hd, spacing)
+                vertices[v++] = shade
+                // the parent's shade at this spot, from the parent's own
+                // data at the parent's own pitch — its relief, not ours
+                var parentShade = shade
+                if (parentNodes != null) {
+                    val pl = beyondRim(lat, lon - pPitchLon, ezP)
+                    val pr = beyondRim(lat, lon + pPitchLon, ezP)
+                    val pu = beyondRim(lat - pPitchLat, lon, ezP)
+                    val pd = beyondRim(lat + pPitchLat, lon, ezP)
+                    if (pl != null && pr != null && pu != null && pd != null) {
+                        parentShade = shadeOf(pl - pr, pu - pd, parentSpacing)
+                    }
+                }
+                vertices[v++] = parentShade
                 // where this point stands on the parent's line — itself,
                 // where there is no parent or the parent's data is a void
                 var parentY = h
                 if (parentNodes != null) {
-                    val qx = col.toFloat() / (grid - 1) * half
-                    val qy = row.toFloat() / (grid - 1) * half
-                    val i0 = Math.min(qx.toInt(), half - 1)
-                    val j0 = Math.min(qy.toInt(), half - 1)
-                    val bx = qx - i0
-                    val by = qy - j0
-                    val p00 = parentNodes[j0 * (half + 1) + i0]
-                    val p10 = parentNodes[j0 * (half + 1) + i0 + 1]
-                    val p01 = parentNodes[(j0 + 1) * (half + 1) + i0]
-                    val p11 = parentNodes[(j0 + 1) * (half + 1) + i0 + 1]
-                    if (!p00.isNaN() && !p10.isNaN() && !p01.isNaN() && !p11.isNaN()) {
-                        val top = p00 + (p10 - p00) * bx
-                        val bottom = p01 + (p11 - p01) * bx
-                        parentY = top + (bottom - top) * by
-                    }
+                    val lerped = latticeAt(parentNodes, half,
+                        col.toFloat() / (grid - 1), row.toFloat() / (grid - 1))
+                    if (lerped != null) parentY = lerped
                 }
                 vertices[v++] = parentY
+                var grandY = parentY
+                if (grandNodes != null) {
+                    val lerped = latticeAt(grandNodes, quarter,
+                        col.toFloat() / (grid - 1), row.toFloat() / (grid - 1))
+                    if (lerped != null) grandY = lerped
+                }
+                vertices[v++] = grandY
             }
         }
 
         // The skirt: the rim dropped just far enough, wearing the rim's own
-        // texel and normal. Where a neighbour at another detail level meets
-        // this tile a hair apart, the eye sees a sliver of the tile's own
-        // picture instead of a crack of sky. Deep enough for the height a
-        // coarser neighbour can be wrong by, and no deeper — a twentieth of
-        // a coarse tile was a seven hundred metre curtain on the horizon.
+        // texel. Where a neighbour at another detail level meets this tile
+        // a hair apart, the eye sees a sliver of the tile's own picture
+        // instead of a crack of sky. Deep enough for the height a coarser
+        // neighbour can be wrong by, and no deeper — a twentieth of a
+        // coarse tile was a seven hundred metre curtain on the horizon.
         val skirtDepth = Math.min(span * 0.02f, 120f)
         val rimIndices = IntArray(rim)
         var r = 0
@@ -744,14 +838,11 @@ class TerrainScene {
             vertices[v++] = vertices[src + 2]
             vertices[v++] = vertices[src + 3]
             vertices[v++] = vertices[src + 4]
-            // Not the rim's normal: lit like walkable ground, a skirt face at
-            // a ridge was a bright streaked wall against the sky. This normal
-            // is perpendicular to the renderer's fixed light, so the skirt
-            // sits at the shade floor and reads as silhouette, not picture.
-            vertices[v++] = 0.625f
-            vertices[v++] = 0f
-            vertices[v++] = -0.781f
-            // the skirt hangs the same depth below wherever its rim morphs to
+            // the shade floor, so the skirt reads as silhouette, not picture
+            vertices[v++] = 0.70f
+            vertices[v++] = 0.70f
+            // the skirt hangs the same depth below wherever its rim morphs
+            vertices[v++] = vertices[src + 7] - skirtDepth
             vertices[v++] = vertices[src + 8] - skirtDepth
         }
 
@@ -779,12 +870,50 @@ class TerrainScene {
         }
 
         // No picture: a tile is built for its shape, and its photograph is
-        // hung on it afterwards by the pass that fetches them.
+        // hung on it afterwards by the pass that fetches them. The box is
+        // padded by the GRANDPARENT's error: morphed vertices ride lines up
+        // to two levels coarser than the tile's own extremes, and a box
+        // sized to the raw heights let a fully-morphed tile poke out of it
+        // and flicker at the frustum's edge.
+        val pad = errorOf(Math.max(0, z - 2))
         return TileMesh(tileKey(z, tx, ty), vertices, indices, null,
             east(westLon), east(eastLon),
-            lowest - skirtDepth, highest,
+            lowest - skirtDepth - pad, highest + pad,
             -north(northLat), -north(southLat),
             rimComplete = !rimMissing)
+    }
+
+    /** A height just past this tile's edge, origin-relative, or null. */
+    private fun beyondRim(lat: Double, lon: Double, ez: Int): Float? {
+        val h = Elevation.elevationAt(lat, lon, ez) ?: return null
+        return h - originAltitude
+    }
+
+    /** The fixed light, normalized once; shade is 0.70 + 0.30·|n·L|. */
+    private fun shadeOf(dx: Float, dz: Float, spacing: Float): Float {
+        val ny = if (spacing > 0.01f) 2f * spacing else 1f
+        val len = Math.sqrt((dx * dx + ny * ny + dz * dz).toDouble()).toFloat()
+        val lit = Math.abs(dx / len * -0.48795f + ny / len * 0.78072f +
+            dz / len * -0.39036f)
+        return 0.70f + 0.30f * lit
+    }
+
+    /** Bilinear over an ancestor lattice at this tile-fraction, or null on a void. */
+    private fun latticeAt(nodes: FloatArray, cells: Int, fx: Float, fy: Float): Float? {
+        val qx = fx * cells
+        val qy = fy * cells
+        val i0 = Math.min(qx.toInt(), cells - 1)
+        val j0 = Math.min(qy.toInt(), cells - 1)
+        val bx = qx - i0
+        val by = qy - j0
+        val p00 = nodes[j0 * (cells + 1) + i0]
+        val p10 = nodes[j0 * (cells + 1) + i0 + 1]
+        val p01 = nodes[(j0 + 1) * (cells + 1) + i0]
+        val p11 = nodes[(j0 + 1) * (cells + 1) + i0 + 1]
+        if (p00.isNaN() || p10.isNaN() || p01.isNaN() || p11.isNaN()) return null
+        val top = p00 + (p10 - p00) * bx
+        val bottom = p01 + (p11 - p01) * bx
+        return top + (bottom - top) * by
     }
 
     /** A hole in the data becomes the average of what is around it, not a pit. */
