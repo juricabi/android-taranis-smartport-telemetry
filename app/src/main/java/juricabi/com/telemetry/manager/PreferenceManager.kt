@@ -428,10 +428,12 @@ class PreferenceManager(context: Context) {
 
     /**
      * The home line: drone to where this phone is now, live and playback
-     * alike. Blue, like the arrow saying the same thing.
+     * alike. Its default follows the arrow it points at — recolour the
+     * arrow and the line comes along, unless the line was recoloured
+     * itself. Two blues that drifted apart read as two different things.
      */
     fun getHomeLineColor(): Int {
-        return sharedPreferences.getInt("home_line_color", defaultPosArrowColor)
+        return sharedPreferences.getInt("home_line_color", getLiveArrowColor())
     }
 
     /** The recorded operator, whole: arrow, ring and line together. */
@@ -445,8 +447,9 @@ class PreferenceManager(context: Context) {
     }
 
     fun getOperatorLineColor(): Int {
-        // the recorded arrow's orange: the line and the arrow agree
-        return sharedPreferences.getInt("operator_line_color", defaultPosArrowLoggedColor)
+        // the recorded arrow's own colour, whatever it has been made:
+        // the line and the arrow agree
+        return sharedPreferences.getInt("operator_line_color", getLoggedArrowColor())
     }
 
     fun isFr24Enabled(): Boolean {

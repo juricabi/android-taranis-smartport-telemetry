@@ -684,9 +684,13 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         if (myLat.isNaN() || myLon.isNaN()) return false
         // Replaying a flight from another country, the phone stands outside
         // the flight's whole world — flying the camera there showed the
-        // dark past the world's edge, with no word why.
+        // dark past the world's edge, with no word why. A toast, not the
+        // status line: the replay writes its flight mode there every tick,
+        // and the explanation was gone before it could be read.
         if (!inWorld(myLat, myLon)) {
-            status.text = "You are beyond this flight's ground"
+            android.widget.Toast.makeText(context,
+                "You are beyond this flight's ground",
+                android.widget.Toast.LENGTH_SHORT).show()
             return true
         }
         // asked for somewhere else entirely, which is a different thing from
@@ -775,15 +779,15 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         val home = if (homeLat.isNaN() || homeLon.isNaN()) {
             null
         } else {
-            // The phone routinely stands far outside the flight's loaded
-            // ground during playback. The datum plane then anchors the line
-            // rather than hiding it — the map draws it whatever the distance,
-            // and the two views must agree.
+            // Standing outside the loaded window but inside the world, the
+            // datum plane anchors the line rather than hiding it.
             scene.groundAt(homeLat, homeLon) ?: scene.originAltitude
         }
-        // myShown too: the map hides this line with the arrow, and a line to
-        // an arrow that is not drawn pointed at nothing — in one view only
-        if (homeLineOn && myShown && model != null && home != null) {
+        // myShown too: this line hides with the arrow — switched off, or
+        // beyond the world's edge where the arrow no longer stands. A blue
+        // line to a country the world does not contain ran to the horizon.
+        if (homeLineOn && myShown && model != null && home != null &&
+            inWorld(homeLat, homeLon)) {
             val c = colorOf(homeLineColor)
             renderer.setHomeLine(true, scene.east(homeLon), home - scene.originAltitude,
                 -scene.north(homeLat), c[0], c[1], c[2], c[3])
