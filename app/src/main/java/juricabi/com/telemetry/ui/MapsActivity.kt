@@ -5047,6 +5047,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var mapLeanLon = 0.0
     private var mapLeanTurn = 0f
 
+    /** When the leaned-away camera was last retargeted; it glides between. */
+    private var leanCameraAt = 0L
+
     /**
      * Take up whatever the hand has just done as the new offset.
      *
@@ -5219,10 +5222,29 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 } else {
                     Float.NaN
                 }
-                map.moveCameraNow(
-                    Position(where.lat + mapLeanLat, where.lon + mapLeanLon),
-                    orientation
-                )
+                val leaned = mapLeanLat != 0.0 || mapLeanLon != 0.0
+                if (!leaned) {
+                    map.moveCameraNow(
+                        Position(where.lat, where.lon),
+                        orientation
+                    )
+                } else {
+                    // Leaned away to study other ground, the camera still
+                    // follows — but seldom and eased, not sixty instant
+                    // jumps a second. Each jump cancels the tiles in
+                    // flight, so the fresh ground under a lean completed
+                    // its fetches and had them discarded within the same
+                    // frame, forever: the map starved exactly where the
+                    // hand had asked to look. The model is off with the
+                    // flight; nothing here needs per-frame butter.
+                    val nowMs = android.os.SystemClock.elapsedRealtime()
+                    if (nowMs - leanCameraAt >= 500L) {
+                        leanCameraAt = nowMs
+                        map.moveCamera(
+                            Position(where.lat + mapLeanLat, where.lon + mapLeanLon)
+                        )
+                    }
+                }
             }
             // Model, flight head, home and heading become visible as one
             // immutable renderer snapshot. Without this boundary the GL
