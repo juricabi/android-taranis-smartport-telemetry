@@ -46,8 +46,14 @@ class TerrainPager(
          */
         private const val ROOT_ZOOM = 8
 
-        /** Half of the region the roots cover, metres from the origin. */
-        private const val ROOT_REACH_M = 200_000.0
+        /**
+         * Half of the region the roots cover, metres from the origin. Also
+         * the world's edge for every control: past it there is only the
+         * void, and [Terrain3DView] refuses to take the camera there. Was
+         * 200 km; nobody looked at the outer ring and the whole app felt
+         * the cost of carrying it.
+         */
+        const val ROOT_REACH_M = 150_000.0
 
         /**
          * Split when a tile's geometric error would cover more than this many

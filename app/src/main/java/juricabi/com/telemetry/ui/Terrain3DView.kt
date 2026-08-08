@@ -671,13 +671,13 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
 
     /**
      * Whether a place stands on ground this world can ever load. The roots
-     * ring the origin two hundred kilometres out; past them there is only
+     * ring the origin as far as the pager reaches; past them there is only
      * the void, and no control should take the camera there.
      */
     private fun inWorld(lat: Double, lon: Double): Boolean {
         if (lat.isNaN() || lon.isNaN()) return false
-        return Math.abs(scene.east(lon)) < 200_000f &&
-            Math.abs(scene.north(lat)) < 200_000f
+        return Math.abs(scene.east(lon)) < TerrainPager.ROOT_REACH_M &&
+            Math.abs(scene.north(lat)) < TerrainPager.ROOT_REACH_M
     }
 
     fun goToMyLocation(): Boolean {
