@@ -753,7 +753,15 @@ class MapLibreMapWrapper(
             val map = this@MapLibreMapWrapper.map
             if (map != null) {
                 val before = lastFrameAt
-                map.triggerRepaint()
+                // The map can be torn down between ticks — a switch to the
+                // 3D view destroys it while the screen stays resumed — and
+                // poking its dead native peer was a crash, not a probe.
+                try {
+                    map.triggerRepaint()
+                } catch (gone: IllegalStateException) {
+                    watching = false
+                    return
+                }
                 watchdogHandler.postDelayed({
                     if (!watching) return@postDelayed
                     if (lastFrameAt == before) {
@@ -798,6 +806,9 @@ class MapLibreMapWrapper(
     override fun onStart() = mapView.onStart()
     override fun onStop() = mapView.onStop()
     override fun onDestroy() {
+        // the watchdog first: it must not probe a map being taken down
+        watching = false
+        watchdogHandler.removeCallbacks(watchdog)
         // a window of ours, which outlives the screen if nobody takes it down
         dismissBubble()
         // Anything still waiting for a style that is now never going to arrive.

@@ -783,20 +783,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private fun initMapLibreMap() {
         MapLibre.getInstance(applicationContext)
-        // The map's downloads, given the timeouts our own fetchers always
-        // had. MapLibre's stack allows sixty-four requests in flight across
-        // all hosts, and a request that hangs holds its slot forever — the
-        // 3D view's pools can crowd the imagery server enough that the
-        // map's calls to it hang, the slots silt up with them, and every
-        // map style starves at once: the map that "gets nothing" while the
-        // ground view fetches happily beside it. With timeouts, a hanging
-        // call dies in seconds and hands its slot back.
-        org.maplibre.android.module.http.HttpRequestUtil.setOkHttpClient(
-            okhttp3.OkHttpClient.Builder()
-                .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                .writeTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                .build())
         val mapView = org.maplibre.android.maps.MapView(this)
         // A MapLibre view renders nothing until it has been through these, and
         // a map built here has already missed the screen's own — the type can
