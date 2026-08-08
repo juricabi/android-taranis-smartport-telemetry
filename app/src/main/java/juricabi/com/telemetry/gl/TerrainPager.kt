@@ -760,6 +760,21 @@ class TerrainPager(
                 var extra = if (z == ROOT_ZOOM) 0 else Math.round(
                     Math.log(Math.max(1.0, wantedPx / 256.0)) / Math.log(2.0)
                 ).toInt().coerceIn(0, Math.min(3, 19 - z))
+                // The horizon does not order for the whole table. A far z9
+                // slab spans a third of the screen, so the arithmetic above
+                // honestly asks 2048 pixels for it — sixty-four fetches per
+                // horizon tile, dozens of tiles, was where the whole pipe
+                // went while the ground underfoot queued: one field session
+                // measured the card 50MB past its budget with nine hundred
+                // evictions, fetching and refetching pictures nobody can
+                // read at that sharpness through haze and foreshortening.
+                // Coarse rings cap a step up; the near levels keep the lot.
+                val farCeiling = when {
+                    z <= 10 -> 1
+                    z <= 12 -> 2
+                    else -> 3
+                }
+                if (extra > farCeiling) extra = farCeiling
                 // First dress in a handful of fetches, full sharpness a
                 // breath later through the upgrade path: a cold view reads
                 // as ready seconds sooner, and ends just as sharp. A tile
