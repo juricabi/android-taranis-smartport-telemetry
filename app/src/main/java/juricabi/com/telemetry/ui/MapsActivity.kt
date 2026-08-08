@@ -269,6 +269,17 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     @Volatile private var phoneAccuracy = 0f
     private var terrain3D: Terrain3DView? = null
 
+    /**
+     * The 3D world, kept warm behind the map. Rebuilding it on every view
+     * switch cost twenty seconds of rippling for a world whose every
+     * picture was already on disk — three times in one four-minute field
+     * session. Parked, it keeps its meshes and its settled quadtree in
+     * heap; the GL textures die with the context on detach and come back
+     * from the disk cache in a couple of seconds. Discarded wherever a
+     * new flight begins, because a world belongs to its flight.
+     */
+    private var parked3D: Terrain3DView? = null
+
     private var lastPitch = 0f
     private var lastRoll = 0f
 
@@ -2905,6 +2916,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // reachable until every tile and image had finished loading.
         terrain3D?.release()
         terrain3D = null
+        parked3D?.release()
+        parked3D = null
         tts?.shutdown()
         tts = null
         ttsReady = false
@@ -3288,7 +3301,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // map has gone.
         forgetMapOverlays()
 
-        val view = Terrain3DView(this)
+        // A parked world is this same flight's, or it would have been
+        // discarded where the flight changed — adopt it instead of spending
+        // twenty seconds rebuilding what the heap still holds.
+        val adopted = parked3D
+        parked3D = null
+        val view = adopted ?: Terrain3DView(this)
         terrain3D = view
         mapHolder.addView(
             view,
@@ -3297,6 +3315,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             )
         )
         applyTerrainSettings(view)
+        if (adopted != null) view.onResume()
         view.setTraffic(lastAirplanes)
         // the same answer a tap on the map's airplane gets, said the 3D way
         view.onTrafficTapped = { airplane ->
@@ -3315,8 +3334,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         if (gotHeading) view.setModelAttitude(lastHeading, lastPitch, lastRoll)
         view.onGroundReady = { releaseHeldReplay() }
         // Switching to the ground mid-replay waits the same way, rather than
-        // playing on behind a screen with nothing on it.
-        if (logPlayer?.isPlaying() == true) {
+        // playing on behind a screen with nothing on it. An adopted world is
+        // already dressed — held, the replay would wait on a ready-signal
+        // that fired long ago and never comes again.
+        if (adopted == null && logPlayer?.isPlaying() == true) {
             logPlayer?.stop()
             replayWaitingForGround = true
         }
@@ -3377,6 +3398,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * reason and wants the same fresh start.
      */
     private fun startFlightIn3D() {
+        // A parked world is the old flight's, whichever view is showing.
+        parked3D?.release()
+        parked3D = null
         if (terrain3D == null) return
         hide3DView()
         show3DView(quiet = true)
@@ -3430,6 +3454,26 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             it.onPause()
             it.release()
             mapHolder.removeView(it)
+        }
+        terrain3D = null
+    }
+
+    /**
+     * The switch to the map: the world goes to the garage, not the grave.
+     * Paused, so nothing loads behind the map; detached, so its textures go
+     * with the GL context and a parked world costs meshes, not pictures.
+     * The Activity's closures stay here — show3DView rewires them on adopt.
+     */
+    private fun park3DView() {
+        releaseHeldReplay()
+        terrain3D?.let {
+            it.onPause()
+            it.onGroundReady = null
+            it.onFollowingLost = null
+            it.onBearingChanged = null
+            it.onTrafficTapped = null
+            mapHolder.removeView(it)
+            parked3D = it
         }
         terrain3D = null
     }
@@ -3858,7 +3902,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 return@setSingleChoiceItems
             }
             preferenceManager.set3DMapChosen(false)
-            hide3DView()
+            park3DView()
             map?.onDestroy()
             mapHolder.removeAllViews()
             map = null

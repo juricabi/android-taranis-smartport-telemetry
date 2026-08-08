@@ -25,8 +25,26 @@ import juricabi.com.telemetry.utils.Imagery
  */
 class TerrainPager(
     private val scene: TerrainScene,
-    private val renderer: TerrainRenderer
+    private val renderer: TerrainRenderer,
+    totalRamBytes: Long
 ) {
+    /**
+     * What the pictures may hold on the card, counted as RGB_565 plus a
+     * third for mipmaps. A sixteenth of the phone's RAM, not a constant:
+     * every constant tried was under some real terrain — 280MB, then
+     * 420MB, was under the Alps, whose cut alone wears 489MB — and a
+     * budget under the working set turns the evictor into a treadmill,
+     * each finished tile rebuilt seconds after it is thrown out, CPU and
+     * rippling both. Clamped: a floor a small phone can still churn
+     * against honestly, a ceiling before the driver's double accounting
+     * starts to matter.
+     */
+    private val textureBudgetBytes =
+        (totalRamBytes / 16).coerceIn(280L * 1024 * 1024, 768L * 1024 * 1024)
+
+    /** Mesh backstop, scaled with the pictures: about a tile per megabyte. */
+    private val residentMost = (textureBudgetBytes / (1024 * 1024)).toInt()
+
     companion object {
         private const val TAG = "TerrainPager"
 
@@ -83,22 +101,6 @@ class TerrainPager(
         private val ERROR_M = FloatArray(20) {
             (8.0 * Math.pow(2.0, 15.0 - it)).toFloat()
         }
-
-        /**
-         * What the pictures may hold on the card, counted as RGB_565 plus a
-         * third for mipmaps. Measured: it is what one sharp ring around the
-         * camera plus a mid-resolution middle distance actually costs, and
-         * the device carried well over this without complaint while the
-         * budget was broken.
-         */
-        // Sized when the horizon could still order 2048-pixel mosaics: a
-        // wide session's cut alone wore 300-370MB, so the 280MB ceiling put
-        // the evictor over budget on every pass — a thousand LRU evictions
-        // in two minutes, each one a tile rebuilt seconds later. With the
-        // far rings capped a step above base, the near ground gets the
-        // headroom instead of the churn.
-        private const val TEXTURE_BUDGET_BYTES = 420L * 1024 * 1024
-        private const val RESIDENT_MOST = 480
 
         /** A mosaic that failed is asked again this much later, not sooner. */
         private const val TEXTURE_RETRY_MS = 15_000L
@@ -840,7 +842,7 @@ class TerrainPager(
         // they would all use it — and the card carried six hundred megabytes
         // of pictures with nothing evictable. The nearest tiles spend the
         // budget on 2048s; the rest take what is left, down to one fetch.
-        var budgetLeft = Math.max(0, TEXTURE_BUDGET_BYTES - keptBytes)
+        var budgetLeft = Math.max(0, textureBudgetBytes - keptBytes)
         var starved = false
         for (entry in list) {
             var extra = entry[1].toInt()
@@ -1017,10 +1019,10 @@ class TerrainPager(
     private fun evictLocked(cutSet: Set<Long>) {
         var textureTotal = 0L
         for (p in resident.values) textureTotal += p.textureBytes
-        if (resident.size <= RESIDENT_MOST && textureTotal <= TEXTURE_BUDGET_BYTES) return
+        if (resident.size <= residentMost && textureTotal <= textureBudgetBytes) return
         val it = resident.entries.iterator()
         while (it.hasNext() &&
-            (resident.size > RESIDENT_MOST || textureTotal > TEXTURE_BUDGET_BYTES)) {
+            (resident.size > residentMost || textureTotal > textureBudgetBytes)) {
             val entry = it.next()
             val key = entry.key
             // Never what is drawn, wanted, or standing in for the wanted —

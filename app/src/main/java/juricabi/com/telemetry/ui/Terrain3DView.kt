@@ -35,7 +35,10 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private val surface = GLSurfaceView(context)
     private val renderer = TerrainRenderer()
     private val scene = TerrainScene()
-    private val pager = TerrainPager(scene, renderer)
+    private val pager = TerrainPager(scene, renderer,
+        (context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager)
+            .let { am -> android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) } }
+            .totalMem)
     private val status = TextView(context)
 
     private var lastX = 0f
