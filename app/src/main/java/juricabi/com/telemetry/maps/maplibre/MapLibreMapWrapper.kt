@@ -480,7 +480,6 @@ class MapLibreMapWrapper(
         wroteLat = position.lat
         wroteLon = position.lon
         wroteBearing = orientationDegrees
-        cameraWrites++
 
         glideTo = null
         glideBearing = Double.NaN
@@ -778,106 +777,13 @@ class MapLibreMapWrapper(
         ready.setPadding(left, top, right, bottom)
     }
 
-    /**
-     * The renderer, watched. The map went silently blank — no paints, no
-     * tile requests, no errors, on every style, on builds two versions
-     * apart — which is MapLibre's render thread stalling somewhere below
-     * us. A repaint asked for MUST produce a frame; when two asks in a
-     * row produce none, the surface is bounced through its own pause and
-     * resume, which is what an app restart does and an app restart cures
-     * it. Every incident is named in the field log with its moment, so
-     * whatever the trigger is — a power event, a return from another
-     * app — can be read off the timestamps instead of argued about.
-     */
-    @Volatile private var lastFrameAt = 0L
-    private var stalledProbes = 0
-    private var watching = false
-    private val watchdogHandler = android.os.Handler(android.os.Looper.getMainLooper())
-    /** Camera writes since the last heartbeat, for the storm to name itself. */
-    private var cameraWrites = 0
-
-    private val watchdog = object : Runnable {
-        override fun run() {
-            if (!watching) return
-            // The heartbeat: everything that can quietly starve the map, on
-            // one line every five seconds, so the next silent failure is a
-            // read of the log and not a night of theories. Frames since the
-            // last beat, whether MapLibre believes the network is up, and
-            // how hard the camera is being written.
-            val beatFrames = framesSinceBeat
-            framesSinceBeat = 0
-            val beatWrites = cameraWrites
-            cameraWrites = 0
-            juricabi.com.telemetry.utils.DebugLog.note("Map2D",
-                "beat: frames=$beatFrames writes=$beatWrites " +
-                    "online=${org.maplibre.android.MapLibre.isConnected()}")
-            val map = this@MapLibreMapWrapper.map
-            if (map != null) {
-                val before = lastFrameAt
-                // The map can be torn down between ticks — a switch to the
-                // 3D view destroys it while the screen stays resumed — and
-                // poking its dead native peer was a crash, not a probe.
-                try {
-                    map.triggerRepaint()
-                } catch (gone: IllegalStateException) {
-                    watching = false
-                    return
-                }
-                watchdogHandler.postDelayed({
-                    if (!watching) return@postDelayed
-                    if (lastFrameAt == before) {
-                        stalledProbes++
-                        if (stalledProbes >= 2) {
-                            juricabi.com.telemetry.utils.DebugLog.note("Map2D",
-                                "renderer stalled, bouncing the surface")
-                            stalledProbes = 0
-                            mapView.onPause()
-                            mapView.onResume()
-                        }
-                    } else {
-                        stalledProbes = 0
-                    }
-                }, 2_000)
-            }
-            watchdogHandler.postDelayed(this, 5_000)
-        }
-    }
-
-    /** Frames since the last heartbeat; written on the GL callback thread. */
-    @Volatile private var framesSinceBeat = 0
-
-    init {
-        mapView.addOnDidFinishRenderingFrameListener(
-            MapView.OnDidFinishRenderingFrameListener { _, _, _ ->
-                lastFrameAt = android.os.SystemClock.elapsedRealtime()
-                framesSinceBeat++
-            })
-        // armed from birth: a map is built after its screen's resume, so
-        // waiting for the next resume left the first session unwatched
-        watching = true
-        watchdogHandler.postDelayed(watchdog, 5_000)
-    }
-
     override fun onCreate(bundle: Bundle?) = mapView.onCreate(bundle)
-    override fun onResume() {
-        mapView.onResume()
-        watching = true
-        stalledProbes = 0
-        watchdogHandler.removeCallbacks(watchdog)
-        watchdogHandler.postDelayed(watchdog, 5_000)
-    }
-    override fun onPause() {
-        watching = false
-        watchdogHandler.removeCallbacks(watchdog)
-        mapView.onPause()
-    }
+    override fun onResume() = mapView.onResume()
+    override fun onPause() = mapView.onPause()
     override fun onLowMemory() = mapView.onLowMemory()
     override fun onStart() = mapView.onStart()
     override fun onStop() = mapView.onStop()
     override fun onDestroy() {
-        // the watchdog first: it must not probe a map being taken down
-        watching = false
-        watchdogHandler.removeCallbacks(watchdog)
         // a window of ours, which outlives the screen if nobody takes it down
         dismissBubble()
         // Anything still waiting for a style that is now never going to arrive.

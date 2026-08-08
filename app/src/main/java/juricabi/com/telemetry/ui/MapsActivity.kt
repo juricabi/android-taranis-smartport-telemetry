@@ -783,17 +783,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private fun initMapLibreMap() {
         MapLibre.getInstance(applicationContext)
-        // MapLibre asks Android whether the network is up and goes silently
-        // cache-only when the answer is no — no requests, no errors, fresh
-        // ground simply never arrives while cached ground draws fine. The
-        // answer was no, wrongly, at the start of a run with working Wi-Fi:
-        // the receiver lives on connectivity broadcasts, and this phone
-        // starves those. Told to consider itself online always, MapLibre
-        // simply tries; where there really is no signal the requests fail
-        // and the cache serves, which is the behaviour wanted anyway.
-        org.maplibre.android.MapLibre.setConnected(true)
-        juricabi.com.telemetry.utils.DebugLog.note("Map2D", "connectivity pinned online")
-        guardTileStore()
         val mapView = org.maplibre.android.maps.MapView(this)
         // A MapLibre view renders nothing until it has been through these, and
         // a map built here has already missed the screen's own — the type can
@@ -817,44 +806,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         finishMapSetup()
     }
 
-    /**
-     * MapLibre's tile store keeps its stock fifty megabytes — the app's own
-     * caches are the ones meant to grow — but it no longer gets to be
-     * silently broken. Asking it to hold its own ceiling is a health probe:
-     * a store that cannot even take a setting is corrupt, and only then is
-     * it cleared and asked once more. Never on a store that still answers —
-     * clearing a healthy cache on every start was tried during the long
-     * hunt and cost exactly the ground it was meant to protect.
-     */
-    private fun guardTileStore() {
-        val manager = org.maplibre.android.offline.OfflineManager.getInstance(this)
-        val ceiling = 50L * 1024 * 1024
-        manager.setMaximumAmbientCacheSize(ceiling,
-            object : org.maplibre.android.offline.OfflineManager.FileSourceCallback {
-                override fun onSuccess() {
-                    juricabi.com.telemetry.utils.DebugLog.note(
-                        "Map2D", "ambient cache healthy, 50MB")
-                }
-
-                override fun onError(message: String) {
-                    juricabi.com.telemetry.utils.DebugLog.note(
-                        "Map2D", "ambient cache refused a setting: $message — clearing")
-                    manager.clearAmbientCache(object :
-                        org.maplibre.android.offline.OfflineManager.FileSourceCallback {
-                        override fun onSuccess() {
-                            juricabi.com.telemetry.utils.DebugLog.note(
-                                "Map2D", "ambient cache cleared")
-                            manager.setMaximumAmbientCacheSize(ceiling, null)
-                        }
-
-                        override fun onError(message: String) {
-                            juricabi.com.telemetry.utils.DebugLog.note(
-                                "Map2D", "ambient cache clear failed: $message")
-                        }
-                    })
-                }
-            })
-    }
 
     /**
      * Everything a map needs once it exists, whichever one it is.
