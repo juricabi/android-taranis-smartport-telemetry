@@ -188,6 +188,41 @@ class TerrainScene {
         private set
     private var originFixed = false
 
+    /** Bumped when a flight re-anchors a world that was fixed elsewhere. */
+    @Volatile var originGeneration = 0
+        private set
+
+    /**
+     * A flight far beyond the world's edge re-anchors the world to itself.
+     *
+     * The origin is claimed once and the roots ring it — but the first
+     * claim can be the phone's own spot, standing in before any flight
+     * exists. A replay from another country then played out in a void:
+     * the ground it needed was never on the root list, and the camera
+     * followed the model into nothing. Fifty kilometres is far inside the
+     * roots' reach and far outside any one flight's drift; past it,
+     * everything built against the old frame is rebuilt, down the same
+     * road a late datum already takes.
+     */
+    private fun reanchorIfFar(nMinLat: Double, nMaxLat: Double,
+                              nMinLon: Double, nMaxLon: Double, lowest: Float) {
+        val midLat = (nMinLat + nMaxLat) / 2
+        val midLon = (nMinLon + nMaxLon) / 2
+        val step = Math.hypot(
+            (midLat - originLat) * METRES_PER_DEGREE_LAT,
+            (midLon - originLon) * metresPerDegreeLon(originLat))
+        if (step <= 50_000.0) return
+        originLat = midLat
+        originLon = midLon
+        minLat = nMinLat; maxLat = nMaxLat
+        minLon = nMinLon; maxLon = nMaxLon
+        // the old ground's height means nothing here; the pager probes the
+        // new ground and settles it again, rebuilding as it always has
+        datumFromGround = false
+        if (!lowest.isNaN()) originAltitude = lowest
+        originGeneration++
+    }
+
     /** Flight path as x, y, z triples in the local frame. */
     @Volatile var track = FloatArray(0)
         private set
@@ -312,6 +347,20 @@ class TerrainScene {
             }
             thinned
         }
+        // The frame is normally already chosen — but a flight that arrives
+        // AFTER the view stood up somewhere else entirely comes through
+        // here, not through setTrack, and it must be able to re-anchor too.
+        if (points.isNotEmpty()) {
+            var loLat = points[0].lat; var hiLat = loLat
+            var loLon = points[0].lon; var hiLon = loLon
+            for (p in points) {
+                if (p.lat < loLat) loLat = p.lat
+                if (p.lat > hiLat) hiLat = p.lat
+                if (p.lon < loLon) loLon = p.lon
+                if (p.lon > hiLon) hiLon = p.lon
+            }
+            reanchorIfFar(loLat, hiLat, loLon, hiLon, Float.NaN)
+        }
         val raw = FloatArray(points.size * 3)
         var i = 0
         for (p in points) {
@@ -392,6 +441,8 @@ class TerrainScene {
             // a stand-in until the ground is loaded and says otherwise
             if (!datumFromGround && !lowest.isNaN()) originAltitude = lowest
             originFixed = true
+        } else {
+            reanchorIfFar(minLat, maxLat, minLon, maxLon, lowest)
         }
 
         val out = FloatArray(points.size * 3)

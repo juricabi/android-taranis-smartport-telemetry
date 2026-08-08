@@ -324,8 +324,30 @@ class TerrainPager(
         }
     }
 
+    private var frameGeneration = 0
+
     /** Selection, cover, and the publish that hands both to the renderer. */
     private fun pass() {
+        // A flight re-anchored the world: everything resident belongs to a
+        // frame that no longer exists. The same road as a moved datum —
+        // clear the books, let the renderer drop the tiles, tell the view.
+        val gen = scene.originGeneration
+        if (gen != frameGeneration) {
+            frameGeneration = gen
+            datumWarmFired = false
+            val had = synchronized(lock) {
+                val h = resident.isNotEmpty()
+                if (h) {
+                    resident.clear()
+                    heightRange.clear()
+                }
+                h
+            }
+            if (had) {
+                renderer.keepOnly(emptySet())
+                onWorldMoved?.invoke()
+            }
+        }
         val eyeX = renderer.eyeX
         val eyeY = renderer.eyeY
         val eyeZ = renderer.eyeZ
