@@ -125,16 +125,17 @@ object Imagery {
     }
 
     /**
-     * The source squares to the newest ~1000MB and the finished mosaics to
-     * ~625MB — with the heights' 375MB, two gigabytes all told, which is
-     * what the cache had organically grown to when it first got a ceiling
-     * and the phone had carried without complaint. The ceiling is the
-     * point, not the number: the squares had none at all, and kept every
-     * 256-pixel piece of everywhere the camera had ever looked, forever.
+     * The source squares to the newest ~1625MB and the finished mosaics to
+     * ~1000MB — with the heights' 375MB, three gigabytes all told. The
+     * ceiling is the point, not the number: the squares had none at all,
+     * and kept every 256-pixel piece of everywhere the camera had ever
+     * looked, forever. Grown from two gigabytes when flying three regions
+     * in a week became normal; the extra went to the pictures, which are
+     * what evicts — the heights' 375MB already spans a continent.
      */
     private fun pruneCaches() {
-        prune("m", ".jpg", 625L * 1024 * 1024, 500L * 1024 * 1024)
-        prune(null, ".tile", 1000L * 1024 * 1024, 875L * 1024 * 1024)
+        prune("m", ".jpg", 1000L * 1024 * 1024, 875L * 1024 * 1024)
+        prune(null, ".tile", 1625L * 1024 * 1024, 1500L * 1024 * 1024)
     }
 
     private fun prune(prefix: String?, suffix: String, over: Long, downTo: Long) {
