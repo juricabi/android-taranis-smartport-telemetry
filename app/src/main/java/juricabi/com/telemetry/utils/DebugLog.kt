@@ -69,6 +69,17 @@ object DebugLog {
         }
     }, "debug-log").apply { isDaemon = true; start() }
 
+    /** Everything noted so far, for the clipboard; null outside debug builds. */
+    fun copyText(): String? = file?.takeIf { it.exists() }?.readText()
+
+    fun clear() {
+        try {
+            file?.writeText("")
+        } catch (e: Exception) {
+            // best effort, like every other touch of this file
+        }
+    }
+
     /** Says it to logcat now and queues it for the file; never blocks. */
     fun note(tag: String, message: String) {
         Log.i(tag, message)

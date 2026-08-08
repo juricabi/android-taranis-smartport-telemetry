@@ -377,6 +377,7 @@
 
     <PreferenceCategory
             android:layout="@layout/preference_category_title"
+            android:key="diagnostics"
             app:iconSpaceReserved="false" android:title="Diagnostics">
         <Preference
             app:iconSpaceReserved="false" android:title="Copy debug info"

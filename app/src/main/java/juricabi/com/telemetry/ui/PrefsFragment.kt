@@ -15,8 +15,7 @@ import juricabi.com.telemetry.R
 import juricabi.com.telemetry.manager.FlightPlanManager
 import juricabi.com.telemetry.manager.PreferenceManager
 import androidx.preference.ListPreference
-import juricabi.com.telemetry.utils.FileLogger
-import java.io.IOException
+import juricabi.com.telemetry.utils.DebugLog
 
 class PrefsFragment : PreferenceFragmentCompat() {
 
@@ -70,26 +69,33 @@ class PrefsFragment : PreferenceFragmentCompat() {
             true
         }
 
-        findPreference("copy_debug_info").setOnPreferenceClickListener {
-            context?.let {
-                val clipboardManager =
-                    it.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                try {
-                    clipboardManager.setPrimaryClip(ClipData.newPlainText(null, FileLogger(it).copyLogFile()))
-                } catch (e: IOException) {
-                    Toast.makeText(it, "No log data available yet", Toast.LENGTH_SHORT).show()
-                    return@let
+        // Only where there is anything behind them: the notes are written by
+        // debug builds alone, and a release button whose only answer could
+        // ever be "no data" is a control that does nothing.
+        if (juricabi.com.telemetry.BuildConfig.DEBUG) {
+            findPreference("copy_debug_info").setOnPreferenceClickListener {
+                context?.let {
+                    val notes = DebugLog.copyText()
+                    if (notes.isNullOrEmpty()) {
+                        Toast.makeText(it, "No log data available yet", Toast.LENGTH_SHORT).show()
+                        return@let
+                    }
+                    val clipboardManager =
+                        it.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboardManager.setPrimaryClip(ClipData.newPlainText(null, notes))
+                    Toast.makeText(it, "Debug data has been copied", Toast.LENGTH_SHORT).show()
                 }
-                Toast.makeText(it, "Debug data has been copied", Toast.LENGTH_SHORT).show()
+                return@setOnPreferenceClickListener false
             }
-            return@setOnPreferenceClickListener false
-        }
-        findPreference("clear_debug_info").setOnPreferenceClickListener {
-            context?.let {
-                FileLogger(it).clearLogFile()
-                Toast.makeText(it, "Debug data has been cleared", Toast.LENGTH_SHORT).show()
+            findPreference("clear_debug_info").setOnPreferenceClickListener {
+                context?.let {
+                    DebugLog.clear()
+                    Toast.makeText(it, "Debug data has been cleared", Toast.LENGTH_SHORT).show()
+                }
+                return@setOnPreferenceClickListener false
             }
-            return@setOnPreferenceClickListener false
+        } else {
+            preferenceScreen.removePreference(findPreference("diagnostics"))
         }
         findPreference("import_flight_plan").setOnPreferenceClickListener {
             val intent = Intent(Intent.ACTION_GET_CONTENT)
