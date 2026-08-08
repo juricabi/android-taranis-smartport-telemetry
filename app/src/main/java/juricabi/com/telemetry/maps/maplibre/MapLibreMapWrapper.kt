@@ -427,6 +427,11 @@ class MapLibreMapWrapper(
      * wrapper's second glide. Target and chase bearing are one camera update,
      * so the model and the ground use the same position and heading this frame.
      */
+    /** What the frame loop last wrote, so an identical write can be skipped. */
+    private var wroteLat = Double.NaN
+    private var wroteLon = Double.NaN
+    private var wroteBearing = Float.NaN
+
     override fun moveCameraNow(position: Position, orientationDegrees: Float) {
         val ready = map
         if (ready == null) {
@@ -435,6 +440,24 @@ class MapLibreMapWrapper(
             return
         }
         if (handOnMap) return
+
+        // A camera write that changes nothing must not happen. The frame
+        // loop aims the camera at the flight every frame, and with the
+        // flight standing still — a replay paused, a link idle with its
+        // last marker up — it wrote the same place sixty times a second.
+        // Every write invalidates the tiles in flight: they completed and
+        // were cancelled in the same millisecond, whole viewports of them,
+        // and the map starved everywhere the cache had nothing — which,
+        // with the pan lean carrying this writer wherever the hand went,
+        // was everywhere worth looking at.
+        val stillLat = Math.abs(position.lat - wroteLat) < 1e-7
+        val stillLon = Math.abs(position.lon - wroteLon) < 1e-7
+        val stillTurn = orientationDegrees.isNaN() && wroteBearing.isNaN() ||
+            Math.abs(orientationDegrees - wroteBearing) < 0.05f
+        if (stillLat && stillLon && stillTurn) return
+        wroteLat = position.lat
+        wroteLon = position.lon
+        wroteBearing = orientationDegrees
 
         glideTo = null
         glideBearing = Double.NaN
