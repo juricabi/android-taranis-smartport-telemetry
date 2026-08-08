@@ -1566,12 +1566,21 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                 if (nx < 0 || ny < 0 || nx >= side || ny >= side) continue
                 val n = TerrainScene.tileKey(z, nx, ny)
                 if (set.contains(n)) continue
-                val p = TerrainScene.parentOf(n)
-                if (set.contains(p)) {
-                    force[e + 1] = 1f
-                    continue
+                // However far up the drawn cover stands: a vertex only
+                // carries the parent's and the grandparent's lines, so past
+                // two levels the edge still lands on the grandparent's — a
+                // step the size the data allows instead of the full cliff
+                // that a still-loading region put beside fresh detail.
+                var at = n
+                var depth = 0
+                while (depth < 8 && TerrainScene.zoomOf(at) > 0) {
+                    at = TerrainScene.parentOf(at)
+                    depth++
+                    if (set.contains(at)) {
+                        force[e + 1] = if (depth >= 2) 2f else 1f
+                        break
+                    }
                 }
-                if (set.contains(TerrainScene.parentOf(p))) force[e + 1] = 2f
             }
         }
 
