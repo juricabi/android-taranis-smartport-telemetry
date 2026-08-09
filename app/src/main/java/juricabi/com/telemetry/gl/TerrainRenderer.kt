@@ -1236,10 +1236,18 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             keepChanged = false
             pruneLocked()
             if (pendingStrips.isNotEmpty()) {
+                val deferred = ArrayList<Long>()
                 for (key in pendingStrips) {
                     // not what is drawn: the pager decided over a cover that
                     // may have moved on by the time this runs
                     if (drawSet?.contains(key) == true) continue
+                    // and not mid-goodbye: a retiring tile stripped during
+                    // its dissolve painted the flat base colour across the
+                    // sky for the rest of its fade
+                    if (retiring.containsKey(key)) {
+                        deferred.add(key)
+                        continue
+                    }
                     val t = tiles[key] ?: continue
                     if (t.textureId != 0) {
                         GLES20.glDeleteTextures(1, intArrayOf(t.textureId), 0)
@@ -1250,9 +1258,9 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                     t.textureId = 0
                     t.prevTextureId = 0
                     t.swappedAt = 0
-                    retiring.remove(key)
                 }
                 pendingStrips.clear()
+                pendingStrips.addAll(deferred)
             }
             // A few at a time. A restored context queues every tile at once,
             // and sending them all in one frame is a visible freeze.
@@ -1682,7 +1690,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // below draw exactly what the opaque pass draws — above all the
         // morph band, or a fading generation would swim off its geometry.
         fun drawOne(tile: Tile, texId: Int, scale: Float, offU: Float, offV: Float,
-                    mask: Int = 0) {
+                    mask: Int = 0, skirts: Boolean = true) {
             GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, tile.vertexBuffer)
             GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, tile.indexBuffer)
             GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, stride, 0)
@@ -1725,20 +1733,22 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                 GLES20.glUniform1f(uUvScale, 1f)
                 GLES20.glUniform2f(uUvOff, 0f, 0f)
             }
-            if (mask == 0 || tile.quadCount == 0) {
+            if ((mask == 0 && skirts) || tile.quadCount == 0) {
                 GLES20.glDrawElements(GLES20.GL_TRIANGLES, tile.count,
                     GLES20.GL_UNSIGNED_SHORT, 0)
             } else {
-                // only the quarters no child covers, then the skirts; the
-                // offsets are in bytes, two per short index
+                // only the quarters no child covers; the offsets are in
+                // bytes, two per short index
                 for (q in 0 until 4) {
                     if (mask and (1 shl q) != 0) continue
                     GLES20.glDrawElements(GLES20.GL_TRIANGLES, tile.quadCount,
                         GLES20.GL_UNSIGNED_SHORT, q * tile.quadCount * 2)
                 }
-                val skirtStart = 4 * tile.quadCount
-                GLES20.glDrawElements(GLES20.GL_TRIANGLES, tile.count - skirtStart,
-                    GLES20.GL_UNSIGNED_SHORT, skirtStart * 2)
+                if (skirts) {
+                    val skirtStart = 4 * tile.quadCount
+                    GLES20.glDrawElements(GLES20.GL_TRIANGLES, tile.count - skirtStart,
+                        GLES20.GL_UNSIGNED_SHORT, skirtStart * 2)
+                }
             }
 
             GLES20.glDisableVertexAttribArray(aPosition)
@@ -1807,14 +1817,26 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glDepthMask(false)
             GLES20.glDepthFunc(GLES20.GL_LEQUAL)
             GLES20.glPolygonOffset(1.0f, 2f)
+            // No skirts in a dissolve, and no bare dissolves. The fades
+            // redraw the surface so a picture change melts instead of
+            // popping — but their skirt curtains, pushed toward the viewer
+            // by the blend offset, flashed as walls at every level swap;
+            // the ground below has its own skirts. And a fade without a
+            // picture painted the flat base colour across the sky — the big
+            // olive wedge — saying nothing the terrain underneath was not
+            // already saying better.
             for (tile in fadeIn) {
+                if (tile.textureId == 0) continue
                 GLES20.glUniform1f(uAlpha, (now - tile.swappedAt) / FADE_MS)
-                drawOne(tile, tile.textureId, 1f, 0f, 0f, masks[tile.key] ?: 0)
+                drawOne(tile, tile.textureId, 1f, 0f, 0f, masks[tile.key] ?: 0,
+                    skirts = false)
             }
             for ((tile, began) in fadeOut) {
+                if (tile.textureId == 0) continue
                 if (!boxVisible(tile)) continue
                 GLES20.glUniform1f(uAlpha, 1f - (now - began) / FADE_MS)
-                drawOne(tile, tile.textureId, 1f, 0f, 0f, masks[tile.key] ?: 0)
+                drawOne(tile, tile.textureId, 1f, 0f, 0f, masks[tile.key] ?: 0,
+                    skirts = false)
             }
             GLES20.glDepthMask(true)
             GLES20.glDepthFunc(GLES20.GL_LESS)
