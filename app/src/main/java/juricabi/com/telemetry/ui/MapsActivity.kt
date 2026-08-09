@@ -145,14 +145,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // zoom used when jumping to a position; 18 is the deepest real satellite level
         private const val LOCATE_ZOOM = 18f
 
-        /**
-         * The height a flight is watched from: kilometres of context, not
-         * the street-level frame the locate button uses for a person
-         * standing still. Coming back from 3D at 18 put the camera a few
-         * hundred metres wide over a model that covers kilometres.
-         */
-        private const val FLIGHT_ZOOM = 15f
-
         private const val CONNTYPE_NONE = 0
         private const val CONNTYPE_BT = 1
         private const val CONNTYPE_BLE = 2
@@ -905,36 +897,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * link that has dropped, there is no next fix and there never was one.
      * A map that could draw the moment it was made would not need this.
      */
-    /**
-     * The frame the 3D view opens with, in the map's terms: the whole
-     * flight, from a distance of 2.2 times its extent with a 400m floor —
-     * the same numbers, so the two views agree about what "looking at the
-     * flight" means. Centre is the middle of what was flown, and the model
-     * itself when nothing much has been.
-     */
-    private fun wholeFlightFrame(): Pair<Position, Float> {
-        val points = juricabi.com.telemetry.gl.LiveFlightPath.snapshot()
-        if (points.size < 2) return Pair(shownPosition(), FLIGHT_ZOOM)
-        var minLat = points[0].lat; var maxLat = points[0].lat
-        var minLon = points[0].lon; var maxLon = points[0].lon
-        for (p in points) {
-            if (p.lat < minLat) minLat = p.lat
-            if (p.lat > maxLat) maxLat = p.lat
-            if (p.lon < minLon) minLon = p.lon
-            if (p.lon > maxLon) maxLon = p.lon
-        }
-        val midLat = (minLat + maxLat) / 2
-        val midLon = (minLon + maxLon) / 2
-        val metresAcross = 111320.0 * Math.cos(Math.toRadians(midLat))
-        val halfW = (maxLon - minLon) * metresAcross / 2
-        val halfH = (maxLat - minLat) * 111320.0 / 2
-        val extent = Math.max(200.0, Math.max(halfW, halfH))
-        val distance = Math.max(400.0, extent * 2.2)
-        val zoom = (21.5 - Math.log(distance) / Math.log(2.0))
-            .toFloat().coerceIn(4f, 18f)
-        return Pair(Position(midLat, midLon), zoom)
-    }
-
     private fun pointMapAtTheFlight() {
         // A map is built looking at the whole world, and it is a fix arriving
         // that puts the model on screen. Where the model already is — coming
@@ -957,8 +919,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // turning the map to a heading swung it round the empty middle
             // instead of round the model.
             centreOnModel()
-            val frame = wholeFlightFrame()
-            map?.moveCamera(frame.first, frame.second)
+            map?.moveCamera(shownPosition(), LOCATE_ZOOM)
             updateHeading()
         } else {
             // Nothing flown yet: open on where this phone is, at the same
