@@ -241,6 +241,16 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     private val pendingStrips = ArrayList<Long>()
 
     /**
+     * Drop a tile's picture but keep its mesh: the pager reclaims texture
+     * memory from covered-over ancestors this way. The GL deletes happen
+     * on the GL thread with the other uploads.
+     */
+    @Synchronized
+    fun strip(key: Long) {
+        pendingStrips.add(key)
+    }
+
+    /**
      * Told when a new context arrives with nothing in it; runs on the GL
      * thread. The meshes used to be retained on the heap for this moment —
      * which at a few hundred resident tiles was hundreds of megabytes and an
@@ -798,16 +808,6 @@ class TerrainRenderer : GLSurfaceView.Renderer {
      * ground comes back with different heights under the same names.
      */
     @Synchronized
-    /**
-     * Drop a tile's picture but keep its mesh: the pager reclaims texture
-     * memory from covered-over ancestors this way. The GL deletes happen
-     * on the GL thread with the other uploads.
-     */
-    @Synchronized
-    fun strip(key: Long) {
-        pendingStrips.add(key)
-    }
-
     fun keepOnly(keys: Set<Long>) {
         keep = HashSet(keys)
         keepChanged = true
