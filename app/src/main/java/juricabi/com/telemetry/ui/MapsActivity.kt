@@ -4303,7 +4303,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // whether a file was opened: the setting only says one was
             // wanted, and a full card or a link brought up without the
             // storage permission leaves it on with nothing behind it.
-            if (asked && dataService?.isRecording() == true) endTheFlight()
+            if (asked) {
+                val recorded = dataService?.isRecording() == true
+                juricabi.com.telemetry.utils.DebugLog.note(
+                    "Flight",
+                    "disconnect asked for, recorded=" + recorded +
+                        (if (recorded) "" else " - flight kept, nothing written"))
+                if (recorded) endTheFlight()
+            }
 
             if (preferenceManager.getConnectionVoiceMessagesEnabled()) {
                 soundPool!!.play(disconnectedSoundId, 1f, 1f, 0, 0, 1f)
@@ -4515,12 +4522,22 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // Nowhere to come home to: end the flight and leave the ground alone
         // rather than tear down a working world for a place we do not know.
         if (fix == null) {
+            juricabi.com.telemetry.utils.DebugLog.note(
+                "Flight", "ended: no phone fix, ground left where it stands")
             startFlightIn3D()
             return
         }
         val mine = Position(fix.latitude, fix.longitude)
         val standing = terrain3D ?: parked3D
-        startFlightIn3D(keepWorld = standing?.worldNear(mine.lat, mine.lon) == true)
+        val near = standing?.worldNear(mine.lat, mine.lon) == true
+        // The one line that says which way this went. Two endings look the
+        // same on the screen — a flight kept because nothing was recorded,
+        // and a flight ended over a world that could not be brought home —
+        // and only this tells them apart afterwards.
+        juricabi.com.telemetry.utils.DebugLog.note(
+            "Flight", "ended: world " + (if (near) "kept" else "rebuilt at the phone") +
+                ", standing=" + (if (standing == null) "none" else "yes"))
+        startFlightIn3D(keepWorld = near)
         // A rebuilt world opens at the phone already; a kept one is walked
         // there — the one behind the map as much as the one on screen, or
         // switching to 3D afterwards looked at the far end of the valley
