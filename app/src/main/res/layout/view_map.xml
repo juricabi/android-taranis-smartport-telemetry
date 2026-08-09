@@ -198,22 +198,22 @@
                     tools:visibility="visible"
                     app:backgroundTint="@color/colorAccent" />
 
-            <!-- Last in a column_reverse stack = topmost: the grid rides
-                 above whichever button is highest, like a button itself,
-                 and can never land on one. Margins centre its 28dp on the
-                 40dp mini FABs below it. -->
-            <juricabi.com.telemetry.ui.LoadingGrid
-                    android:id="@+id/loading_grid"
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:layout_marginLeft="14dp"
-                    android:layout_marginStart="14dp"
-                    android:layout_marginRight="14dp"
-                    android:layout_marginEnd="14dp"
-                    android:layout_marginTop="8dp"
-                    android:layout_marginBottom="4dp"/>
-
         </com.google.android.flexbox.FlexboxLayout>
+
+        <!-- Under the artificial horizon: the one corner whose population
+             never changes with mode. In the buttons column it rode the
+             stack, and a replay's extra button pushed it into the heading;
+             beside the heading, the heading owned the corner. -->
+        <juricabi.com.telemetry.ui.LoadingGrid
+                android:id="@+id/loading_grid"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_below="@+id/horizon_view"
+                android:layout_alignStart="@+id/horizon_view"
+                android:layout_alignLeft="@+id/horizon_view"
+                android:layout_marginStart="8dp"
+                android:layout_marginLeft="8dp"
+                android:layout_marginTop="0dp"/>
 
     </RelativeLayout>
 
