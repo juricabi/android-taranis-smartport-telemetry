@@ -5208,13 +5208,22 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val now = android.os.SystemClock.uptimeMillis()
         seenFixes.lastOrNull()?.let { previous ->
             val gap = now - previous.at
-            if (gap > 1000L) {
+            if (gap > 3000L) {
                 // A resumed link is a new placement, not a slow journey across
-                // all the ground between its old and new positions.
+                // all the ground between its old and new positions. Three
+                // seconds, not one: a 1Hz GPS link jitters right at one, and
+                // its history was wiped on every fix — the marker, with the
+                // camera glued to it, stood still and then teleported once a
+                // second, exactly the "chases by jumping" report.
                 seenFixes.clear()
                 walkDelayMs = 80L
             } else if (gap > 0L) {
-                val wanted = Math.min(250L, Math.max(24L, gap * 3L / 2L))
+                // The comment above this field promises a real fix on either
+                // side of every drawn frame; a 250ms ceiling broke that
+                // promise for any link slower than 4Hz. Bridging a slow
+                // link costs its one interval of shown latency — the honest
+                // price of even motion, and fast links keep their snap.
+                val wanted = Math.min(1500L, Math.max(24L, gap * 3L / 2L))
                 walkDelayMs = (walkDelayMs * 3L + wanted) / 4L
             }
         }
