@@ -329,9 +329,14 @@ class MapLibreMapWrapper(
             TrackingTransform.setInProgress(ready, true)
             rasterMotionHeld = true
         }
-        // Longer than an isolated slow frame, short enough to become crisp
-        // immediately when a model stops.
-        mapView.postDelayed(releaseRasterMotion, 80L)
+        // Longer than the slowest link's fix interval, not longer than a
+        // slow frame: the eased camera converges between fixes and the
+        // epsilon skip rightly writes nothing — at eighty milliseconds the
+        // hold lapsed in those gaps and the raster snapped once per fix,
+        // a tick the eye caught exactly when zoomed out. The crispening
+        // after a model stops waits the same moment, which nothing still
+        // moving can see.
+        mapView.postDelayed(releaseRasterMotion, 1500L)
     }
 
     /** How much of what is left the camera takes each frame. */
