@@ -101,6 +101,15 @@
                 app:outlineColor="@android:color/black"
                 app:outlineSize="3dp" />
 
+        <juricabi.com.telemetry.ui.LoadingRing
+                android:id="@+id/loading_ring"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:layout_below="@+id/compass_heading"
+                android:layout_alignEnd="@+id/compass_heading"
+                android:layout_alignRight="@+id/compass_heading"
+                android:layout_marginTop="6dp"/>
+
         <juricabi.com.telemetry.ui.TextViewOutline
                 android:id="@+id/compass_heading"
                 android:layout_width="wrap_content"

@@ -119,6 +119,11 @@ class TerrainPager(
     /** "" when there is ground; a word for the screen when there is none. */
     @Volatile var onStatus: ((String) -> Unit)? = null
 
+    /** How much of the wanted ground is dressed, after every pass. */
+    @Volatile var onProgress: ((done: Int, total: Int) -> Unit)? = null
+
+    private var dressedInCut = 0
+
     private class Paged(
         @Volatile var mesh: TerrainScene.TileMesh,
         @Volatile var dressed: Boolean,
@@ -451,11 +456,15 @@ class TerrainPager(
             coverAncestors = newAncestors
             evictLocked(cutSet)
             renderer.keepOnly(HashSet(resident.keys))
+            var done = 0
+            for (key in cutSet) if (resident[key]?.dressed == true) done++
+            dressedInCut = done
         }
         // the k this cut was selected under rides with it, so the morph
         // bands belong to the cut they guard, not to this frame's surface
         publishedCover = newCover
         renderer.setDrawSet(newCover, k)
+        onProgress?.invoke(dressedInCut, cutSet.size)
         wantTextures(cutSet, eyeX, eyeY, eyeZ, k)
 
         // The heights for the next handful of builds, fired into the pool —

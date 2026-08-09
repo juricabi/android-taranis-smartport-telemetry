@@ -318,6 +318,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private lateinit var bottomList: FlowLayout
     private lateinit var rootLayout: CoordinatorLayout
     private lateinit var compassHeading: TextViewOutline
+    private lateinit var loadingRing: LoadingRing
     private lateinit var clock_text: TextViewOutline
     private lateinit var mapHolder: FrameLayout
     private lateinit var mapViewHolder: FrameLayout
@@ -546,6 +547,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         mapTypeButton = findViewById(R.id.map_type_button)
         northUpButton = findViewById(R.id.north_up_button)
         compassHeading = findViewById(R.id.compass_heading)
+        loadingRing = findViewById(R.id.loading_ring)
         clock_text = findViewById(R.id.clock_text)
         myLocationButton = findViewById(R.id.my_location_button)
         findQuadButton = findViewById(R.id.find_quad_button)
@@ -3343,6 +3345,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
         view.onFollowingLost = { setFollowMode(false) }
         view.onBearingChanged = { updateCompassHeading(it) }
+        // the ring under the heading; it decides for itself when to appear
+        view.onLoadingProgress = { done, total -> loadingRing.show(done, total) }
         // The buttons say what they were saying before the switch.
         //
         // Tracking was turned on here whatever the map had been left doing, so
@@ -3450,6 +3454,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private fun hide3DView() {
         // leaving the view it was waiting for: the map needs no ground
         releaseHeldReplay()
+        loadingRing.hide()
         terrain3D?.let {
             it.onPause()
             it.release()
@@ -3466,12 +3471,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private fun park3DView() {
         releaseHeldReplay()
+        loadingRing.hide()
         terrain3D?.let {
             it.onPause()
             it.onGroundReady = null
             it.onFollowingLost = null
             it.onBearingChanged = null
             it.onTrafficTapped = null
+            it.onLoadingProgress = null
             mapHolder.removeView(it)
             parked3D = it
         }

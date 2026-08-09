@@ -35,6 +35,11 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private val surface = GLSurfaceView(context)
     private val renderer = TerrainRenderer()
     private val scene = TerrainScene()
+
+    /** The screen's loading ring, fed the pager's count on the UI thread. */
+    @Volatile var onLoadingProgress: ((done: Int, total: Int) -> Unit)? = null
+    @Volatile private var progressDone = -1
+    @Volatile private var progressTotal = -1
     private val pager = TerrainPager(scene, renderer,
         (context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager)
             .let { am -> android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) } }
@@ -308,6 +313,13 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
                 // cache. That is as ready as the ground will be: held any
                 // longer, a replay over it would never play at all.
                 if (message.isNotEmpty()) groundDressed()
+            }
+        }
+        pager.onProgress = { done, total ->
+            if (done != progressDone || total != progressTotal) {
+                progressDone = done
+                progressTotal = total
+                postFromTerrain { onLoadingProgress?.invoke(done, total) }
             }
         }
         pager.start()
