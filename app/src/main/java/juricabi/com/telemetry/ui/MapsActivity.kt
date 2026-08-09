@@ -897,10 +897,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * link that has dropped, there is no next fix and there never was one.
      * A map that could draw the moment it was made would not need this.
      */
-    /** The 2D frame left behind for the 3D view, for the road back. */
-    private var remembered2DCentre: Position? = null
-    private var remembered2DZoom = Float.NaN
-
     private fun pointMapAtTheFlight() {
         // A map is built looking at the whole world, and it is a fix arriving
         // that puts the model on screen. Where the model already is — coming
@@ -926,16 +922,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             map?.moveCamera(shownPosition(), LOCATE_ZOOM)
             updateHeading()
         } else {
-            // Nothing flown yet. Back from the 3D view the map returns to
-            // the frame it left; a cold open goes to where this phone is,
-            // at the height the locate button uses. A map is built looking
-            // at the whole world from zoom four, which is no use to anybody.
-            val came = remembered2DCentre
-            if (came != null && !remembered2DZoom.isNaN()) {
-                map?.moveCamera(came, remembered2DZoom)
-            } else {
-                myLastKnownPlace()?.let { map?.moveCamera(it, LOCATE_ZOOM) }
-            }
+            // Nothing flown yet: open on where this phone is, at the same
+            // height the locate button uses. A map is built looking at the
+            // whole world from zoom four, which is no use to anybody.
+            myLastKnownPlace()?.let { map?.moveCamera(it, LOCATE_ZOOM) }
         }
         // A map that has just been built knows nothing until it is told —
         // and the phone, the operator and the line home exist whether or not
@@ -3321,15 +3311,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
 
         hide3DView()
-        // The frame the map is leaving on, so coming back has somewhere to
-        // stand: with nothing flown and no phone fix, the rebuilt map fell
-        // through to the whole world at zoom four.
-        map?.let {
-            if (it.initialized()) {
-                remembered2DCentre = it.getCentre()
-                remembered2DZoom = it.getZoom()
-            }
-        }
         // Let go of properly rather than merely dropped: the tile threads and
         // the tile cache belong to the view, and this happens every time the
         // ground is opened. Keeping the map alive behind the ground was tried
@@ -3520,13 +3501,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private fun park3DView() {
         releaseHeldReplay()
         loadingGrid.hide()
-        // One flight, two views: the map opens on what the ground view was
-        // looking at — which also answers a session begun in 3D, where
-        // there is no 2D frame to come back to.
-        terrain3D?.lookingAt()?.let { (centre, zoom) ->
-            remembered2DCentre = centre
-            remembered2DZoom = zoom
-        }
         terrain3D?.let {
             it.onPause()
             it.onGroundReady = null

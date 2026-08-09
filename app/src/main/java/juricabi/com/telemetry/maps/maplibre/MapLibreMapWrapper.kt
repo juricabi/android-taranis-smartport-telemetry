@@ -768,11 +768,6 @@ class MapLibreMapWrapper(
         return Position(at.latitude, at.longitude)
     }
 
-    override fun getZoom(): Float {
-        // back into osmdroid's terms, the mirror of cameraZoom()
-        val z = map?.cameraPosition?.zoom ?: return Float.NaN
-        return (z + 1.0).toFloat()
-    }
 
     private var pendingPadding: IntArray? = null
 
