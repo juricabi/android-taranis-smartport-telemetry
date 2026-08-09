@@ -363,7 +363,7 @@
         <ListPreference
             app:iconSpaceReserved="false"
                 android:title="Warning distance (meters)"
-                android:summary="Warn when an aircraft comes closer than this to the model — or to you, when nothing is flying. The warning says which\n%s"
+                android:summary="Warn when an aircraft comes closer than this to the model — or to you, whenever the model is not drawn. The warning says which\n%s"
                 android:entries="@array/Fr24WarningDistEntries"
                 android:entryValues="@array/Fr24WarningDistValues"
                 android:defaultValue="5000"

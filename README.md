@@ -102,10 +102,13 @@ They persist, can be toggled individually, and appear in both map views.
 Nearby aircraft come from FlightRadar24 and are off by default. Traffic is
 measured from whatever there is to be near, and the warning says which:
 
-- **A flight is up** — from the model, and while a dropped link keeps a flight
-  on screen, from where it was last seen. It may still be airborne.
-- **No flight** — from the phone. Standing at the field between packs is when
-  an aircraft crossing overhead matters most, and the warnings used to stop
+- **While the model is drawn** — from the model. That is the same test the
+  marker itself uses: a place, and a fix to believe it by. A dropped link
+  keeps the model on screen, so warnings go on from where it was last seen —
+  it may still be airborne.
+- **Whenever it is not** — from the phone. Standing at the field between
+  packs, or with the receiver still hunting for satellites, is when an
+  aircraft crossing overhead matters most, and the warnings used to stop
   exactly there.
 - **A replay is open** — nothing at all. Those are today's aircraft over a
   place the replay is not, so the sky is left out of it.
