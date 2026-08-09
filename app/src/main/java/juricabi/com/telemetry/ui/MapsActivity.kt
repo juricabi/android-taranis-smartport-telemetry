@@ -233,6 +233,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // built most recently disagreed with the other about whether the
         // phone existed at all.
         val fix = bestPhoneFix ?: myLastKnownFix() ?: return
+        // With nothing flying, the sky is watched from here. A model takes
+        // that over the moment it reports a fix of its own, and hands it back
+        // when its flight is ended — so the warnings follow whatever there is
+        // to be near, and never stop at the one moment somebody is standing
+        // in a field about to launch.
+        if (lastGPS.lat == 0.0 && lastGPS.lon == 0.0) {
+            fr24Manager?.watchFrom(fix.latitude, fix.longitude)
+        }
         if (!showLiveArrow()) return
         map?.setPhoneLocation(
             Position(fix.latitude, fix.longitude),
@@ -4510,8 +4518,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // decoder was already holding when the button was pressed lands
         // afterwards and draws the first point of a flight that has ended.
         hasGPSFix = false
-        // and the sky stops warning about traffic near where the model was
-        fr24Manager?.forgetDronePosition()
         // and how far the map had been dragged aside to look at something:
         // measured against the flight that has gone, it would shove the next
         // one that far off centre from its very first fix
@@ -4526,6 +4532,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // replay asks and what put the arrow where it is standing. Asking
         // only the system answered null while the arrow was drawn.
         val fix = bestPhoneFix ?: myLastKnownFix()
+        // The sky measures from the person now, not from the model that has
+        // gone: standing at the field between packs is exactly when an
+        // aircraft crossing overhead is worth being told about.
+        if (fix != null) fr24Manager?.watchFrom(fix.latitude, fix.longitude)
+        else fr24Manager?.watchNothing()
         // Nowhere to come home to: end the flight and leave the ground alone
         // rather than tear down a working world for a place we do not know.
         if (fix == null) {
@@ -4973,7 +4984,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 }
 
                 this.tryCreateMarker()
-                fr24Manager?.updateDronePosition(latitude, longitude)
+                fr24Manager?.watchFrom(latitude, longitude)
             }
         }
     }
@@ -6016,6 +6027,15 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         if (fr24Manager != null) return
         val manager = Fr24Manager(preferenceManager, this)
         fr24Manager = manager
+        // Watching from wherever there is something to be near, from the
+        // first poll: the model if one is flying, this phone if not. Left to
+        // the next fix, a fresh manager warned about nothing at all until
+        // one arrived — and with no link nothing listens for one.
+        if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) {
+            manager.watchFrom(lastGPS.lat, lastGPS.lon)
+        } else {
+            myLastKnownPlace()?.let { manager.watchFrom(it.lat, it.lon) }
+        }
         manager.start { myLastKnownPlace() }
     }
 

@@ -59,8 +59,9 @@ class Fr24Manager(
     @Volatile private var running = false
     private val fetchInProgress = AtomicBoolean(false)
     private var fetchRunnable: Runnable? = null
-    @Volatile private var droneLat: Double = 0.0
-    @Volatile private var droneLon: Double = 0.0
+    /** The place traffic is measured from — see [watchFrom]. */
+    @Volatile private var watchLat: Double = 0.0
+    @Volatile private var watchLon: Double = 0.0
 
     @Synchronized
     fun start(phoneLocationProvider: () -> Position?) {
@@ -86,25 +87,26 @@ class Fr24Manager(
         executor.shutdownNow()
     }
 
-    fun updateDronePosition(lat: Double, lon: Double) {
-        droneLat = lat
-        droneLon = lon
+    /**
+     * Where traffic is measured from: the model while one is flying, and the
+     * person holding the phone when none is. Standing at the field with
+     * nothing up is exactly when an aircraft crossing overhead is worth
+     * knowing about, and it is the same sky either way.
+     */
+    fun watchFrom(lat: Double, lon: Double) {
+        watchLat = lat
+        watchLon = lon
     }
 
-    /**
-     * The flight has been ended. Without this, traffic goes on being measured
-     * against where the model used to be, and the warnings name a model that
-     * is no longer on the screen. The same nowhere [checkProximity] already
-     * reads as "no drone".
-     */
-    fun forgetDronePosition() {
-        droneLat = 0.0
-        droneLon = 0.0
+    /** No model, and no idea where the phone is: nothing to measure from. */
+    fun watchNothing() {
+        watchLat = 0.0
+        watchLon = 0.0
     }
 
     private fun checkProximity() {
-        val lat = droneLat
-        val lon = droneLon
+        val lat = watchLat
+        val lon = watchLon
         if (lat == 0.0 && lon == 0.0) return
 
         val warningAltCeiling = preferenceManager.getFr24WarningAltCeilingM()
