@@ -62,6 +62,24 @@ object DebugLog {
         note("DebugLog", "session start, installed $installed, writing " +
             "${file?.absolutePath} (dir exists=${dir?.isDirectory} " +
             "writable=${dir?.canWrite()})")
+        // How the previous process died, from the system's own memory: a
+        // native crash in the map's C++ never reaches a Java handler, and
+        // one killed a 2D session leaving this log empty-handed. Reasons:
+        // 4 crash, 5 native crash, 3 low-memory kill, 10 user, 11 dependency.
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            try {
+                val am = context.getSystemService(android.content.Context.ACTIVITY_SERVICE)
+                    as android.app.ActivityManager
+                for (exit in am.getHistoricalProcessExitReasons(context.packageName, 0, 2)) {
+                    note("DebugLog", "previous exit: reason=${exit.reason} " +
+                        "status=${exit.status} " +
+                        "at=${synchronized(stamp) { stamp.format(Date(exit.timestamp)) }} " +
+                        "desc=${exit.description}")
+                }
+            } catch (e: Exception) {
+                // history is a favour, not a dependency
+            }
+        }
     }
 
     /**
