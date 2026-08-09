@@ -22,12 +22,21 @@ object DebugLog {
     private var file: File? = null
     private val stamp = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US)
 
-    fun init() {
+    fun init(context: android.content.Context) {
         if (file != null) return
         // Debug builds only. These notes carry coordinates and tile names —
         // where somebody flies — and a release build writes nobody's
         // whereabouts down unasked.
         if (!juricabi.com.telemetry.BuildConfig.DEBUG) return
+        // Which build wrote this log: the install time is the only mark
+        // that survives onto the phone — every debug build is "2.3.1",
+        // and a fix tested one build too early reads as a fix that failed.
+        val installed = try {
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            synchronized(stamp) { stamp.format(Date(info.lastUpdateTime)) }
+        } catch (e: Exception) {
+            "?"
+        }
         // Until the storage permission is granted — first launch, before the
         // dialog — appends fail and drop, like every other touch of it.
         file = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"),
@@ -43,8 +52,9 @@ object DebugLog {
         // begins with proof of where it lives — "nothing writes" is then a
         // one-line diagnosis instead of an evening.
         val dir = file?.parentFile
-        note("DebugLog", "session start, writing ${file?.absolutePath}" +
-            " (dir exists=${dir?.isDirectory} writable=${dir?.canWrite()})")
+        note("DebugLog", "session start, installed $installed, writing " +
+            "${file?.absolutePath} (dir exists=${dir?.isDirectory} " +
+            "writable=${dir?.canWrite()})")
     }
 
     /**

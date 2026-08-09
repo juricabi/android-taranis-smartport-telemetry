@@ -40,10 +40,24 @@ class TerrainPager(
      * starts to matter.
      */
     private val textureBudgetBytes =
-        (totalRamBytes / 16).coerceIn(280L * 1024 * 1024, 768L * 1024 * 1024)
+        (totalRamBytes / 16).coerceIn(192L * 1024 * 1024, 768L * 1024 * 1024)
 
     /** Mesh backstop, scaled with the pictures: about a tile per megabyte. */
     private val residentMost = (textureBudgetBytes / (1024 * 1024)).toInt()
+
+    /**
+     * How sharp any picture may be on this phone. The mosaics are the
+     * app's biggest allocations — a 2048-pixel stitch is eight megabytes
+     * on the heap while it is assembled, and several are in flight at
+     * once. A small phone keeps the same world at a step or two softer:
+     * the heap traffic falls fourfold per step, and the texture bytes
+     * with it. A phone with room keeps every step it can read.
+     */
+    private val sharpCeiling = when {
+        totalRamBytes < 3L * 1024 * 1024 * 1024 -> 1
+        totalRamBytes < 6L * 1024 * 1024 * 1024 -> 2
+        else -> 3
+    }
 
     companion object {
         private const val TAG = "TerrainPager"
@@ -863,7 +877,7 @@ class TerrainPager(
                 val farCeiling = when {
                     z <= 10 -> 1
                     z <= 12 -> 2
-                    else -> 3
+                    else -> sharpCeiling
                 }
                 if (extra > farCeiling) extra = farCeiling
                 // First dress in a handful of fetches, full sharpness a
