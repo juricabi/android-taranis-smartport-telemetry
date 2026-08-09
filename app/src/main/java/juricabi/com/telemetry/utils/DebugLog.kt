@@ -44,7 +44,7 @@ object DebugLog {
         // one-line diagnosis instead of an evening.
         val dir = file?.parentFile
         note("DebugLog", "session start, writing ${file?.absolutePath}" +
-            " (dir exists=${dir?.isDirectory} writable=${dir?.canWrite})")
+            " (dir exists=${dir?.isDirectory} writable=${dir?.canWrite()})")
     }
 
     /**
