@@ -28,7 +28,6 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             attribute vec2 aShades;
             attribute float aParentY;
             attribute float aGrandY;
-            attribute float aEdge;
             uniform float uUvScale;
             uniform vec2 uUvOff;
             uniform vec3 uEye;
@@ -54,9 +53,18 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                 // tile beside a barely-morphed fine one, and the step
                 // between them stood as the wall. An edge lying fully on
                 // the neighbour's own line has nothing to step over.
-                float fa = uForce[int(floor(aEdge / 5.0))];
-                float fb = uForce[int(mod(aEdge, 5.0))];
-                float f = max(fa, fb);
+                //
+                // The force ramps a quarter of the tile deep instead of
+                // pinning the edge row alone: pinned, the next row inward
+                // stayed on the fine line and the one-cell notch between
+                // them stood as teeth along every high crest. Full force
+                // ON the edge keeps the seam exactly closed; inward it
+                // fades into the vertex's own morph.
+                float fw = uForce[1] * clamp(1.0 - aTexture.x * 4.0, 0.0, 1.0);
+                float fn = uForce[2] * clamp(1.0 - aTexture.y * 4.0, 0.0, 1.0);
+                float fe = uForce[3] * clamp(1.0 - (1.0 - aTexture.x) * 4.0, 0.0, 1.0);
+                float fs = uForce[4] * clamp(1.0 - (1.0 - aTexture.y) * 4.0, 0.0, 1.0);
+                float f = max(max(fw, fn), max(fe, fs));
                 float d = distance(aPosition.xyz, uEye);
                 float m = clamp((d - uMorph.x) * uMorph.y, 0.0, 1.0);
                 m = max(m, min(f, 1.0));
@@ -1600,7 +1608,6 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val uEye = GLES20.glGetUniformLocation(terrainProgram, "uEye")
         val uMorph = GLES20.glGetUniformLocation(terrainProgram, "uMorph")
         val uAlpha = GLES20.glGetUniformLocation(terrainProgram, "uAlpha")
-        val aEdge = GLES20.glGetAttribLocation(terrainProgram, "aEdge")
         // an array uniform is "uForce[0]" to some drivers and "uForce" to
         // others; ask both ways, or the stitch silently never engages
         var uForce = GLES20.glGetUniformLocation(terrainProgram, "uForce")
@@ -1735,8 +1742,6 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glEnableVertexAttribArray(aParentY)
             GLES20.glVertexAttribPointer(aGrandY, 1, GLES20.GL_FLOAT, false, stride, 8 * 4)
             GLES20.glEnableVertexAttribArray(aGrandY)
-            GLES20.glVertexAttribPointer(aEdge, 1, GLES20.GL_FLOAT, false, stride, 9 * 4)
-            GLES20.glEnableVertexAttribArray(aEdge)
             fillForce(tile)
             // once per frame per tile, however many passes draw it
             if (tile.forceFrame != now) {
@@ -1806,7 +1811,6 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glDisableVertexAttribArray(aShades)
             GLES20.glDisableVertexAttribArray(aParentY)
             GLES20.glDisableVertexAttribArray(aGrandY)
-            GLES20.glDisableVertexAttribArray(aEdge)
         }
 
         val fadeIn = ArrayList<Tile>()

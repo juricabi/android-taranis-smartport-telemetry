@@ -43,9 +43,16 @@ object DebugLog {
             "debug-log.txt").also { it.parentFile?.mkdirs() }
         // A crash belongs in it more than anything else does: "it
         // crashed, don't know why" should answer itself from the file.
+        // Straight to disk, not through the queue — the process is about
+        // to die and the writer thread dies with the note unwritten; a
+        // crash was the one thing this log never managed to catch.
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, e ->
-            note("CRASH", Log.getStackTraceString(e))
+            try {
+                file?.appendText(synchronized(stamp) { stamp.format(Date()) } +
+                    " CRASH on ${thread.name}: ${Log.getStackTraceString(e)}\n")
+            } catch (ignored: Throwable) {
+            }
             previous?.uncaughtException(thread, e)
         }
         // The path and whether it can be written, so a copied log always
