@@ -191,6 +191,12 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
                 }
             }
             pickUpNewPoints()
+            // The ground under the arrows refines tile by tile; they
+            // re-stand on whatever is drawn there now. A settled world
+            // pays two height lookups — the rings rebuild only when the
+            // ground in their key actually moves.
+            placeMyArrow()
+            placeLoggedArrow()
             if (!released) ticker.postDelayed(this, FOLLOW_INTERVAL_MS)
         }
     }
@@ -1135,7 +1141,18 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         circle: (FloatArray) -> Unit
     ): Float {
         if (!terrainReady || lat.isNaN() || lon.isNaN()) return lastGround
-        val ground = scene.groundAt(lat, lon) ?: lastGround
+        // The ground the eye sees, not the ground as it will be. The true
+        // z15 height under the phone is warmed early for the datum, but the
+        // drawn mesh may still be a coarse surface bridging the whole
+        // valley far above it — an arrow stood on truth was buried inside
+        // the picture, a sliver of it poking through. Sampled at the drawn
+        // tile's own level, it rides the surface down as detail arrives.
+        val zDrawn = renderer.drawnZoomAt { z ->
+            TerrainScene.tileKey(z, Elevation.tileX(lon, z), Elevation.tileY(lat, z))
+        }
+        val level = Math.min(zDrawn, Elevation.TILE_ZOOM)
+        val ground = (if (zDrawn >= 0) Elevation.elevationAt(lat, lon, level) else null)
+            ?: scene.groundAt(lat, lon) ?: lastGround
         if (ground.isNaN()) return lastGround
         arrow(
             scene.east(lon), ground - scene.originAltitude + 0.1f,
@@ -1145,10 +1162,12 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // The ring does not turn when the phone turns. Rebuilding its
         // sixty-four draped points on every compass sample was thousands of
         // ground lookups a second on the screen's thread; it owes a rebuild
-        // only to a new place, a new accuracy, or new ground under it.
-        val key = (java.lang.Double.doubleToLongBits(lat) * 31 +
+        // only to a new place, a new accuracy, or new ground under it —
+        // which is why the ground is in the key: each refinement under the
+        // arrow re-drapes the ring onto the surface it now stands on.
+        val key = ((java.lang.Double.doubleToLongBits(lat) * 31 +
             java.lang.Double.doubleToLongBits(lon)) * 31 +
-            accuracy.toRawBits() + ringEpoch
+            accuracy.toRawBits() + ringEpoch) * 31 + ground.toRawBits()
         if (key == ringKey[0]) return ground
         ringKey[0] = key
 
@@ -1165,7 +1184,10 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             val angle = 2.0 * Math.PI * step / CIRCLE_SEGMENTS
             val pointLat = lat + accuracy * Math.cos(angle) / scene.metresUp()
             val pointLon = lon + accuracy * Math.sin(angle) / metresPerDegreeLon
-            val h = scene.groundAt(pointLat, pointLon) ?: ground
+            // the same drawn-level heights as the arrow, or the ring sinks
+            val h = (if (zDrawn >= 0)
+                Elevation.elevationAt(pointLat, pointLon, level) else null)
+                ?: scene.groundAt(pointLat, pointLon) ?: ground
             ring[i++] = scene.east(pointLon)
             ring[i++] = h - scene.originAltitude + 0.15f
             ring[i++] = -scene.north(pointLat)

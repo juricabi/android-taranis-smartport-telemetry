@@ -993,6 +993,21 @@ class TerrainRenderer : GLSurfaceView.Renderer {
 
     // ------------------------------------------------------------ renderer
 
+    /**
+     * The zoom of the sharpest tile currently drawn over a spot, or -1
+     * while nothing is. The arrows stand on the ground the eye sees:
+     * stood on the true heights, which are warmed early, they sat buried
+     * inside a coarse surface that had not converged down onto the
+     * valley yet.
+     */
+    fun drawnZoomAt(keyAt: (Int) -> Long): Int {
+        val set = synchronized(this) { drawSet } ?: return -1
+        for (z in 19 downTo 0) {
+            if (set.contains(keyAt(z))) return z
+        }
+        return -1
+    }
+
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         GLES20.glClearColor(0.09f, 0.11f, 0.14f, 1f)
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
