@@ -48,3 +48,21 @@ sharpness.
 - Possible lever: hold neighbouring tiles to the same sharpness step
   before showing an upgrade. Costs visible loading speed; decide with a
   side-by-side, not by taste.
+
+## 3D: a new flight rebuilds the world even when it is the same world
+
+Connecting (or opening a replay) rebuilds the 3D ground from scratch,
+because origin and altitude datum are per-flight questions that must
+never flip mid-flight — while the 2D map, which has neither, keeps its
+tiles. Connecting at the field you are already looking at pays a full
+reload to reach the same two answers.
+
+- The gentle design, from pieces that already exist: on a new flight,
+  re-open the two questions instead of discarding the world —
+  `reanchorIfFar` already keeps the origin when the flight is near, and
+  the datum-settling road already rebuilds only when its answer moves.
+  Rebuild only if either answer actually changes.
+- This is surgery on the altitude frame, the most correctness-critical
+  machinery here (a wrong datum buries the model or floats it). Do it
+  as a dedicated session with the replay + live + Betaflight
+  above-launch cases all retested, not as a patch.
