@@ -1757,8 +1757,21 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             // is the coarser line before there is anything to disagree with.
             val z = TerrainScene.zoomOf(tile.key)
             val d = TerrainScene.errorOf(z) * k / TerrainScene.SPLIT_ERROR_PX
-            val morphStart = (1.4 * d).toFloat()
-            val morphWidth = (0.5 * d).toFloat()
+            // Complete AT the merge distance, derived from the same
+            // thresholds the pager decides by — not at a rounder number
+            // past it. The old band finished at 1.9D while a merged parent
+            // could stand beside this tile from 1.6D on: an annulus where
+            // every coarse neighbour met a fine tile only part-way onto
+            // its line, and the difference stood as the wall. With the
+            // band ending where parents begin, a one-level neighbour finds
+            // this edge already lying on its line, and the force has
+            // nothing left to bridge. Children are born at twice their own
+            // split distance, past the band's end, so a fresh quartet
+            // still starts exactly on the parent's surface.
+            val morphEnd = (d * TerrainScene.SPLIT_ERROR_PX /
+                TerrainScene.MERGE_ERROR_PX).toFloat()
+            val morphWidth = (0.45 * d).toFloat()
+            val morphStart = morphEnd - morphWidth
             GLES20.glUniform2f(uMorph, morphStart,
                 if (morphWidth > 0f) 1f / morphWidth else 0f)
 

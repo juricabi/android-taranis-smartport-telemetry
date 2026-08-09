@@ -101,8 +101,8 @@ class TerrainPager(
          * triangulated, and sixteen pixels of height error is invisible
          * under a photograph.
          */
-        private const val SPLIT_PX = 16f
-        private const val MERGE_PX = 10f
+        private const val SPLIT_PX = TerrainScene.SPLIT_ERROR_PX
+        private const val MERGE_PX = TerrainScene.MERGE_ERROR_PX
 
         /**
          * Tiles behind the camera split this much more reluctantly. They

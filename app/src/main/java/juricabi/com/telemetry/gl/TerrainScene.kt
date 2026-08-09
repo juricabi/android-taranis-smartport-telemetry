@@ -211,6 +211,18 @@ class TerrainScene {
 
         const val SPLIT_ERROR_PX = 16f
 
+        /**
+         * The un-split threshold, here beside its sibling because the
+         * renderer's morph is derived from BOTH: a merged parent can stand
+         * beside a still-split neighbour from the merge distance onward, so
+         * the morph must be complete exactly there — not at some rounder
+         * number past it. The gap between the two was the standing walls:
+         * an annulus where a coarse tile legally stood beside a fine one
+         * only part-way onto its line, and the edge force bridged the rest
+         * in a single cell of cliff.
+         */
+        const val MERGE_ERROR_PX = 10f
+
         fun tileLon(x: Int, z: Int): Double = x.toDouble() / (1 shl z) * 360.0 - 180.0
 
         fun tileLat(y: Int, z: Int): Double {
