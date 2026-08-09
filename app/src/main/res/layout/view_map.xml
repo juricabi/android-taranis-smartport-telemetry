@@ -101,14 +101,24 @@
                 app:outlineColor="@android:color/black"
                 app:outlineSize="3dp" />
 
-        <juricabi.com.telemetry.ui.LoadingGrid
-                android:id="@+id/loading_grid"
-                android:layout_width="26dp"
-                android:layout_height="26dp"
-                android:layout_below="@+id/compass_heading"
-                android:layout_alignEnd="@+id/compass_heading"
-                android:layout_alignRight="@+id/compass_heading"
-                android:layout_marginTop="6dp"/>
+        <!-- Stretched across the buttons column so the grid centres on it:
+             the tiles sit at the top of the stack the buttons live in. -->
+        <FrameLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignStart="@+id/buttons_box"
+                android:layout_alignLeft="@+id/buttons_box"
+                android:layout_alignEnd="@+id/buttons_box"
+                android:layout_alignRight="@+id/buttons_box"
+                android:layout_alignParentTop="true"
+                android:layout_marginTop="8dp">
+
+            <juricabi.com.telemetry.ui.LoadingGrid
+                    android:id="@+id/loading_grid"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:layout_gravity="center_horizontal"/>
+        </FrameLayout>
 
         <juricabi.com.telemetry.ui.TextViewOutline
                 android:id="@+id/compass_heading"

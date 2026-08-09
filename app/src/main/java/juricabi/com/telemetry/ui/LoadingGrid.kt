@@ -24,14 +24,15 @@ class LoadingGrid(context: Context, attrs: AttributeSet? = null) : View(context,
 
     private fun dp(v: Float) = v * resources.displayMetrics.density
 
-    /** A dark echo under each cell, so the grid reads over sky and snow. */
-    private val seat = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x40000000 }
+    /** One dark panel behind the whole grid, so it reads over sky and snow. */
+    private val backdrop = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x59000000 }
 
     private val pending = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x4DFFFFFF }
 
     /** The live arrow's blue: the ground loads in the flight's own color. */
     private val lit = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF29B6F6.toInt() }
 
+    private val panel = RectF()
     private val cell = RectF()
     private var filled = CELLS
     private var shown = false
@@ -66,17 +67,17 @@ class LoadingGrid(context: Context, attrs: AttributeSet? = null) : View(context,
     }
 
     override fun onDraw(canvas: Canvas) {
-        val pitch = width.toFloat() / SIDE
-        val gap = dp(1.2f)
-        val round = dp(1f)
-        val drop = dp(0.8f)
+        panel.set(0f, 0f, width.toFloat(), height.toFloat())
+        val corner = dp(4f)
+        canvas.drawRoundRect(panel, corner, corner, backdrop)
+        val pad = dp(2.5f)
+        val pitch = (width - 2 * pad) / SIDE
+        val gap = dp(0.5f)
+        val round = dp(0.6f)
         for (i in 0 until CELLS) {
-            val x = (i % SIDE) * pitch
-            val y = (i / SIDE) * pitch
+            val x = pad + (i % SIDE) * pitch
+            val y = pad + (i / SIDE) * pitch
             cell.set(x + gap, y + gap, x + pitch - gap, y + pitch - gap)
-            cell.offset(drop, drop)
-            canvas.drawRoundRect(cell, round, round, seat)
-            cell.offset(-drop, -drop)
             canvas.drawRoundRect(cell, round, round, if (i < filled) lit else pending)
         }
     }
