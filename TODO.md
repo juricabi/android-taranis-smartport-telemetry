@@ -52,27 +52,6 @@ sharpness.
 
 # Wanted
 
-Not faults — work that has not been done.
-
-## Roads on the 3D ground
-
-The ground view has the photograph and nothing else. A road is often the
-only thing that says where you are on it, and the one thing worth
-following on foot to a model that came down — which the map beside it
-shows and the ground does not.
-
-- The machinery is already here: flight plans are draped onto the
-  terrain point by point as it loads (`drapedPlans` in `Terrain3DView`,
-  settled against `groundAt`), and a road is the same shape of thing —
-  a polyline that has to find the surface and re-find it as detail
-  arrives.
-- What is missing is where the roads come from. The 2D styles get them
-  from raster tiles, which cannot be draped; this needs vector data, so
-  the first question is the source and its licence, not the drawing.
-- Decide what earns its place before drawing anything: roads and tracks,
-  probably; every field boundary, no. A ground view that becomes a map
-  has lost what it was for.
-
 ## A new telemetry sensor
 
 Whatever the next one turns out to be, the path is the same and it is
