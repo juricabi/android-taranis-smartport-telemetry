@@ -3428,6 +3428,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // it, so the view drops the chase when it is told to stop keeping up.
         view.setFollowing(keepingUp())
         if (chaseMode) view.setChasing(true)
+        // Arriving in a view shows the flight, in both of them alike. The map
+        // is built afresh every time and aims itself at the flight; a world
+        // adopted from the garage keeps whatever it was last pointed at, so
+        // after the locate button it handed back a view of the phone, switch
+        // after switch, while the map beside it showed the model. Only
+        // arriving re-aims — panning away inside a view still stays where it
+        // is put, which is the whole point of not snapping back.
+        if (adopted != null) {
+            juricabi.com.telemetry.gl.LiveFlightPath.latest()?.let {
+                view.lookAt(it.lat, it.lon, it.altitudeMsl)
+            }
+        }
         // where the operator was, if this is opening over a replay
         showOperator()
         updateCompassHeading(view.bearing())
