@@ -4519,10 +4519,19 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // flight" on purpose, and is owed what it costs rather than a veto.
         val recorded = dataService?.isRecording() == true
         showDialog(AlertDialog.Builder(this)
-            .setTitle("Beyond this flight's ground")
-            .setMessage("End the flight and build the world where you are? " +
-                if (recorded) "It stays in your recordings."
-                else "Nothing was recorded - the screen is the only copy of it.")
+            // Two different questions wearing one button. Recorded, this is
+            // tidying up and the recording holds everything; unrecorded, it
+            // is the only copy of the flight going, and the difference has
+            // to be visible before the finger lands rather than after.
+            .setTitle(
+                if (recorded) "Beyond this flight's ground"
+                else "Nothing was recorded")
+            .setMessage(
+                if (recorded) "End the flight and build the world where you " +
+                    "are? It stays in your recordings."
+                else "End the flight and build the world where you are? This " +
+                    "flight was never written to a log - the screen is the " +
+                    "only copy of it, and ending it is final.")
             .setPositiveButton("End flight") { _, _ ->
                 // Asked while nothing was connected, answered whenever: a
                 // reconnect lands without anyone tapping, and this would
