@@ -185,8 +185,13 @@ class TerrainPager(
      * and an arrow stood on any data height sat inside the drawn
      * mountainside. Absolute metres, like Elevation answers.
      */
-    fun drawnGroundAt(lat: Double, lon: Double): Float? {
+    fun drawnGroundAt(lat: Double, longitude: Double): Float? {
         val drawn = publishedCover ?: return null
+        // The tile is chosen from a wrapped longitude but the offset inside
+        // it is measured against that tile's real western edge, so a point a
+        // few metres past the 180th meridian — the accuracy ring around a
+        // phone standing on it — was read a whole tile away.
+        val lon = TerrainScene.wrapped(longitude)
         for (z in LEAF_ZOOM downTo ROOT_ZOOM) {
             val tx = Elevation.tileX(lon, z)
             val ty = Elevation.tileY(lat, z)

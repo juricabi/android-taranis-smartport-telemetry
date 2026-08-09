@@ -3577,12 +3577,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         onReady: () -> Unit
     ) {
         var minLat = path[0].lat; var maxLat = path[0].lat
-        var minLon = path[0].lon; var maxLon = path[0].lon
+        // counted on from the flight's first point, the way the scene counts
+        // its own extent: taken raw, a flight either side of the 180th
+        // meridian asks for every tile on the row and the prefetch refuses
+        // it, and the altitude profile draws against no ground at all
+        val meridian = path[0].lon
+        var minLon = meridian; var maxLon = meridian
         for (p in path) {
             if (p.lat < minLat) minLat = p.lat
             if (p.lat > maxLat) maxLat = p.lat
-            if (p.lon < minLon) minLon = p.lon
-            if (p.lon > maxLon) maxLon = p.lon
+            val lon = juricabi.com.telemetry.gl.TerrainScene.unwrapped(p.lon, meridian)
+            if (lon < minLon) minLon = lon
+            if (lon > maxLon) maxLon = lon
         }
         AsyncTask.execute {
             juricabi.com.telemetry.utils.Elevation.prefetch(

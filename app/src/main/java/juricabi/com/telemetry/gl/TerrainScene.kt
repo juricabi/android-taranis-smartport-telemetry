@@ -687,10 +687,13 @@ class TerrainScene {
         // camera has loaded.
         if (points.isNotEmpty()) {
             var s = points[0].lat; var n = points[0].lat
-            var w = points[0].lon; var e = points[0].lon
+            // counted on from the first point, as the flight's own extent is
+            val meridian = points[0].lon
+            var w = meridian; var e = meridian
             for (p in points) {
                 if (p.lat < s) s = p.lat; if (p.lat > n) n = p.lat
-                if (p.lon < w) w = p.lon; if (p.lon > e) e = p.lon
+                val lon = unwrapped(p.lon, meridian)
+                if (lon < w) w = lon; if (lon > e) e = lon
             }
             // Fired and not waited for. This is asked on the screen's thread
             // with every batch of new points, and a flight whose heights stay

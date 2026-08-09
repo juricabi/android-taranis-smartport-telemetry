@@ -130,6 +130,26 @@ class AntimeridianTest {
     }
 
     @Test
+    fun aStraddlingExtentAsksForTwoColumnsAndNotForTheWholeRow() {
+        // What the altitude profile's prefetch and the ground warm both ask
+        // for. Counted between two column numbers this answered the whole
+        // globe, and the prefetch refused it as a runaway: no ground under
+        // the profile, on a working network.
+        val zoom = 12
+        val across = 1 shl zoom
+        fun columns(west: Double, east: Double): Int {
+            val ax = juricabi.com.telemetry.utils.Elevation.tileX(west, zoom)
+            val bx = juricabi.com.telemetry.utils.Elevation.tileX(east, zoom)
+            return ((bx - ax) % across + across) % across + 1
+        }
+        // the Taveuni flight, counted on from its first point: 179.95..180.05
+        val straddling = columns(179.95, TerrainScene.unwrapped(-179.95, 179.95))
+        assertTrue("asked for " + straddling + " columns", straddling <= 3)
+        // and an ordinary flight of the same width answers the same
+        assertEquals(columns(15.0, 15.1), straddling)
+    }
+
+    @Test
     fun theRootRingIsTheSameSizeOnTheMeridianAsAnywhereElse() {
         // The ring is picked by walking east and wrapping. Counting between
         // two column numbers instead selected every tile on the globe when

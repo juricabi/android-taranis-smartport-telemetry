@@ -203,7 +203,8 @@ object Elevation {
     fun warmBox(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double, zoom: Int) {
         val box = tileBox(minLat, minLon, maxLat, maxLon, zoom) ?: return
         if (box.count == 0 || box.count > MAX_PREFETCH_TILES) return
-        for (x in box.x0..box.x1) {
+        for (step in box.x0..box.x1) {
+            val x = box.xAt(step)
             for (y in box.y0..box.y1) {
                 pool.submit { load(zoom, x, y) }
             }
@@ -238,7 +239,8 @@ object Elevation {
             val done = AtomicInteger(0)
             val jobs = ArrayList<java.util.concurrent.Future<*>>()
             try {
-                for (x in box.x0..box.x1) {
+                for (step in box.x0..box.x1) {
+                    val x = box.xAt(step)
                     for (y in box.y0..box.y1) {
                         jobs.add(pool.submit {
                             if (load(zoom, x, y)) usable.incrementAndGet()
@@ -282,8 +284,16 @@ object Elevation {
         return (1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * (1 shl zoom)
     }
 
-    private class TileBox(val x0: Int, val x1: Int, val y0: Int, val y1: Int) {
-        val count = (x1 - x0 + 1) * (y1 - y0 + 1)
+    /**
+     * A run of columns walked eastward from [x0], wrapping at the 180th
+     * meridian, and a plain run of rows. [x0] plus [columns] can therefore
+     * reach past the last column; [xAt] brings it back.
+     */
+    private class TileBox(val x0: Int, val columns: Int, val y0: Int, val y1: Int,
+                          val across: Int) {
+        val count = columns * (y1 - y0 + 1)
+        val x1 get() = x0 + columns - 1
+        fun xAt(x: Int): Int = ((x % across) + across) % across
     }
 
     private fun tileBox(
@@ -291,12 +301,19 @@ object Elevation {
     ): TileBox? {
         if (zoom < 0 || zoom > MAX_ZOOM) return null
         if (minLat.isNaN() || minLon.isNaN() || maxLat.isNaN() || maxLon.isNaN()) return null
+        val across = 1 shl zoom
         val ax = tileX(minLon, zoom)
         val bx = tileX(maxLon, zoom)
+        // Eastward from the western edge and wrapped, not counted between two
+        // column numbers: a flight either side of the 180th meridian comes
+        // back with its west column near the top of the range and its east
+        // column near the bottom, and the count between them was the whole
+        // globe — which the prefetch then refused as a runaway.
+        val columns = ((bx - ax) % across + across) % across + 1
         // y counts down from the north pole, so the northern edge is the low one
         val ay = tileY(maxLat, zoom)
         val by = tileY(minLat, zoom)
-        return TileBox(min(ax, bx), max(ax, bx), min(ay, by), max(ay, by))
+        return TileBox(ax, columns, min(ay, by), max(ay, by), across)
     }
 
     private fun key(zoom: Int, x: Int, y: Int): Long =
