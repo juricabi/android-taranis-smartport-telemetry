@@ -148,7 +148,6 @@ class MapLibreMapWrapper(
                 }
                 glideTo = null
                 glideBearing = Double.NaN
-                homing = false
                 cameraMoveListener?.invoke()
                 false
             }
@@ -316,35 +315,41 @@ class MapLibreMapWrapper(
         }
     }
 
+    /** When the current unbroken hold began, and when holding may resume. */
+    private var heldSince = 0L
+    private var holdCooldownUntil = 0L
+
     private fun holdRasterMotion(ready: MapLibreMap) {
+        val now = android.os.SystemClock.elapsedRealtime()
         mapView.removeCallbacks(releaseRasterMotion)
-        // Held steadily for as long as tracking drives the camera. The hold
-        // briefly "breathed" — 300ms held, 100ms released — on the theory
-        // that an unbroken hold starved fresh tiles; the grey-map hunt
-        // disproved it (the starving happened with breathing in place, the
-        // cancel churn it feared measured the same on a healthy bare map,
-        // and the true cause was the location arrows' native layer). The
-        // breathing's own residual was a pixel-snap tick four times a
-        // second, which is the jiggle this returns to stillness.
-        if (!rasterMotionHeld) {
+        // Held without a break, this flag starves the whole map. MapLibre
+        // treats every tile begun during a gesture as cancellable — real
+        // gestures end within a second, so nothing is lost. A follow that
+        // writes the camera every frame held it for minutes: fresh ground
+        // completed its fetches and had them cancelled in the same
+        // millisecond, forever, while cached ground drew on — the map that
+        // "loads where the drone rides but nowhere else", two days of it.
+        // So the hold breathes: at most a third of a second held, then a
+        // window for the loads to commit; the pixel-snap it exists to
+        // prevent gets those brief windows, which is the lesser wrong.
+        if (rasterMotionHeld && now - heldSince > 300L) {
+            TrackingTransform.setInProgress(ready, false)
+            rasterMotionHeld = false
+            holdCooldownUntil = now + 100L
+            return
+        }
+        if (!rasterMotionHeld && now >= holdCooldownUntil) {
             TrackingTransform.setInProgress(ready, true)
             rasterMotionHeld = true
+            heldSince = now
         }
-        // Longer than the slowest link's fix interval, not longer than a
-        // slow frame: the eased camera converges between fixes and the
-        // epsilon skip rightly writes nothing — at eighty milliseconds the
-        // hold lapsed in those gaps and the raster snapped once per fix,
-        // a tick the eye caught exactly when zoomed out. The crispening
-        // after a model stops waits the same moment, which nothing still
-        // moving can see.
-        mapView.postDelayed(releaseRasterMotion, 1500L)
+        // Longer than an isolated slow frame, short enough to become crisp
+        // immediately when a model stops.
+        mapView.postDelayed(releaseRasterMotion, 80L)
     }
 
     /** How much of what is left the camera takes each frame. */
     private val GLIDE = 0.25
-
-    /** The homecoming pace: about half a second of visible travel. */
-    private val HOMING_GLIDE = 0.06
 
     private val glide = object : Runnable {
         override fun run() {
@@ -369,14 +374,13 @@ class MapLibreMapWrapper(
             if (to != null) {
                 val dLat = to.lat - lat
                 val dLon = to.lon - lon
-                val ease = if (homing) HOMING_GLIDE else GLIDE
                 if (Math.abs(dLat) < 1e-7 && Math.abs(dLon) < 1e-7) {
                     lat = to.lat
                     lon = to.lon
                     glideTo = null
                 } else {
-                    lat += dLat * ease
-                    lon += dLon * ease
+                    lat += dLat * GLIDE
+                    lon += dLon * GLIDE
                     again = true
                 }
             }
@@ -389,7 +393,7 @@ class MapLibreMapWrapper(
                     bearing = turnTo
                     glideBearing = Double.NaN
                 } else {
-                    bearing += turn * (if (homing) HOMING_GLIDE else GLIDE)
+                    bearing += turn * GLIDE
                     again = true
                 }
             }
@@ -402,11 +406,7 @@ class MapLibreMapWrapper(
                         .build()
                 )
             )
-            if (again) {
-                keepGliding()
-            } else {
-                homing = false
-            }
+            if (again) keepGliding()
         }
     }
 
@@ -457,18 +457,7 @@ class MapLibreMapWrapper(
     private var wroteLon = Double.NaN
     private var wroteBearing = Float.NaN
 
-    /** When the follow last wrote, so a write after a silence glides. */
-    private var lastWroteAt = 0L
 
-    /**
-     * Whether the glide is a homecoming rather than a follow step. The
-     * follow glide takes a quarter of the distance per frame — converged
-     * in eighty milliseconds, which as a re-centre after a pinch IS the
-     * jump it was meant to cure. A homecoming eases at a pace the eye
-     * can ride, and hands the camera back to the immediate road on
-     * arrival.
-     */
-    private var homing = false
 
     override fun moveCameraNow(position: Position, orientationDegrees: Float) {
         val ready = map
@@ -496,27 +485,6 @@ class MapLibreMapWrapper(
         wroteLat = position.lat
         wroteLon = position.lon
         wroteBearing = orientationDegrees
-
-        // A write arriving after a silence is a re-centring, not a follow
-        // step: the silences are hands on the map, and immediate, the
-        // camera snapped home from wherever each pinch stroke left it —
-        // one jump per stroke of a zoom-out, the writes' own one-second
-        // rhythm in the diagnostic. It glides home instead, and while the
-        // glide is still on its way every following write feeds its
-        // target rather than cancelling it — the immediate road resumes
-        // by itself the moment the glide arrives.
-        val nowMs = android.os.SystemClock.elapsedRealtime()
-        val resuming = nowMs - lastWroteAt > 400L
-        lastWroteAt = nowMs
-        if (resuming || glideTo != null) {
-            homing = true
-            glideTo = position
-            if (!orientationDegrees.isNaN()) {
-                glideBearing = -orientationDegrees.toDouble()
-            }
-            keepGliding()
-            return
-        }
 
         glideTo = null
         glideBearing = Double.NaN
