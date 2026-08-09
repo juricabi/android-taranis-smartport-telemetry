@@ -238,7 +238,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // when its flight is ended — so the warnings follow whatever there is
         // to be near, and never stop at the one moment somebody is standing
         // in a field about to launch.
-        if (lastGPS.lat == 0.0 && lastGPS.lon == 0.0) {
+        if (!haveModelPosition()) {
             fr24Manager?.watchFrom(fix.latitude, fix.longitude, model = false)
         }
         if (!showLiveArrow()) return
@@ -1372,6 +1372,17 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private fun isInReplayMode(): Boolean {
         return replayFileString != null
     }
+
+    /**
+     * Whether there is a model position to be measured from or drawn at.
+     *
+     * A place and a reason to believe it. A receiver hands over the position
+     * it remembers while it hunts for satellites, and that is not where the
+     * model is — so the marker, the track and the sky all ask this rather
+     * than asking whether a position exists.
+     */
+    private fun haveModelPosition(): Boolean =
+        hasGPSFix && (lastGPS.lat != 0.0 || lastGPS.lon != 0.0)
 
     private fun isIdle(): Boolean {
         return !isInReplayMode() && !(dataService?.isConnected() ?: false)
@@ -4995,10 +5006,16 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     this.lastTraveledDistance += d
                     this.traveled_distance.text =
                         this.formatDistance(this.lastTraveledDistance.toFloat());
+                    // and the sky measures from the model only where the model
+                    // is believed. A receiver reports the place it remembers
+                    // while it looks for satellites, which is why nothing else
+                    // in here draws from one either — the sky took it, moved
+                    // the watch to yesterday's field, and went quiet about the
+                    // aircraft actually overhead.
+                    fr24Manager?.watchFrom(latitude, longitude, model = true)
                 }
 
                 this.tryCreateMarker()
-                fr24Manager?.watchFrom(latitude, longitude, model = true)
             }
         }
     }
@@ -5877,8 +5894,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         lastFileDialogSelection = ""
         lastFileDialogSelectionIndex = -1
         if (replayFileString != null) {
-            switchToIdleState()
+            // closeReplay first, by the same doctrine the close button
+            // follows: everything the idle switch asks — is this still a
+            // replay? — must be answered truthfully by the time it is asked,
+            // or startFr24 declines and the sky stays empty until the next
+            // pause.
             closeReplay()
+            switchToIdleState()
         }
     }
 
@@ -5911,9 +5933,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
             if (fileName == replayFileString) {
                 // the log being replayed has just been deleted, so the replay
-                // ends the same way as closing it
-                switchToIdleState()
+                // ends the same way as closing it — in that order too, or the
+                // idle switch asks whether this is still a replay while it
+                // still is, and leaves the sky switched off behind it
                 closeReplay()
+                switchToIdleState()
             }
         } else {
             Toast.makeText(this, "Failed to delete log.", Toast.LENGTH_SHORT).show()
@@ -6034,7 +6058,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // Aircraft are where they are now, around where this phone is now. Over
         // a replay of last week's flight they are neither the right aircraft
         // nor in the right place, so a replay does without them.
-        if (isInReplayMode() || !preferenceManager.isFr24Enabled()) return
+        if (!preferenceManager.isFr24Enabled()) {
+            // Switched off while the aircraft were on the map, the markers
+            // stayed where the last poll left them — a frozen sky, hours old,
+            // that nothing would ever move or remove again.
+            stopFr24(clear = true)
+            return
+        }
+        if (isInReplayMode()) return
         // onResume and leaving replay can meet in the same foreground lifetime.
         // Keep the manager already polling instead of orphaning it and its
         // executor behind a new reference.
@@ -6045,7 +6076,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // first poll: the model if one is flying, this phone if not. Left to
         // the next fix, a fresh manager warned about nothing at all until
         // one arrived — and with no link nothing listens for one.
-        if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) {
+        if (haveModelPosition()) {
             manager.watchFrom(lastGPS.lat, lastGPS.lon, model = true)
         } else {
             myLastKnownPlace()?.let { manager.watchFrom(it.lat, it.lon, model = false) }

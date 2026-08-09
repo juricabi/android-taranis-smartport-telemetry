@@ -43,10 +43,10 @@ class Fr24Manager(
         fun onAirplanesUpdated(airplanes: List<AirplaneInfo>)
         /**
          * [fromModel] is what the distance was measured from: the model when
-         * one is flying, this phone when none is. Carried from the watch
-         * itself rather than worked out again at the other end, where a
-         * flight beginning between the poll and the warning would answer
-         * differently from the measurement.
+         * one is flying, this phone when none is. Carried with the
+         * measurement because the measurement is the only thing that knows
+         * it — the screen would be answering the question again, later, and
+         * a warning that names the wrong one is worse than no warning.
          */
         fun onProximityWarning(
             airplane: AirplaneInfo,
@@ -121,7 +121,8 @@ class Fr24Manager(
     }
 
     private fun checkProximity() {
-        // read once: the watch can move to the model between these lines
+        // one place, read as one thing: the pair and what it means travel
+        // together from here to the warning
         val lat = watchLat
         val lon = watchLon
         val fromModel = watchIsModel
