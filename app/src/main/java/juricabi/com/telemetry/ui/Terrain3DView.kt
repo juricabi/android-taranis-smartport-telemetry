@@ -498,7 +498,10 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             // paused just after a jump left the model facing whichever way it
             // had been facing before the jump.
             if (!hasAttitude) {
-                lastAppendedPoint?.let { lastModelHeading = courseBetween(it, point) }
+                lastAppendedPoint?.let {
+                    lastModelHeading = courseBetween(it, point)
+                    modelHeadingKnown = true
+                }
             }
             lastAppendedPoint = point
             renderer.appendFlightPoint(
@@ -526,7 +529,10 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         val last = LiveFlightPath.latest() ?: return
         // the nose when the model says so, and otherwise the course the tick
         // last worked out from the path
-        if (hasAttitude) lastModelHeading = modelHeading
+        if (hasAttitude) {
+            lastModelHeading = modelHeading
+            modelHeadingKnown = true
+        }
         applyChaseBearing()
         val x = scene.east(last.lon)
         val y = scene.heightOf(last)
@@ -574,7 +580,10 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // Where the nose is pointing when the model says so, since that differs
         // from the course over the ground in any wind; the course is the
         // fallback for links that carry no attitude.
-        if (!hasAttitude) lastModelHeading = courseBetween(before, last)
+        if (!hasAttitude) {
+            lastModelHeading = courseBetween(before, last)
+            modelHeadingKnown = true
+        }
         placeModel()
 
         // The ground does not move when this is settled — only the flight does —
@@ -1030,6 +1039,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     fun setModelAttitude(heading: Float, pitch: Float, roll: Float) {
         if (chasing) {
             lastModelHeading = heading
+            modelHeadingKnown = true
             applyChaseBearing()
         }
         hasAttitude = true
@@ -1349,6 +1359,9 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
      */
     private var chasing = false
 
+    /** Chase turns nothing until a model heading — attitude or course — exists. */
+    private var modelHeadingKnown = false
+
     /** Leaning out of that, in degrees, the way [panX] leans out of following. */
     private var chaseYaw = 0f
 
@@ -1385,8 +1398,11 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // is drawing the model at, and eases the camera round to it. Told the
         // heading from here instead, the camera followed the reported one while
         // the model followed an eased one, and the two turned apart.
+        // And only once a heading exists: with nothing flying, the camera
+        // swung round behind a phantom model facing its default north — the
+        // same no-drone chase bug the map had, worn the 3D way.
         renderer.chaseYaw = chaseYaw
-        renderer.chasingModel = chasing
+        renderer.chasingModel = chasing && modelHeadingKnown
     }
 
     /** Only a button does this now: no gesture gives up following. */

@@ -434,6 +434,15 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     private var gotHeading = false;
 
+    /**
+     * Whether ANY model heading exists — attitude or course over ground.
+     * Chase turns nothing until one does: with no drone up, both views
+     * faithfully chased the default zero, each in its own idiom — the map
+     * snapped north-up and resisted, the ground view swung behind a
+     * phantom — and the two read as different bugs.
+     */
+    private var modelHeadingKnown = false
+
     private var logPlayer : LogPlayer? = null;
 
     private var requestWritePermissionSequence = RequestWritePermissionSequenceType.NONE;
@@ -1558,6 +1567,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     // flown once, at speed, before the replay had begun.
                     lastGPS = Position(0.0, 0.0);
                     gotHeading = false;
+                    modelHeadingKnown = false
                     logPlayer?.let { it.seek(it.firstFixPosition()) }
 
                     logPlayer?.seek(0);
@@ -4134,6 +4144,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     override fun onHeadingData(heading: Float) {
         gotHeading = true;
+        modelHeadingKnown = true
         lastHeading = heading
         runOnUiThread {
             // Turned towards, not turned to. Setting it here put the marker
@@ -4684,6 +4695,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                         lastHeading = courseOverGround(
                             lastCourseFrom.lat, lastCourseFrom.lon, latitude, longitude
                         )
+                        modelHeadingKnown = true
                         lastCourseFrom = Position(latitude, longitude)
                     }
                     rememberForProfile(latitude, longitude)
@@ -5085,6 +5097,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         if (chaseMode == on) return
         chaseMode = on
         chaseButton.imageAlpha = if (on) 255 else 128
+        if (on && !modelHeadingKnown) {
+            // armed, not engaged: the mode stands and takes hold the moment
+            // a flight gives it a heading to ride behind
+            Toast.makeText(this,
+                "Chase rides behind the model - it engages when a flight is up",
+                Toast.LENGTH_SHORT).show()
+        }
         if (on) {
             // One or the other. The chase used to borrow tracking and give it
             // back on the way out, so whether turning the chase off left the
@@ -5282,7 +5301,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // Stage every attachment first. moveCameraNow then publishes that
             // complete scene before exposing its matching camera transform.
             if (keepingUp() && map.initialized()) {
-                val orientation = if (chaseMode && terrain3D == null) {
+                val orientation = if (chaseMode && modelHeadingKnown && terrain3D == null) {
                     -presentedHeading + mapLeanTurn
                 } else {
                     Float.NaN
@@ -5417,7 +5436,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             mapLeanLat = centre.lat - model.lat
             mapLeanLon = centre.lon - model.lon
         }
-        if (chaseMode) {
+        if (chaseMode && modelHeadingKnown) {
             val heading =
                 if (presentedMarkerHeading.isNaN()) {
                     if (shownMarkerHeading.isNaN()) lastHeading else shownMarkerHeading
@@ -5444,7 +5463,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * whole map for that is both a shake and a waste.
      */
     private fun applyHeadingUp() {
-        if (!chaseMode || terrain3D != null) return
+        if (!chaseMode || !modelHeadingKnown || terrain3D != null) return
         // The angle it should end at, plus however far it has been turned away
         // from that by hand. The map eases towards it on its own clock, which
         // is the screen's rather than the telemetry's.
