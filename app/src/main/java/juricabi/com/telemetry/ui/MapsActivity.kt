@@ -239,7 +239,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // to be near, and never stop at the one moment somebody is standing
         // in a field about to launch.
         if (lastGPS.lat == 0.0 && lastGPS.lon == 0.0) {
-            fr24Manager?.watchFrom(fix.latitude, fix.longitude)
+            fr24Manager?.watchFrom(fix.latitude, fix.longitude, model = false)
         }
         if (!showLiveArrow()) return
         map?.setPhoneLocation(
@@ -1190,14 +1190,24 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             return
         }
         // from where the model is drawn, not where the fix was, so the line
-        // stays joined to it as it moves
+        // stays joined to it as it moves — and with no model there is nothing
+        // for it to start from. Cleared rather than left: bare returns here
+        // let a line survive the flight it was drawn for, and one end of it
+        // then pointed at a model that is not on the screen.
         val drone = if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) {
             displayedDrone ?: presentedPosition()
-        } else return
+        } else {
+            line.clear()
+            return
+        }
         // where this phone is, from the system if the map's own overlay has
         // not found it yet: a newly built map takes a while to get its first
         // fix, and the line waited all of it
-        val phone = myLastKnownPlace() ?: return
+        val phone = myLastKnownPlace()
+        if (phone == null) {
+            line.clear()
+            return
+        }
         line.setPoints(listOf(drone, phone))
     }
 
@@ -1213,9 +1223,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             line.clear()
             return
         }
+        // and no model is the same answer as no record, for the same reason
         val drone = if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) {
             displayedDrone ?: presentedPosition()
-        } else return
+        } else {
+            line.clear()
+            return
+        }
         // No record right now — the operator track ran out, or its main
         // switch went off — means no line NOW: returning without clearing
         // left the last segment hanging to a vanished arrow.
@@ -4535,7 +4549,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // The sky measures from the person now, not from the model that has
         // gone: standing at the field between packs is exactly when an
         // aircraft crossing overhead is worth being told about.
-        if (fix != null) fr24Manager?.watchFrom(fix.latitude, fix.longitude)
+        if (fix != null) fr24Manager?.watchFrom(fix.latitude, fix.longitude, model = false)
         else fr24Manager?.watchNothing()
         // Nowhere to come home to: end the flight and leave the ground alone
         // rather than tear down a working world for a place we do not know.
@@ -4984,7 +4998,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 }
 
                 this.tryCreateMarker()
-                fr24Manager?.watchFrom(latitude, longitude)
+                fr24Manager?.watchFrom(latitude, longitude, model = true)
             }
         }
     }
@@ -6032,9 +6046,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // the next fix, a fresh manager warned about nothing at all until
         // one arrived — and with no link nothing listens for one.
         if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) {
-            manager.watchFrom(lastGPS.lat, lastGPS.lon)
+            manager.watchFrom(lastGPS.lat, lastGPS.lon, model = true)
         } else {
-            myLastKnownPlace()?.let { manager.watchFrom(it.lat, it.lon) }
+            myLastKnownPlace()?.let { manager.watchFrom(it.lat, it.lon, model = false) }
         }
         manager.start { myLastKnownPlace() }
     }
@@ -6118,16 +6132,22 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     override fun onProximityWarning(
         airplane: Fr24Manager.AirplaneInfo,
         distanceMeters: Double,
-        directionDeg: Double
+        directionDeg: Double,
+        fromModel: Boolean
     ) {
         val cardinal = bearingToCardinal(directionDeg)
         val distKm = distanceMeters / 1000.0
-        val msg = "TRAFFIC: ${airplane.displayName} ${"%.1f".format(distKm)}km $cardinal, alt ${airplane.altMeters}m"
+        // Which is a different warning: two kilometres from the model is the
+        // model's business, two kilometres from the person standing in the
+        // field is theirs, and the number alone never said which.
+        val of = if (fromModel) "from the model" else "from you"
+        val msg = "TRAFFIC: ${airplane.displayName} ${"%.1f".format(distKm)}km $cardinal $of, alt ${airplane.altMeters}m"
         Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
 
         if (ttsReady) {
             val spokenDir = bearingToSpoken(directionDeg)
-            val speech = "Traffic, ${spokenDir}, ${"%.1f".format(distKm)} kilometers, altitude ${airplane.altMeters} meters"
+            val spokenOf = if (fromModel) "from the model" else "from you"
+            val speech = "Traffic, ${spokenDir}, ${"%.1f".format(distKm)} kilometers ${spokenOf}, altitude ${airplane.altMeters} meters"
             tts?.speak(speech, TextToSpeech.QUEUE_ADD, null, "fr24_warning_${airplane.flightId}")
         }
     }

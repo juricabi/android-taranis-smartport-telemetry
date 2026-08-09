@@ -99,6 +99,17 @@ Altitude notes:
 Flight plans are CSV files containing one `latitude,longitude` pair per line.
 They persist, can be toggled individually, and appear in both map views.
 
+Nearby aircraft come from FlightRadar24 and are off by default. Traffic is
+measured from whatever there is to be near, and the warning says which:
+
+- **A flight is up** — from the model, and while a dropped link keeps a flight
+  on screen, from where it was last seen. It may still be airborne.
+- **No flight** — from the phone. Standing at the field between packs is when
+  an aircraft crossing overhead matters most, and the warnings used to stop
+  exactly there.
+- **A replay is open** — nothing at all. Those are today's aircraft over a
+  place the replay is not, so the sky is left out of it.
+
 ## Using the app
 
 1. Pair or attach the telemetry device, or join its Wi-Fi network.

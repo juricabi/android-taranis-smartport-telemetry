@@ -41,7 +41,19 @@ class Fr24Manager(
 
     interface Listener {
         fun onAirplanesUpdated(airplanes: List<AirplaneInfo>)
-        fun onProximityWarning(airplane: AirplaneInfo, distanceMeters: Double, directionDeg: Double)
+        /**
+         * [fromModel] is what the distance was measured from: the model when
+         * one is flying, this phone when none is. Carried from the watch
+         * itself rather than worked out again at the other end, where a
+         * flight beginning between the poll and the warning would answer
+         * differently from the measurement.
+         */
+        fun onProximityWarning(
+            airplane: AirplaneInfo,
+            distanceMeters: Double,
+            directionDeg: Double,
+            fromModel: Boolean
+        )
     }
 
     companion object {
@@ -62,6 +74,8 @@ class Fr24Manager(
     /** The place traffic is measured from — see [watchFrom]. */
     @Volatile private var watchLat: Double = 0.0
     @Volatile private var watchLon: Double = 0.0
+    /** Whether that place is the model, for the warning to say so. */
+    @Volatile private var watchIsModel: Boolean = false
 
     @Synchronized
     fun start(phoneLocationProvider: () -> Position?) {
@@ -93,20 +107,24 @@ class Fr24Manager(
      * nothing up is exactly when an aircraft crossing overhead is worth
      * knowing about, and it is the same sky either way.
      */
-    fun watchFrom(lat: Double, lon: Double) {
+    fun watchFrom(lat: Double, lon: Double, model: Boolean) {
         watchLat = lat
         watchLon = lon
+        watchIsModel = model
     }
 
     /** No model, and no idea where the phone is: nothing to measure from. */
     fun watchNothing() {
         watchLat = 0.0
         watchLon = 0.0
+        watchIsModel = false
     }
 
     private fun checkProximity() {
+        // read once: the watch can move to the model between these lines
         val lat = watchLat
         val lon = watchLon
+        val fromModel = watchIsModel
         if (lat == 0.0 && lon == 0.0) return
 
         val warningAltCeiling = preferenceManager.getFr24WarningAltCeilingM()
@@ -130,7 +148,7 @@ class Fr24Manager(
             lat, lon,
             closest.airplane.lat.toDouble(), closest.airplane.lon.toDouble()
         )
-        listener.onProximityWarning(closest.airplane, closest.dist, direction)
+        listener.onProximityWarning(closest.airplane, closest.dist, direction, fromModel)
     }
 
     private fun scheduleFetch(delayMs: Long = -1L) {

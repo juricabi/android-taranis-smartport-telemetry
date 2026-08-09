@@ -326,7 +326,7 @@
         <SwitchPreference
             app:iconSpaceReserved="false"
                 android:title="Show nearby aircraft"
-                android:summary="Display real aircraft positions from FlightRadar24 on the map. Live only — never during a replay"
+                android:summary="Display real aircraft positions from FlightRadar24 on the map. Live only — a replay is another day's flight over a place you are not, so the sky is left out of it"
                 android:defaultValue="false"
                 android:key="fr24_enabled"/>
 
@@ -363,7 +363,7 @@
         <ListPreference
             app:iconSpaceReserved="false"
                 android:title="Warning distance (meters)"
-                android:summary="Warn when aircraft is closer than this to drone\n%s"
+                android:summary="Warn when an aircraft comes closer than this to the model — or to you, when nothing is flying. The warning says which\n%s"
                 android:entries="@array/Fr24WarningDistEntries"
                 android:entryValues="@array/Fr24WarningDistValues"
                 android:defaultValue="5000"
