@@ -1,4 +1,4 @@
-# Android Telemetry Viewer 2.2.1
+# Android Telemetry Viewer 2.3.1
 
 Live and recorded RC telemetry on a smooth 2D map or real 3D terrain.
 
@@ -14,26 +14,34 @@ Bluetooth, BLE, USB serial and network connections.
 
 ## Current state
 
-Version 2.2.1 adds low-bandwidth telemetry on top of 2.2.0's synchronized 2D
-renderer and reliability audit.
+Version 2.3.1 rebuilds the 3D ground as a camera-driven quadtree and fixes
+the 2D map's tile loading, on top of 2.2.1's low-bandwidth telemetry.
 
-- ArduPilot passthrough over CRSF/ExpressLRS: flight mode and the true armed
-  bit, GPS status, battery, distance and direction to the actual home,
-  velocity, attitude, throttle and status texts over a plain ELRS link with no
-  FrSky hardware.
-- MAVLink High Latency: the one HIGH_LATENCY2 message per five seconds a
-  satellite- or LoRa-class link carries, with a network preset that sends the
-  enable command an autopilot boots waiting for.
-- Model type offers Quad, Plane and Helicopter, built in one design language
-  and drawn the same in 2D and 3D.
-- Replay is paced by a speed control, 3× slower to 10× faster, instead of a
-  chosen duration.
-- The 3D view draws satellite imagery over elevation terrain at roughly half
-  the memory it used, with the model at its true attitude, flight plans,
-  traffic, track shadow and altitude curtain.
-- The 2D aircraft, flight-line head, home line, heading line and tracking
-  camera are committed as one MapLibre render scene, with the historical track
-  and flight plans GPU-rendered beneath them.
+- The 3D terrain is the design Google Earth and Cesium use: a quadtree of
+  web-mercator tiles that splits wherever its error would show on screen.
+  Coarse tiles are the whole region for pennies; the ground is metre-sharp
+  under the model. Levels morph into each other, pictures dissolve in, and
+  an edge facing a coarser neighbour is stitched onto its line.
+- Loading serves the eye: the nearest missing ground builds first, tiles
+  clear up one at a time rather than in sweeps, and bare shaded relief
+  shows the mountains' shape before the first picture lands. Far rings cap
+  their sharpness a step above base, which took a wide view's first picture
+  from five seconds to under two.
+- The world follows the flight: replaying a flight from another country
+  re-anchors the 3D world to it. Beyond that world's edge the locate button
+  says so, and the arrows and lines wait until they are back inside.
+- Switching to the map parks the 3D world instead of destroying it, so
+  switching back redresses from disk in seconds instead of rebuilding for
+  twenty. The texture budget scales to the phone's RAM, and about three
+  gigabytes of imagery and heights persist on disk.
+- Both location arrows stand on the ground as it is currently drawn and
+  ride the surface down as detail arrives, instead of waiting buried
+  inside a coarse mesh that had not converged yet.
+- The 2D map loads everywhere again: the location arrows' special native
+  layer stopped raster tiles from drawing on some devices, and they are
+  ordinary map symbols now — same look, same ring, no grey map.
+- ArduPilot passthrough over CRSF/ExpressLRS and MAVLink High Latency carry
+  full telemetry over plain ELRS or satellite/LoRa-class links.
 - Every protocol decoder, including the simulator's own byte streams, is
   covered by regression tests.
 
@@ -79,7 +87,9 @@ not lose to mobile data.
 ## Maps, 3D and replay
 
 Map types: OpenStreetMap, OpenTopoMap, satellite, satellite with streets, and 3D
-terrain. No API key is required. Tiles are cached as they are used.
+terrain. No API key is required. Tiles are cached as they are used; the 3D
+ground keeps about three gigabytes of imagery and heights on disk, so a
+revisited region loads from storage rather than the network.
 
 Tracking follows position; chase also follows heading. Both use the same eased
 model state in 2D and 3D. Manual gestures remain available while tracking.
