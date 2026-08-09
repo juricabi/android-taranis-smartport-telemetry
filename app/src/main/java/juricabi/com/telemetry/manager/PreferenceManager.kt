@@ -422,8 +422,8 @@ class PreferenceManager(context: Context) {
     }
 
 
-    fun isLoadingRingShown(): Boolean {
-        return sharedPreferences.getBoolean("show_loading_ring", true)
+    fun isLoadingGridShown(): Boolean {
+        return sharedPreferences.getBoolean("show_loading_grid", true)
     }
 
     fun isHomeLineEnabled(): Boolean {

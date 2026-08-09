@@ -318,7 +318,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private lateinit var bottomList: FlowLayout
     private lateinit var rootLayout: CoordinatorLayout
     private lateinit var compassHeading: TextViewOutline
-    private lateinit var loadingRing: LoadingRing
+    private lateinit var loadingGrid: LoadingGrid
     private lateinit var clock_text: TextViewOutline
     private lateinit var mapHolder: FrameLayout
     private lateinit var mapViewHolder: FrameLayout
@@ -547,7 +547,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         mapTypeButton = findViewById(R.id.map_type_button)
         northUpButton = findViewById(R.id.north_up_button)
         compassHeading = findViewById(R.id.compass_heading)
-        loadingRing = findViewById(R.id.loading_ring)
+        loadingGrid = findViewById(R.id.loading_grid)
         clock_text = findViewById(R.id.clock_text)
         myLocationButton = findViewById(R.id.my_location_button)
         findQuadButton = findViewById(R.id.find_quad_button)
@@ -3345,11 +3345,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
         view.onFollowingLost = { setFollowMode(false) }
         view.onBearingChanged = { updateCompassHeading(it) }
-        // the ring under the heading, for the whole 3D session — unless
+        // the grid under the heading, for the whole 3D session — unless
         // its switch says no
         view.onLoadingProgress = { done, total ->
-            if (preferenceManager.isLoadingRingShown()) loadingRing.show(done, total)
-            else loadingRing.hide()
+            if (preferenceManager.isLoadingGridShown()) loadingGrid.show(done, total)
+            else loadingGrid.hide()
         }
         // an adopted world's count sits still; say it again now it has ears
         view.republishProgress()
@@ -3462,7 +3462,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private fun hide3DView() {
         // leaving the view it was waiting for: the map needs no ground
         releaseHeldReplay()
-        loadingRing.hide()
+        loadingGrid.hide()
         terrain3D?.let {
             it.onPause()
             it.release()
@@ -3479,7 +3479,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private fun park3DView() {
         releaseHeldReplay()
-        loadingRing.hide()
+        loadingGrid.hide()
         terrain3D?.let {
             it.onPause()
             it.onGroundReady = null
