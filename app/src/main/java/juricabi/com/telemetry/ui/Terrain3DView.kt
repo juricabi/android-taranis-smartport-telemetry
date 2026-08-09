@@ -82,6 +82,25 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
      * before any of it is played — so a held replay starts over a finished
      * world instead of the world finishing around a started replay.
      */
+    /**
+     * A new flight, same world: the scene re-opens its per-flight
+     * questions and the view forgets what belonged to the old flight —
+     * the shown track, the claimed heading, the chase pose. The ground
+     * stands; a far flight re-anchors it by its own road.
+     */
+    fun beginNewFlight(replay: Boolean) {
+        if (released) return
+        scene.beginNewFlight()
+        groundFollowsPhone = !replay
+        flightShown = false
+        seenVersion = -1
+        lastAppendedPoint = null
+        hasAttitude = false
+        modelHeadingKnown = false
+        chasePoseApplied = false
+        pickUpNewPoints()
+    }
+
     fun beginAt(lat: Double, lon: Double) {
         if (released || started || lat.isNaN() || lon.isNaN()) return
         start(emptyList(), lat, lon, myLat, myLon, myAccuracy)

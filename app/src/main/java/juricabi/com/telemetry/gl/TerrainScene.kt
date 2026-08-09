@@ -19,7 +19,24 @@ import juricabi.com.telemetry.utils.Imagery
 class TerrainScene {
 
     /** Prevent this scene publishing an altitude answer for a later flight. */
-    private val altitudeEpoch = AltitudeFrame.currentEpoch()
+    private var altitudeEpoch = AltitudeFrame.currentEpoch()
+
+    /**
+     * A new flight over a standing world. The per-flight questions are
+     * re-opened — the altitude epoch re-stamped, the reference unresolved —
+     * and everything about the WORLD is kept: the origin stays until a far
+     * flight re-anchors it down its own road, and the ground datum stays
+     * because the ground under an unmoved origin has not moved. The
+     * reference only moves the flight within the world, never the tiles,
+     * so keeping them is not a shortcut but the honest answer.
+     */
+    fun beginNewFlight() {
+        altitudeEpoch = AltitudeFrame.currentEpoch()
+        altitudeResolved = false
+        altitudeIsAboveLaunch = false
+        track = FloatArray(0)
+        shadow = FloatArray(0)
+    }
 
     /** [altitudeMsl] is NaN where the link reported no height at all. */
     class TrackPoint(val lat: Double, val lon: Double, val altitudeMsl: Float)

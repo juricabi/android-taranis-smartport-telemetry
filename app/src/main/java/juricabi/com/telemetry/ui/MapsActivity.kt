@@ -3428,8 +3428,21 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * metres out. The origin it is all measured from is fixed for the same
      * reason and wants the same fresh start.
      */
-    private fun startFlightIn3D() {
-        // A parked world is the old flight's, whichever view is showing.
+    private fun startFlightIn3D(keepWorld: Boolean = true) {
+        // A new flight is a new question — but not always a new world: at
+        // the same field, origin and ground datum answer the same, and the
+        // rebuild threw away the very tiles it was about to reload. The
+        // per-flight questions re-open over the standing ground; a far
+        // flight still re-anchors down the road built for that, and a
+        // moved datum still rebuilds. Leaving a replay keeps the full
+        // rebuild: the world hands back from the flight's country to the
+        // phone's, which no re-opened question covers.
+        if (keepWorld) {
+            val replay = isInReplayMode()
+            terrain3D?.beginNewFlight(replay)
+            parked3D?.beginNewFlight(replay)
+            return
+        }
         parked3D?.release()
         parked3D = null
         if (terrain3D == null) return
@@ -4352,7 +4365,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         forgetFlight()
         // The old scene is centred on the replay and owns its altitude epoch.
         // Back in the live view, ground and altitude both start at the phone.
-        startFlightIn3D()
+        startFlightIn3D(keepWorld = false)
         marker?.remove()
         marker = null
         headingPolyline?.remove()
