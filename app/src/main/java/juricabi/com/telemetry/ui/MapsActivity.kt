@@ -3191,6 +3191,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     override fun onGPSState(satellites: Int, gpsFix: Boolean) {
         this.sensorTimeoutManager.onGPSState(satellites, gpsFix)
         runOnUiThread {
+            // Nothing is feeding this screen, so this was decoded before the
+            // link went and posted after: it belongs to a flight that has
+            // ended. See onGPSData, which it would otherwise re-arm.
+            if (isIdle()) return@runOnUiThread
             this.hasGPSFix = gpsFix
             this.tryCreateMarker()
             this.satellites.text = if (satellites == 99) "ES" else satellites.toString()
@@ -4447,26 +4451,37 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         hasGPSFix = false
         // and the sky stops warning about traffic near where the model was
         fr24Manager?.forgetDronePosition()
-        // Following and chase are the person's, not the flight's: switched
-        // off here, someone who lands, swaps a pack and connects again finds
-        // the camera no longer keeping up and nothing to say why.
-        val mine = myLastKnownPlace()
+        // and how far the map had been dragged aside to look at something:
+        // measured against the flight that has gone, it would shove the next
+        // one that far off centre from its very first fix
+        centreOnModel()
+        // Following and chase are deliberately left alone. They are the
+        // person's, not the flight's, and the next flight is owed them:
+        // switched off here, someone who lands, swaps a pack and connects
+        // again finds the camera no longer keeping up and nothing to say why.
+        //
+        // The phone as the rest of the screen knows it — the service's own
+        // fix first, the system's memory second, which is what closing a
+        // replay asks and what put the arrow where it is standing. Asking
+        // only the system answered null while the arrow was drawn.
+        val fix = bestPhoneFix ?: myLastKnownFix()
         // Nowhere to come home to: end the flight and leave the ground alone
         // rather than tear down a working world for a place we do not know.
-        if (mine == null) {
+        if (fix == null) {
             startFlightIn3D()
             return
         }
+        val mine = Position(fix.latitude, fix.longitude)
         val standing = terrain3D ?: parked3D
         startFlightIn3D(keepWorld = standing?.worldNear(mine.lat, mine.lon) == true)
         // A rebuilt world opens at the phone already; a kept one is walked
-        // there. lookAt rather than the locate button's own road, which
-        // means "leave the model behind" and gives up following to say so —
-        // there is no model to leave, and the next flight is still owed it.
-        terrain3D?.let { view ->
-            view.lookAt(mine.lat, mine.lon, null)
-            return
-        }
+        // there — the one behind the map as much as the one on screen, or
+        // switching to 3D afterwards looked at the far end of the valley
+        // where the model had stopped. lookAt rather than the locate
+        // button's own road, which means "leave the model behind" and gives
+        // up following to say so: there is no model to leave, and the next
+        // flight is still owed it.
+        (terrain3D ?: parked3D)?.lookAt(mine.lat, mine.lon, null)
         map?.flyTo(mine, LOCATE_ZOOM)
     }
 
@@ -4475,10 +4490,16 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * reached through a button that means something else, so it is asked.
      */
     private fun askToEndTheFlight() {
+        // The same question the disconnect road asks, and a different answer
+        // to it. There, ending is a side effect of ending the link, so an
+        // unrecorded flight is spared; here somebody is answering "End
+        // flight" on purpose, and is owed what it costs rather than a veto.
+        val recorded = dataService?.isRecording() == true
         showDialog(AlertDialog.Builder(this)
             .setTitle("Beyond this flight's ground")
             .setMessage("End the flight and build the world where you are? " +
-                "It stays in your recordings.")
+                if (recorded) "It stays in your recordings."
+                else "Nothing was recorded - the screen is the only copy of it.")
             .setPositiveButton("End flight") { _, _ ->
                 // Asked while nothing was connected, answered whenever: a
                 // reconnect lands without anyone tapping, and this would
@@ -4766,6 +4787,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     override fun onGPSData(list: List<Position>, addToEnd: Boolean) {
         this.sensorTimeoutManager.onGPSData(list, addToEnd);
         runOnUiThread {
+            // A link and a replay are the only two things that produce these.
+            // With neither running, this one was decoded before the link went
+            // and posted after — and it drew the first point of a flight that
+            // had just been ended, put the dead model back in lastKnownGPS,
+            // and left the sky warning about traffic near it.
+            if (isIdle()) return@runOnUiThread
             if (!addToEnd) {
                 // rewound: the path is about to be replayed, so drop what it
                 // held — and with it whatever was gathered towards drawing it
