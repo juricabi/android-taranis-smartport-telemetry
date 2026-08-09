@@ -3345,8 +3345,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
         view.onFollowingLost = { setFollowMode(false) }
         view.onBearingChanged = { updateCompassHeading(it) }
-        // the ring under the heading; it decides for itself when to appear
-        view.onLoadingProgress = { done, total -> loadingRing.show(done, total) }
+        // the ring under the heading, for the whole 3D session — unless
+        // its switch says no
+        view.onLoadingProgress = { done, total ->
+            if (preferenceManager.isLoadingRingShown()) loadingRing.show(done, total)
+            else loadingRing.hide()
+        }
+        // an adopted world's count sits still; say it again now it has ears
+        view.republishProgress()
         // The buttons say what they were saying before the switch.
         //
         // Tracking was turned on here whatever the map had been left doing, so
@@ -3449,6 +3455,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             emptyList()
         }
         view.setFlightPlans(plans)
+        // the ring's switch may have been flipped while the count sat still
+        view.republishProgress()
     }
 
     private fun hide3DView() {

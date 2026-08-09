@@ -40,6 +40,15 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     @Volatile var onLoadingProgress: ((done: Int, total: Int) -> Unit)? = null
     @Volatile private var progressDone = -1
     @Volatile private var progressTotal = -1
+
+    /**
+     * Say the current count again — a settled world stops volunteering it,
+     * so a settings return or an adopt would otherwise wait for the next
+     * change to apply the switch.
+     */
+    fun republishProgress() {
+        if (progressTotal >= 0) onLoadingProgress?.invoke(progressDone, progressTotal)
+    }
     private val pager = TerrainPager(scene, renderer,
         (context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager)
             .let { am -> android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) } }

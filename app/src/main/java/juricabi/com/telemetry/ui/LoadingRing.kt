@@ -48,13 +48,14 @@ class LoadingRing(context: Context, attrs: AttributeSet? = null) : View(context,
         visibility = GONE
     }
 
-    /** The pager's count after a pass; decides for itself whether to show. */
+    /**
+     * The pager's count after a pass. The ring stands for the whole 3D
+     * session — full when the ground is whole — rather than coming and
+     * going with every re-sharpen; the blinking was worse than the wait.
+     */
     fun show(done: Int, total: Int) {
-        if (total <= 0 || done >= total) {
-            hide()
-            return
-        }
-        sweep = 360f * done / total
+        sweep = if (total <= 0) 360f
+            else 360f * done.coerceAtMost(total) / total
         invalidate()
         if (!shown) {
             shown = true
@@ -63,12 +64,13 @@ class LoadingRing(context: Context, attrs: AttributeSet? = null) : View(context,
         }
     }
 
+    /** Leaving the 3D view; nothing to ease, the whole screen is changing. */
     fun hide() {
         if (!shown) return
         shown = false
-        animate().alpha(0f).setDuration(450)
-            .withEndAction { if (!shown) visibility = GONE }
-            .start()
+        animate().cancel()
+        alpha = 0f
+        visibility = GONE
     }
 
     override fun onDraw(canvas: Canvas) {

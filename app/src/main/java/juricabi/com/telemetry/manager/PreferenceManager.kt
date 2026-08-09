@@ -422,6 +422,10 @@ class PreferenceManager(context: Context) {
     }
 
 
+    fun isLoadingRingShown(): Boolean {
+        return sharedPreferences.getBoolean("show_loading_ring", true)
+    }
+
     fun isHomeLineEnabled(): Boolean {
         return sharedPreferences.getBoolean("show_home_line", true)
     }

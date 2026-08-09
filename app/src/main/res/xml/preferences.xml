@@ -188,6 +188,13 @@
                 android:summary="Color of the heading line on the map"
                 android:title="Heading line color"/>
 
+        <SwitchPreference
+            app:iconSpaceReserved="false"
+                android:title="Loading ring"
+                android:summary="A ring under the heading fills as the 3D ground loads"
+                android:defaultValue="true"
+                android:key="show_loading_ring"/>
+
     </PreferenceCategory>
 
     <PreferenceCategory
