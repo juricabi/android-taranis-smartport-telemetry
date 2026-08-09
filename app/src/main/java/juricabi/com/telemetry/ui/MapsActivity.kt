@@ -3472,7 +3472,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // Following first: riding behind the model is a way of keeping up with
         // it, so the view drops the chase when it is told to stop keeping up.
         view.setFollowing(keepingUp())
-        if (chaseMode) view.setChasing(true)
+        // Told either way. Only ever told when it was on, a world parked while
+        // chasing came back still chasing — and still stooped to the angle a
+        // chase rides at, which is what "the plain camera is too low" was.
+        view.setChasing(chaseMode)
         // Arriving in a view shows the flight, in both of them alike. The map
         // is built afresh every time and aims itself at the flight; a world
         // adopted from the garage keeps whatever it was last pointed at, so

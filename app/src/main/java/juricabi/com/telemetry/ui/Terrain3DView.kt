@@ -738,8 +738,11 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     fun setFollowing(on: Boolean) {
         following = on
         status.text = ""
-        // there is no riding behind something that is not being kept up with
-        if (!on) chasing = false
+        // there is no riding behind something that is not being kept up with —
+        // dropped down the chase's own road, or the flag went and everything
+        // the chase had done to the camera stayed: the steer, the wanted
+        // bearing, and the low angle it stoops to
+        if (!on && chasing) setChasing(false)
         if (on) {
             panX = 0f
             panZ = 0f
@@ -1572,7 +1575,8 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private fun followingOff() {
         if (!following) return
         following = false
-        chasing = false
+        // down the chase's own road, which knows everything a chase changed
+        if (chasing) setChasing(false)
         renderer.chasingModel = false
         renderer.azimuthWanted = Float.NaN
         onFollowingLost?.invoke()
