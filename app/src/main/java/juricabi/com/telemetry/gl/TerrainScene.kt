@@ -43,6 +43,8 @@ class TerrainScene {
         // and ask the fresh question now, not on the old flight's timer
         altitudeAskAt = 0L
         altitudeWarmAt = 0L
+        // a new flight gets to claim this world once, wherever it is
+        anchoredToFlight = false
         track = FloatArray(0)
         shadow = FloatArray(0)
     }
@@ -301,6 +303,18 @@ class TerrainScene {
     @Volatile var originGeneration = 0
         private set
 
+    /** Whether this world was claimed by the flight now being drawn. */
+    private var anchoredToFlight = false
+
+    /** Whether the whole of a flight stands on ground the roots cover. */
+    private fun withinTheRoots(loLat: Double, hiLat: Double,
+                               loLon: Double, hiLon: Double): Boolean {
+        val lat = Math.max(Math.abs(loLat - originLat), Math.abs(hiLat - originLat))
+        val lon = Math.max(Math.abs(loLon - originLon), Math.abs(hiLon - originLon))
+        return Math.hypot(lat * METRES_PER_DEGREE_LAT,
+            lon * metresPerDegreeLon(originLat)) < TerrainPager.ROOT_REACH_M
+    }
+
     /**
      * A flight far beyond the world's edge re-anchors the world to itself.
      *
@@ -312,6 +326,15 @@ class TerrainScene {
      * roots' reach and far outside any one flight's drift; past it,
      * everything built against the old frame is rebuilt, down the same
      * road a late datum already takes.
+     *
+     * Asked once for each flight, and afterwards only when the flight has
+     * actually run off the ground the roots cover. The measure is the
+     * middle of the flight so far, and that middle walks with a long one:
+     * re-asked every time, a two hundred kilometre flight tore its world
+     * down every hundred, and dragging a replay back to the start shrank
+     * the flight to its launch, jumped the middle back, and tore it down
+     * again. Neither move was ever needed — the ground was already under
+     * the model both times.
      */
     private fun reanchorIfFar(nMinLat: Double, nMaxLat: Double,
                               nMinLon: Double, nMaxLon: Double, lowest: Float) {
@@ -321,6 +344,8 @@ class TerrainScene {
             (midLat - originLat) * METRES_PER_DEGREE_LAT,
             (midLon - originLon) * metresPerDegreeLon(originLat))
         if (step <= KEEP_WORLD_WITHIN_M) return
+        if (anchoredToFlight && withinTheRoots(nMinLat, nMaxLat, nMinLon, nMaxLon)) return
+        anchoredToFlight = true
         originLat = midLat
         originLon = midLon
         minLat = nMinLat; maxLat = nMaxLat

@@ -1111,9 +1111,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private fun forgetOperator() {
         operatorTrack = null
         recordedMe = null
-        // the orange arrow belongs to a replay and goes with it
+        // the orange arrow belongs to a replay and goes with it — into the
+        // garage as well, or a world parked during one hands the recorded
+        // operator back over the next flight
         map?.showRecordedLocation(null, 0f, 0f)
-        terrain3D?.hideLoggedLocation()
+        (terrain3D ?: parked3D)?.hideLoggedLocation()
         showMyLocation()
         tellViewsWhereIAm()
         showTime()
@@ -1495,6 +1497,16 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     // is loading by the time the autostart hold asks about it,
                     // and the replay opens over a finished world.
                     logPlayer?.firstPosition()?.let { first ->
+                        // A standing world serves a log flown at this field.
+                        // One from another country cannot be re-opened over:
+                        // it reports itself ready for the wrong ground, so
+                        // the hold lets playback start, and the first fix
+                        // then re-anchors the world out from under it. The
+                        // log's own field is known here and nowhere earlier.
+                        val standing = terrain3D ?: parked3D
+                        if (standing?.worldNear(first.lat, first.lon) == false) {
+                            startFlightIn3D(keepWorld = false)
+                        }
                         terrain3D?.beginAt(first.lat, first.lon)
                     }
                     seekBar.max = size
@@ -4413,8 +4425,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // replay of somewhere else hands the world back by rebuilding at
         // home. Measured against the live phone, not the arrow: during a
         // replay the arrow wears the recorded position.
+        // A phone that has never had a fix is not a far one, and it is
+        // nowhere to rebuild at either: the rebuild takes the ground down
+        // and then finds no place to stand a new one, leaving the holder
+        // empty. Replay works without the location permission, so this is a
+        // road someone really walks.
         val fix = bestPhoneFix ?: myLastKnownFix()
-        startFlightIn3D(keepWorld = fix != null &&
+        startFlightIn3D(keepWorld = fix == null ||
             (terrain3D ?: parked3D)?.worldNear(fix.latitude, fix.longitude) == true)
         marker?.remove()
         marker = null

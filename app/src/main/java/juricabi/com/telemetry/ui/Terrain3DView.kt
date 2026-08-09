@@ -296,7 +296,23 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     fun start(points: List<TerrainScene.TrackPoint>,
               fallbackLat: Double, fallbackLon: Double,
               myLatitude: Double, myLongitude: Double, accuracy: Float) {
-        if (released || started) return
+        if (released) return
+        // A world already up is being handed a flight, not being built. It
+        // hears no fixes while it is parked behind the map, so a flight that
+        // began — or ran to its end — during that time would otherwise wait
+        // for the next one, which a finished replay never sends.
+        if (started) {
+            myLat = myLatitude
+            myLon = myLongitude
+            myAccuracy = accuracy
+            if (points.size >= 2) {
+                flightShown = true
+                // which lays the track out, re-anchors it if it is far, and
+                // stands the model at its end — the tick's own road
+                pickUpNewPoints()
+            }
+            return
+        }
         started = true
         myLat = myLatitude
         myLon = myLongitude
