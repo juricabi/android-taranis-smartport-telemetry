@@ -9,48 +9,30 @@ Bluetooth, BLE, USB serial and network connections.
 **Download:** [GitHub Releases](https://github.com/juricabi/android-taranis-smartport-telemetry/releases)
 
 <p align="center">
-  <img src="docs/terrain-3d.png" width="360" alt="3D terrain flight view">
+  <img src="docs/replay-3d.jpg" width="360" alt="3D terrain flight view">
 </p>
 
 ## Current state
 
-Version 2.4.0 rebuilds the 3D ground as a camera-driven quadtree, fixes the
-2D map's tile loading, and makes the whole 3D pipeline memory-stable, on
-top of 2.2.1's low-bandwidth telemetry.
+Version 2.4.0: a camera-driven quadtree 3D ground, a fixed 2D map, and a
+memory-stable pipeline, on top of 2.2.1's low-bandwidth telemetry.
 
-- The 3D terrain is the design Google Earth and Cesium use: a quadtree of
-  web-mercator tiles that splits wherever its error would show on screen.
-  Coarse tiles are the whole region for pennies; the ground is metre-sharp
-  under the model. Levels morph into each other, pictures dissolve in, and
-  an edge facing a coarser neighbour is stitched onto its line.
-- Loading serves the eye: the nearest missing ground builds first, tiles
-  clear up one at a time rather than in sweeps, and bare shaded relief
-  shows the mountains' shape before the first picture lands. Far rings cap
-  their sharpness a step above base, which took a wide view's first picture
-  from five seconds to under two.
-- The world follows the flight: replaying a flight from another country
-  re-anchors the 3D world to it. Beyond that world's edge the locate button
-  says so, and the arrows and lines wait until they are back inside.
-- Switching to the map parks the 3D world instead of destroying it, so
-  switching back redresses from disk in seconds instead of rebuilding for
-  twenty. The texture budget scales to the phone's RAM, and about three
-  gigabytes of imagery and heights persist on disk.
-- Both location arrows stand on the ground as it is currently drawn and
-  ride the surface down as detail arrives, instead of waiting buried
-  inside a coarse mesh that had not converged yet.
-- The 2D map loads everywhere again: the location arrows' special native
-  layer stopped raster tiles from drawing on some devices, and they are
-  ordinary map symbols now — same look, same ring, no grey map.
-- Memory-stable by audit: meshes travel light once dressed, pictures decode
-  at the size actually asked, the stitching workers pace themselves, and
-  every queue and cache is bounded — the heap that lived at ninety percent
-  idles near a third. Level transitions morph onto the coarser line exactly
-  where a coarser neighbour can first stand, so the walls that used to mark
-  them are gone.
-- ArduPilot passthrough over CRSF/ExpressLRS and MAVLink High Latency carry
-  full telemetry over plain ELRS or satellite/LoRa-class links.
-- Every protocol decoder, including the simulator's own byte streams, is
-  covered by regression tests.
+- 3D terrain is a quadtree of web-mercator tiles — the Google Earth and
+  Cesium design — metre-sharp under the model, coarse where it can afford
+  to be, with morphed levels and dissolving pictures.
+- The nearest missing ground loads first and shows the moment it is
+  finished; shaded relief gives the mountains' shape in the first second.
+- The world follows the flight: a flight far from the phone re-anchors
+  the 3D world to itself.
+- Switching views parks the 3D world instead of destroying it; switching
+  back takes seconds. About three gigabytes of ground persist on disk.
+- The 2D map loads everywhere again: the location arrows are ordinary map
+  symbols now, whose old native layer stopped tiles on some devices.
+- Memory-stable by audit: every queue and cache bounded, the heap idles
+  near a third of what it used to hold.
+- ArduPilot passthrough over CRSF/ExpressLRS and MAVLink High Latency
+  carry full telemetry over plain ELRS or satellite/LoRa-class links.
+- Every protocol decoder is covered by regression tests.
 
 ## Supported telemetry
 
