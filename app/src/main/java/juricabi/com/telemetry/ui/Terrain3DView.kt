@@ -670,6 +670,14 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             framedThisFlight = true
             renderer.target = floatArrayOf(0f, heightOfTrack() / 2f, 0f)
             renderer.distance = Math.max(400f, scene.extent * 2.2f)
+            // and looking down from where a view opens, not from wherever the
+            // last flight left the camera: after a chase that is twenty-two
+            // degrees, low enough that the new flight sat above the top of
+            // the screen. The lean goes too — framing means the flight is in
+            // the middle of it.
+            renderer.elevation = TerrainRenderer.LOOKING_DOWN_AT
+            panX = 0f
+            panZ = 0f
         }
         // rebuilt from the whole flight, so everything is accounted for again
         appendedThrough = points.size
