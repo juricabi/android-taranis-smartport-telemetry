@@ -635,7 +635,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             Pair(PreferenceManager.sensors.elementAt(23).name, cell_voltage),
             Pair(PreferenceManager.sensors.elementAt(24).name, altitude_msl),
             Pair(PreferenceManager.sensors.elementAt(25).name, throttle),
-            Pair(PreferenceManager.sensors.elementAt(26).name, tlmRate)
+            Pair(PreferenceManager.sensors.elementAt(26).name, tlmRate),
+            Pair(PreferenceManager.sensors.elementAt(27).name, protocolView)
         )
 
         settingsButton.setOnClickListener {

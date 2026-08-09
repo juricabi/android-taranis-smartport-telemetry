@@ -62,7 +62,11 @@ class PreferenceManager(context: Context) {
             SensorSetting("Cell Voltage", 16, "top", true ),
             SensorSetting("Altitude above MSL", 7, "bottom", false),
             SensorSetting("Throttle", 8, "bottom", false),
-            SensorSetting("Telemetry rate", 17, "top", false )
+            SensorSetting("Telemetry rate", 17, "top", false ),
+            // Last, and last for good: the screen maps these to their views by
+            // position in this set, so anything inserted above renames every
+            // sensor after it and hands each one the neighbour's saved place.
+            SensorSetting("Protocol", 9, "bottom", false )
         )
     }
 
