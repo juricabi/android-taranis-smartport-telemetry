@@ -900,10 +900,21 @@ class TerrainPager(
                     // the root under the camera before the other roots.
                     !p.dressed && z == ROOT_ZOOM ->
                         Long.MAX_VALUE / 2 - d.toLong()
-                    !p.dressed -> (rho(key, ex, ey, ez, k) * 1000).toLong()
-                    // sharpening waits behind first pictures, thinning last
-                    p.extraDressed < extra -> (rho(key, ex, ey, ez, k) * 1000).toLong() / 4
-                    else -> (rho(key, ex, ey, ez, k) * 1000).toLong() / 8
+                    // Missing sharpness over distance. The cut equalises
+                    // screen error by construction, so ranking by rho spread
+                    // the dressing near-uniformly across the view — and with
+                    // upgrades flatly behind first pictures, the ground
+                    // underfoot reached its real sharpness last, after every
+                    // far first dress: the eye waited the whole load for the
+                    // one place it was looking. A missing first picture
+                    // outweighs a missing step of sharpness, nearness weighs
+                    // both, the horizon comes last, thinning after that.
+                    else -> {
+                        val missing = if (!p.dressed) extra + 2
+                            else (extra - p.extraDressed).coerceAtLeast(0)
+                        if (missing == 0) 0L
+                        else missing * 1_000_000_000L / (d.toLong() + 100L)
+                    }
                 }
                 // its old picture goes when the new one lands, so only the
                 // difference weighs on the budget
