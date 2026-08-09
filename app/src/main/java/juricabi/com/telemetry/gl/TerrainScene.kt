@@ -81,6 +81,13 @@ class TerrainScene {
 
         private const val METRES_PER_DEGREE_LAT = 111320.0
 
+        /**
+         * Within this of the origin, the standing world serves; past it,
+         * the world re-anchors to its subject. Far inside the roots' reach
+         * and far outside any one flight's drift.
+         */
+        const val KEEP_WORLD_WITHIN_M = 50_000.0
+
         /** What reported heights turned out to be measured from. */
         class Reference(
             val aboveLaunch: Boolean,
@@ -313,7 +320,7 @@ class TerrainScene {
         val step = Math.hypot(
             (midLat - originLat) * METRES_PER_DEGREE_LAT,
             (midLon - originLon) * metresPerDegreeLon(originLat))
-        if (step <= 50_000.0) return
+        if (step <= KEEP_WORLD_WITHIN_M) return
         originLat = midLat
         originLon = midLon
         minLat = nMinLat; maxLat = nMaxLat

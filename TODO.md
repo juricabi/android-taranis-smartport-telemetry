@@ -51,7 +51,9 @@ sharpness.
 
 ## Done since: a new flight keeps its world (c887324)
 
-Connect and replay-open now re-open the per-flight questions over the
-standing ground instead of rebuilding; exit-replay still rebuilds (the
-world hands back to the phone). Retest the three altitude cases —
-replay, live, Betaflight above-launch — before trusting it fully.
+Connect, replay-open and replay-close now re-open the per-flight
+questions over the standing ground instead of rebuilding, whenever
+their subject is within fifty kilometres of it; only a far subject
+re-anchors, and closing a far replay rebuilds at the phone. Retest the
+three altitude cases — replay, live, Betaflight above-launch — before
+trusting it fully.

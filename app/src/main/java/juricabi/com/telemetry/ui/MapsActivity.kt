@@ -3434,9 +3434,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // rebuild threw away the very tiles it was about to reload. The
         // per-flight questions re-open over the standing ground; a far
         // flight still re-anchors down the road built for that, and a
-        // moved datum still rebuilds. Leaving a replay keeps the full
-        // rebuild: the world hands back from the flight's country to the
-        // phone's, which no re-opened question covers.
+        // moved datum still rebuilds. Leaving a replay of somewhere far
+        // still rebuilds — the world hands back from the flight's country
+        // to the phone's, which no re-opened question covers — and
+        // closeReplay measures which case it is.
         if (keepWorld) {
             val replay = isInReplayMode()
             terrain3D?.beginNewFlight(replay)
@@ -4363,9 +4364,15 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // behind, neither the model nor the flight it was playing back, and in
         // the 3D view that includes the surface hanging under the flight.
         forgetFlight()
-        // The old scene is centred on the replay and owns its altitude epoch.
-        // Back in the live view, ground and altitude both start at the phone.
-        startFlightIn3D(keepWorld = false)
+        // Back in the live view, ground and altitude start at the phone. A
+        // replay of this very field ends over ground worth keeping — the
+        // same fifty kilometres that lets a connect keep it — and only a
+        // replay of somewhere else hands the world back by rebuilding at
+        // home. Measured against the live phone, not the arrow: during a
+        // replay the arrow wears the recorded position.
+        val fix = bestPhoneFix ?: myLastKnownFix()
+        startFlightIn3D(keepWorld = fix != null &&
+            (terrain3D ?: parked3D)?.worldNear(fix.latitude, fix.longitude) == true)
         marker?.remove()
         marker = null
         headingPolyline?.remove()

@@ -741,6 +741,17 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             Math.abs(scene.north(lat)) < TerrainPager.ROOT_REACH_M
     }
 
+    /**
+     * Whether a place stands close enough to the world's origin to keep
+     * the world for it — the same fifty kilometres past which a flight
+     * re-anchors, asked from outside before choosing to.
+     */
+    fun worldNear(lat: Double, lon: Double): Boolean {
+        if (released || lat.isNaN() || lon.isNaN()) return false
+        return Math.hypot(scene.east(lon).toDouble(), scene.north(lat).toDouble()) <=
+            TerrainScene.KEEP_WORLD_WITHIN_M
+    }
+
     fun goToMyLocation(): Boolean {
         if (myLat.isNaN() || myLon.isNaN()) return false
         // Replaying a flight from another country, the phone stands outside
