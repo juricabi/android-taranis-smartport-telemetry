@@ -3480,12 +3480,15 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // after switch, while the map beside it showed the model. Only
         // arriving re-aims — panning away inside a view still stays where it
         // is put, which is the whole point of not snapping back.
-        if (adopted != null) {
+        // and only when nothing else is driving it. Following moves the camera
+        // itself and a chase poses it; between them they leave nobody to bring
+        // the plain camera to the model, which is the one that arrived from
+        // wherever the last look had wandered to — often too far out to make
+        // anything out at all.
+        if (adopted != null && !keepingUp()) {
             juricabi.com.telemetry.gl.LiveFlightPath.latest()?.let {
                 // the locate button's camera, pointed at the model instead of
-                // at the phone: aimed, and close enough to make it out. Aiming
-                // alone arrived from wherever the last look had wandered to,
-                // which was often too far out to see anything at all.
+                // at the phone: aimed, and close enough to see it
                 view.bringCameraTo(it.lat, it.lon, it.altitudeMsl)
             }
         }
