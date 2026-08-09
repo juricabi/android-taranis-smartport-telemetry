@@ -39,7 +39,12 @@ object DebugLog {
             note("CRASH", Log.getStackTraceString(e))
             previous?.uncaughtException(thread, e)
         }
-        note("DebugLog", "session start")
+        // The path and whether it can be written, so a copied log always
+        // begins with proof of where it lives — "nothing writes" is then a
+        // one-line diagnosis instead of an evening.
+        val dir = file?.parentFile
+        note("DebugLog", "session start, writing ${file?.absolutePath}" +
+            " (dir exists=${dir?.isDirectory} writable=${dir?.canWrite})")
     }
 
     /**
@@ -64,8 +69,10 @@ object DebugLog {
                     f.writeBytes(kept)
                 }
                 f.appendText(line)
-            } catch (e: Exception) {
-                // best effort, every time
+            } catch (e: Throwable) {
+                // Best effort, every time — and Throwable, not Exception: an
+                // Error thrown here once killed this thread silently, and a
+                // long-lived process then ran for hours writing nothing.
             }
         }
     }, "debug-log").apply { isDaemon = true; start() }
