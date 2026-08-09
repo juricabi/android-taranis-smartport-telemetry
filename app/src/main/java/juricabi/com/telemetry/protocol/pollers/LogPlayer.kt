@@ -44,8 +44,25 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
     private var cachedData = ArrayList<Protocol.Companion.TelemetryData>()
 
     /** How far into the recording each packet of [cachedData] finished. */
-    private var offsets = ArrayList<Long>()
-    private var decoded = ArrayList<Long>()
+    private var offsets = LongList()
+    private var decoded = LongList()
+
+    /**
+     * A long list without the boxes: ArrayList held each offset as a
+     * java.lang.Long, thirty megabytes of wrappers on a million-packet
+     * log beside eight of numbers.
+     */
+    private class LongList {
+        var size = 0
+            private set
+        private var a = LongArray(1024)
+        fun add(v: Long) {
+            if (size == a.size) a = a.copyOf(a.size * 2)
+            a[size++] = v
+        }
+        operator fun get(i: Int) = a[i]
+        fun isEmpty() = size == 0
+    }
 
     /**
      * Where in the recording the replay has got to.
@@ -91,7 +108,7 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
 
         override fun doInBackground(vararg file: File): ArrayList<Protocol.Companion.TelemetryData> {
             val arrayList = ArrayList<Protocol.Companion.TelemetryData>()
-            val collected = ArrayList<Long>()
+            val collected = LongList()
             decoded = collected
             var tempProtocol: Protocol? = null
 

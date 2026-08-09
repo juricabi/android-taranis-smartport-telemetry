@@ -312,6 +312,11 @@ class TerrainPager(
         DebugLog.note(TAG, "world rebuilt: pictures lost with the GL context")
         synchronized(lock) {
             resident.clear()
+            // and the books about them, or stale heights and retry stamps
+            // for tiles never rebuilt drip across a long session
+            heightRange.clear()
+            textureRetryAt.clear()
+            buildRetryAt.clear()
             lock.notifyAll()
         }
     }

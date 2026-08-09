@@ -238,9 +238,12 @@ object Imagery {
             // Half the memory of ARGB_8888, and the ground has no use for an
             // alpha channel. The slight banding 565 can put into a smooth
             // gradient is invisible in aerial photography.
-            mosaic = Bitmap.createBitmap(side * TILE_SIZE, side * TILE_SIZE, Bitmap.Config.RGB_565)
-            val canvas = Canvas(mosaic)
-            canvas.drawColor(MISSING_COLOR)
+            // Born on the first child that lands, not up front: allocated
+            // eagerly, four workers with no signal pinned thirty-two
+            // megabytes of empty canvases through two minutes of timeouts,
+            // doing nothing.
+            val stitchLock = Object()
+            var canvas: Canvas? = null
             val drawn = AtomicInteger(0)
             val jobs = ArrayList<Future<*>>(side * side)
             // one rank for the whole mosaic, so its squares stay together
@@ -266,8 +269,17 @@ object Imagery {
                                     return@Runnable
                                 }
                                 // Canvas is not thread safe and every child lands on this one
-                                synchronized(canvas) {
-                                    canvas.drawBitmap(
+                                synchronized(stitchLock) {
+                                    var c = canvas
+                                    if (c == null) {
+                                        mosaic = Bitmap.createBitmap(
+                                            side * TILE_SIZE, side * TILE_SIZE,
+                                            Bitmap.Config.RGB_565)
+                                        c = Canvas(mosaic!!)
+                                        c.drawColor(MISSING_COLOR)
+                                        canvas = c
+                                    }
+                                    c.drawBitmap(
                                         child, null,
                                         Rect(left, top, left + TILE_SIZE, top + TILE_SIZE), null
                                     )
@@ -296,14 +308,14 @@ object Imagery {
             }
             if (!alive()) {
                 for (job in jobs) job.cancel(true)
-                mosaic.recycle()
+                mosaic?.recycle()
                 return null
             }
             // Watermarks mean this level does not exist here: step back one
             // and let real pictures fill the whole square, scaled by the
             // mesh rather than written on by the server.
             if (sawPlaceholder.get() && extra > 0) {
-                mosaic.recycle()
+                mosaic?.recycle()
                 // Not written to disk under the sharper key: this level has
                 // no way to know whether the fallback came back whole, and a
                 // holed one cached here was permanent — the fallback level
@@ -312,18 +324,19 @@ object Imagery {
             }
             // a missing square is only haze on the texture, but all of them means
             // there is no imagery here at all and the caller should not texture
-            if (drawn.get() == 0) {
-                mosaic.recycle()
+            val done = mosaic
+            if (drawn.get() == 0 || done == null) {
+                done?.recycle()
                 return null
             }
             // only complete, expensive ones: a small mosaic is quicker to
             // stitch than to read back, and a holed one should heal next time
             if (extra >= 2 && drawn.get() == side * side) {
-                writeMosaic(z, x, y, extra, mosaic)
+                writeMosaic(z, x, y, extra, done)
             }
             DebugLog.note(TAG, "mosaic $z/$x/$y+$extra stitched " +
                 "${(System.nanoTime() - startedNs) / 1_000_000}ms")
-            return mosaic
+            return done
         } catch (e: Exception) {
             mosaic?.recycle()
             Log.w(TAG, "mosaic $z/$x/$y failed: ${e.message}")

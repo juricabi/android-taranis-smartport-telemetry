@@ -143,6 +143,58 @@ class TerrainScene {
             if (z >= 16) 65 else if (z >= 15) 129 else if (z >= 12) 97 else 65
 
         /**
+         * Index arrays by grid size — three ever exist. Cells grouped by
+         * quadrant, four equal runs then the skirts, so the renderer can
+         * draw any subset of quarters; the quadrant order matches the
+         * child index the pager masks by: bit cy*2+cx, row 0 north,
+         * col 0 west. Shared and never written after birth.
+         */
+        private val sharedIndices = HashMap<Int, ShortArray>()
+
+        private fun indicesFor(grid: Int): ShortArray =
+            synchronized(sharedIndices) {
+                sharedIndices.getOrPut(grid) { buildIndices(grid) }
+            }
+
+        private fun buildIndices(grid: Int): ShortArray {
+            val rim = 4 * (grid - 1)
+            val indices = ShortArray((grid - 1) * (grid - 1) * 6 + rim * 6)
+            val quadHalf = (grid - 1) / 2
+            var i = 0
+            for (q in 0 until 4) {
+                val rowBase = (q shr 1) * quadHalf
+                val colBase = (q and 1) * quadHalf
+                for (row in rowBase until rowBase + quadHalf) {
+                    for (col in colBase until colBase + quadHalf) {
+                        val a = (row * grid + col).toShort()
+                        val b = (row * grid + col + 1).toShort()
+                        val c = ((row + 1) * grid + col).toShort()
+                        val d = ((row + 1) * grid + col + 1).toShort()
+                        indices[i++] = a; indices[i++] = c; indices[i++] = b
+                        indices[i++] = b; indices[i++] = c; indices[i++] = d
+                    }
+                }
+            }
+            val rimIndices = IntArray(rim)
+            var r = 0
+            for (col in 0 until grid - 1) rimIndices[r++] = col
+            for (row in 0 until grid - 1) rimIndices[r++] = row * grid + (grid - 1)
+            for (col in grid - 1 downTo 1) rimIndices[r++] = (grid - 1) * grid + col
+            for (row in grid - 1 downTo 1) rimIndices[r++] = row * grid
+            val ringBase = grid * grid
+            for (k in 0 until rim) {
+                val kn = (k + 1) % rim
+                val a = rimIndices[k].toShort()
+                val b = rimIndices[kn].toShort()
+                val c = (ringBase + k).toShort()
+                val d = (ringBase + kn).toShort()
+                indices[i++] = a; indices[i++] = c; indices[i++] = b
+                indices[i++] = b; indices[i++] = c; indices[i++] = d
+            }
+            return indices
+        }
+
+        /**
          * Geometric error by zoom — 8m at the source's finest, doubling up —
          * and the screen error a tile is allowed before the pager splits it.
          * Here rather than in the pager because the renderer's morphing has
@@ -949,40 +1001,11 @@ class TerrainScene {
             vertices[v++] = vertices[src + 9]
         }
 
-        // Cells grouped by quadrant — four equal runs, then the skirts — so
-        // the renderer can draw any subset of quarters. A parent whose
-        // corner already stands as children draws only the quarters they do
-        // not cover: the first sharp ground shows the moment it exists,
-        // instead of when the last corner of a 112km square completes. The
-        // quadrant order matches the child index the pager masks by:
-        // bit cy*2+cx, row 0 north, col 0 west.
-        val indices = ShortArray((grid - 1) * (grid - 1) * 6 + rim * 6)
+        // One shared array per grid size: the triangles are a pure function
+        // of the grid, and a fresh copy per tile was a fifth of the mesh
+        // bytes plus steady allocation at thirty builds a second.
+        val indices = indicesFor(grid)
         val quadHalf = (grid - 1) / 2
-        var i = 0
-        for (q in 0 until 4) {
-            val rowBase = (q shr 1) * quadHalf
-            val colBase = (q and 1) * quadHalf
-            for (row in rowBase until rowBase + quadHalf) {
-                for (col in colBase until colBase + quadHalf) {
-                    val a = (row * grid + col).toShort()
-                    val b = (row * grid + col + 1).toShort()
-                    val c = ((row + 1) * grid + col).toShort()
-                    val d = ((row + 1) * grid + col + 1).toShort()
-                    indices[i++] = a; indices[i++] = c; indices[i++] = b
-                    indices[i++] = b; indices[i++] = c; indices[i++] = d
-                }
-            }
-        }
-        val ringBase = grid * grid
-        for (k in 0 until rim) {
-            val kn = (k + 1) % rim
-            val a = rimIndices[k].toShort()
-            val b = rimIndices[kn].toShort()
-            val c = (ringBase + k).toShort()
-            val d = (ringBase + kn).toShort()
-            indices[i++] = a; indices[i++] = c; indices[i++] = b
-            indices[i++] = b; indices[i++] = c; indices[i++] = d
-        }
 
         // No picture: a tile is built for its shape, and its photograph is
         // hung on it afterwards by the pass that fetches them. The box is
