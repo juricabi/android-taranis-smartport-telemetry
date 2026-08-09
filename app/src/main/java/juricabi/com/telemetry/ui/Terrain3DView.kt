@@ -1456,10 +1456,13 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         onGroundReady = null
         onFollowingLost = null
         onBearingChanged = null
+        onTrafficTapped = null
+        onLoadingProgress = null
         renderer.onPicturesLost = null
         pager.onFirstDressed = null
         pager.onWorldMoved = null
         pager.onStatus = null
+        pager.onProgress = null
         pager.abandon()
         // and the ground: the thread loading it holds this view, and its
         // pictures are the largest thing the app ever has in its hands

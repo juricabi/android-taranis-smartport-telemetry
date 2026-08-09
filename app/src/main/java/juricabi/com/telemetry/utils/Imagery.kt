@@ -217,8 +217,10 @@ object Imagery {
             // could not thin: the same picture came straight back at the
             // same size, two tiles refetched every 40ms for minutes.
             for (have in extra..MAX_EXTRA_ZOOM) {
-                readMosaic(z, x, y, have)?.let {
+                readMosaic(z, x, y, have, TILE_SIZE shl extra)?.let {
                     val wantedSide = TILE_SIZE shl extra
+                    // inSampleSize lands on the exact size for power-of-two
+                    // ratios; the scale below is only the odd-size backstop
                     val fit = if (it.width > wantedSide) {
                         val scaled = Bitmap.createScaledBitmap(
                             it, wantedSide,
@@ -477,12 +479,25 @@ object Imagery {
         return File(dir, "m${z}_${x}_${y}_$extra.jpg")
     }
 
-    private fun readMosaic(z: Int, x: Int, y: Int, extra: Int): Bitmap? {
+    private fun readMosaic(z: Int, x: Int, y: Int, extra: Int,
+                           wantedSide: Int): Bitmap? {
         try {
             val file = mosaicFile(z, x, y, extra) ?: return null
             if (!file.isFile || file.length() <= 0L) return null
+            // Decoded at the asked size, not the stored one. A cached 2048
+            // mosaic served a 256-pixel ask by decoding all eight megabytes
+            // and scaling down — on the hottest path, four workers wide,
+            // re-run for every rung of the sharpening climb: the allocation
+            // rate that kept the collector at "<1% free". Both sides are
+            // powers of two, so the sampling is exact.
+            val bounds = BitmapFactory.Options()
+            bounds.inJustDecodeBounds = true
+            BitmapFactory.decodeFile(file.path, bounds)
             val options = BitmapFactory.Options()
             options.inPreferredConfig = Bitmap.Config.RGB_565
+            if (bounds.outWidth > wantedSide && wantedSide > 0) {
+                options.inSampleSize = bounds.outWidth / wantedSide
+            }
             val bitmap = BitmapFactory.decodeFile(file.path, options)
             if (bitmap == null) {
                 file.delete()

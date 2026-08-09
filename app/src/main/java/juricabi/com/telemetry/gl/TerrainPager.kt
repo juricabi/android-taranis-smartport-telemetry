@@ -208,19 +208,31 @@ class TerrainPager(
             val r0 = Math.min(fv.toInt(), grid - 2)
             val du = (fu - c0).toFloat()
             val dv = (fv - r0).toFloat()
-            fun lerp(idx: Int): Float {
-                fun at(r: Int, c: Int) = mesh.vertices[(r * grid + c) * 10 + idx]
-                return (at(r0, c0) * (1 - du) + at(r0, c0 + 1) * du) * (1 - dv) +
+            val verts = mesh.vertices
+            var worldY: Float
+            if (verts != null) {
+                fun lerp(idx: Int): Float {
+                    fun at(r: Int, c: Int) = verts[(r * grid + c) * 10 + idx]
+                    return (at(r0, c0) * (1 - du) + at(r0, c0 + 1) * du) * (1 - dv) +
+                        (at(r0 + 1, c0) * (1 - du) + at(r0 + 1, c0 + 1) * du) * dv
+                }
+                worldY = lerp(1)
+                // Still wearing an ancestor's picture: the renderer forces
+                // such a tile onto the coarser line until its own picture
+                // lands, so for that second the drawn surface is the highest
+                // of the lines this vertex is strung between — stood on its
+                // own line alone, the arrow dropped into the ground and
+                // climbed back out. The arrays live exactly as long as the
+                // undressed state that needs their lattice lines.
+                if (!p.dressed) {
+                    worldY = Math.max(worldY, Math.max(lerp(7), lerp(8)))
+                }
+            } else {
+                val h = mesh.heights
+                if (h.size < grid * grid) return null
+                fun at(r: Int, c: Int) = h[r * grid + c]
+                worldY = (at(r0, c0) * (1 - du) + at(r0, c0 + 1) * du) * (1 - dv) +
                     (at(r0 + 1, c0) * (1 - du) + at(r0 + 1, c0 + 1) * du) * dv
-            }
-            var worldY = lerp(1)
-            // Still wearing an ancestor's picture: the renderer forces such
-            // a tile onto the coarser line until its own picture lands, so
-            // for that second the drawn surface is the highest of the lines
-            // this vertex is strung between — stood on its own line alone,
-            // the arrow dropped into the ground and climbed back out.
-            if (!p.dressed) {
-                worldY = Math.max(worldY, Math.max(lerp(7), lerp(8)))
             }
             if (worldY.isNaN()) return null
             return worldY + scene.originAltitude
@@ -265,6 +277,9 @@ class TerrainPager(
 
     /** A picture per thread in flight; Imagery's own pool spreads each one. */
     private val texInFlight = HashSet<Long>()
+
+    /** Mosaics being stitched right now, for the dress backpressure. */
+    private val stitching = java.util.concurrent.atomic.AtomicInteger()
 
     fun start() {
         if (meshWorker != null || abandoned) return
@@ -1065,11 +1080,18 @@ class TerrainPager(
                 // Backpressure before the stitch allocates: a picture waiting
                 // for its one-per-frame upload is heap doing nothing, and
                 // four workers stitching into a growing queue was the chase
-                // cam's OutOfMemory.
-                while (renderer.pictureBacklog() >= 6 && !abandoned && !paused) {
+                // cam's OutOfMemory. Stitches in progress count too, or all
+                // four workers passed the gate together at backlog five.
+                while (renderer.pictureBacklog() + stitching.get() >= 4 &&
+                    !abandoned && !paused) {
                     Thread.sleep(25)
                 }
-                fetchAndDress(key, job[1].toInt(), job[3].toInt())
+                stitching.incrementAndGet()
+                try {
+                    fetchAndDress(key, job[1].toInt(), job[3].toInt())
+                } finally {
+                    stitching.decrementAndGet()
+                }
             } catch (e: Throwable) {
                 // a worker that dies of one bad tile is a quarter of the
                 // dressing capacity gone for the life of the view
@@ -1121,9 +1143,13 @@ class TerrainPager(
                     (extra > was && p.extraDressed < extra) ||
                     (extra < was && p.extraDressed > extra))) {
                 val old = p.mesh
-                p.mesh = TerrainScene.TileMesh(old.key, old.vertices, old.indices,
+                // Dressing is when the geometry arrays die: the shape went
+                // to the card at build, the picture path never reads it,
+                // and the copies were the heap's largest tenant. The
+                // compact heights stay for the ground queries.
+                p.mesh = TerrainScene.TileMesh(old.key, null, null,
                     bmp, old.minX, old.maxX, old.minY, old.maxY, old.minZ, old.maxZ,
-                    quadCount = old.quadCount)
+                    quadCount = old.quadCount, heights = old.heights)
                 p.dressed = true
                 // The larger of what was asked and what arrived. Softer than
                 // asked is the imagery's ceiling where ArcGIS ends — record

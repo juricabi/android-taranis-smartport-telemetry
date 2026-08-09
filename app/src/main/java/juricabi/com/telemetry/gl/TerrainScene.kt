@@ -28,8 +28,16 @@ class TerrainScene {
     class TileMesh(
         /** Which tile of the world this is, so it is uploaded once and no more. */
         val key: Long,
-        val vertices: FloatArray,   // x, y, z, u, v, nx, ny, nz
-        val indices: ShortArray,
+        /**
+         * Null once the tile has dressed: by then the geometry has long
+         * been on the card, and the CPU copies were the heap's single
+         * largest tenant — two hundred megabytes of arrays retained for
+         * one upload that had already happened, held twice over with a
+         * world parked behind the map. [heights] stays for the ground
+         * queries.
+         */
+        @Volatile var vertices: FloatArray?,   // 10 floats per vertex
+        @Volatile var indices: ShortArray?,
         val texture: Bitmap?,
         /** The box the tile fits in, for the renderer to cull against. */
         val minX: Float = 0f, val maxX: Float = 0f,
@@ -38,7 +46,9 @@ class TerrainScene {
         /** False when a rim was built blind; the pager rebuilds it later. */
         val rimComplete: Boolean = true,
         /** Indices per quadrant run; the skirts follow the four runs. */
-        val quadCount: Int = 0
+        val quadCount: Int = 0,
+        /** The tile's own drawn heights, grid x grid, origin-relative. */
+        val heights: FloatArray = FloatArray(0)
     )
 
     companion object {
@@ -986,7 +996,8 @@ class TerrainScene {
             lowest - skirtDepth - pad, highest + pad,
             -north(northLat), -north(southLat),
             rimComplete = !rimMissing,
-            quadCount = quadHalf * quadHalf * 6)
+            quadCount = quadHalf * quadHalf * 6,
+            heights = heights)
     }
 
     /** A height just past this tile's edge, origin-relative, or null. */

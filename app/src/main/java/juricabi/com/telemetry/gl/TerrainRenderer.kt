@@ -1078,6 +1078,12 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                 m.texture?.let { if (!it.isRecycled) it.recycle() }
             }
             pendingPictures.clear()
+            // and the mesh queue's pictures: a dressed rebuild waiting here
+            // owns its bitmap the same way
+            for (m in pending) {
+                m.texture?.let { if (!it.isRecycled) it.recycle() }
+            }
+            pending.clear()
             drawSet = null
             drawSetWanted = null
             quadMasks = HashMap()
@@ -1362,20 +1368,28 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             } else {
                 inherited
             }
+            val vertexArray = mesh.vertices
+            val indexArray = mesh.indices
+            if (vertexArray == null || indexArray == null) {
+                // a dressed copy has no geometry; its tile left between
+                // queueing and now, so there is nothing to stand it on
+                mesh.texture?.let { if (!it.isRecycled) it.recycle() }
+                continue
+            }
             val ids = IntArray(2)
             GLES20.glGenBuffers(2, ids, 0)
-            val vertices = floats(mesh.vertices)
+            val vertices = floats(vertexArray)
             GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, ids[0])
-            GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, mesh.vertices.size * 4, vertices,
+            GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, vertexArray.size * 4, vertices,
                 GLES20.GL_STATIC_DRAW)
-            val indices = shorts(mesh.indices)
+            val indices = shorts(indexArray)
             GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, ids[1])
-            GLES20.glBufferData(GLES20.GL_ELEMENT_ARRAY_BUFFER, mesh.indices.size * 2, indices,
+            GLES20.glBufferData(GLES20.GL_ELEMENT_ARRAY_BUFFER, indexArray.size * 2, indices,
                 GLES20.GL_STATIC_DRAW)
             GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
             GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, 0)
             synchronized(this) {
-                tiles[mesh.key] = Tile(mesh.key, ids[0], ids[1], mesh.indices.size,
+                tiles[mesh.key] = Tile(mesh.key, ids[0], ids[1], indexArray.size,
                     mesh.quadCount, texture,
                     mesh.minX, mesh.maxX, mesh.minY, mesh.maxY, mesh.minZ, mesh.maxZ)
                 // An offer is a keep. The keep list is the previous pass's
