@@ -100,6 +100,12 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // the snap that drops the camera onto it
         appendedThrough = 0
         placedOnce = false
+        // and the camera frames the new flight the way a view built for it
+        // would have. A world thrown away took its camera with it; a world
+        // kept carries the last flight's distance into the next one, so a
+        // pack flown after a long one was watched from wherever that one
+        // had been left — which is not a decision anybody made.
+        framedThisFlight = false
         hasAttitude = false
         modelHeadingKnown = false
         chasePoseApplied = false
@@ -349,6 +355,10 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         } else {
             500f
         }
+        // Framed here when there is a flight to frame; without one the first
+        // one to arrive gets it instead, on the same road a later flight over
+        // this world takes.
+        framedThisFlight = hasFlight
         // Zooming out past the ground shows nothing but sky, so the limit
         // follows the flight: a couple of kilometres for an ordinary one, more
         // for a flight that covers more.
@@ -500,6 +510,14 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private var placedOnce = false
 
     /**
+     * Whether the camera has been put on this flight yet. A view built for a
+     * flight frames it once in [start]; over a world that is kept, that has
+     * to happen again for each new flight — and only once, or every batch of
+     * points would drag the camera back from wherever it had been moved to.
+     */
+    private var framedThisFlight = false
+
+    /**
      * Told when a fix lands, so the model moves with the one on the map rather
      * than up to a tick behind it.
      *
@@ -644,6 +662,15 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         renderer.setTrack(scene.track, scene.shadow)
         // as the flight grows, so does how far back the camera may be pulled
         renderer.maxDistance = reachOfFlight()
+        // The first sight of a new flight over a world that was kept: put the
+        // camera on it, as building a view for it would have. Once — after
+        // this the distance is whatever the hands have made it, and a chase
+        // takes it over on its own road.
+        if (!framedThisFlight) {
+            framedThisFlight = true
+            renderer.target = floatArrayOf(0f, heightOfTrack() / 2f, 0f)
+            renderer.distance = Math.max(400f, scene.extent * 2.2f)
+        }
         // rebuilt from the whole flight, so everything is accounted for again
         appendedThrough = points.size
 
