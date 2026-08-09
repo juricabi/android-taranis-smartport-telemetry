@@ -1264,7 +1264,11 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
                     while (turn > 180f) turn -= 360f
                     while (turn < -180f) turn += 360f
                     if (Math.abs(turn) < 40f) {
-                        if (chasing) {
+                        // an armed chase with nothing to stand behind is not
+                        // driving the camera, so it must not eat the twist
+                        // either: the yaw offset went into an orbit nobody
+                        // was flying, and rotation read as dead
+                        if (chasing && chasePoseApplied) {
                             chaseYaw += turn
                             applyChaseBearing()
                         } else {
