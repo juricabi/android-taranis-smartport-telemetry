@@ -553,8 +553,21 @@ class TerrainPager(
         val x1 = Elevation.tileX(scene.originLon + padLon, ROOT_ZOOM)
         val y0 = Elevation.tileY(scene.originLat + padLat, ROOT_ZOOM)
         val y1 = Elevation.tileY(scene.originLat - padLat, ROOT_ZOOM)
+        val across = 1 shl ROOT_ZOOM
+        // Walked eastward from the western edge and wrapped, rather than
+        // counted between two column numbers. A ring that reaches over the
+        // 180th meridian comes back with its west column near the top of
+        // the range and its east column near the bottom, and counting
+        // between them selected the whole globe — every root tile there is,
+        // asked for and evicted on every pass. The far north is the other
+        // way in: a degree of longitude is metres wide there, so the ring
+        // really can go all the way round.
+        val steps =
+            if (padLon * 2.0 >= 360.0) across - 1
+            else ((x1 - x0) % across + across) % across
         val out = ArrayList<Long>()
-        for (x in Math.min(x0, x1)..Math.max(x0, x1)) {
+        for (step in 0..steps) {
+            val x = (x0 + step) % across
             for (y in Math.min(y0, y1)..Math.max(y0, y1)) {
                 out.add(TerrainScene.tileKey(ROOT_ZOOM, x, y))
             }

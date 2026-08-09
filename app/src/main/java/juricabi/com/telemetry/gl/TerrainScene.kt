@@ -84,6 +84,30 @@ class TerrainScene {
         private const val METRES_PER_DEGREE_LAT = 111320.0
 
         /**
+         * Longitude arithmetic that survives the 180th meridian.
+         *
+         * Taken raw, a step from 179.9 to -179.9 reads as most of the way
+         * round the world instead of the twenty kilometres it is. Every
+         * difference between two longitudes goes through [apart], which
+         * answers the short way round; anything that carries a longitude
+         * away from the meridian and back again — an extent, a midpoint —
+         * counts in that answer and comes back through [wrapped].
+         */
+        fun apart(lon: Double, from: Double): Double =
+            ((lon - from + 540.0) % 360.0) - 180.0
+
+        /** Brought back into the -180..180 the rest of the world speaks. */
+        fun wrapped(lon: Double): Double =
+            ((lon + 180.0) % 360.0 + 360.0) % 360.0 - 180.0
+
+        /**
+         * The same place, counted on from [from] rather than jumping the
+         * meridian: 179.9 read from -179.9 answers -180.1, so a run of
+         * these keeps its order and its middle.
+         */
+        fun unwrapped(lon: Double, from: Double): Double = from + apart(lon, from)
+
+        /**
          * Within this of the origin, the standing world serves; past it,
          * the world re-anchors to its subject. Far inside the roots' reach
          * and far outside any one flight's drift.
@@ -310,7 +334,7 @@ class TerrainScene {
     private fun withinTheRoots(loLat: Double, hiLat: Double,
                                loLon: Double, hiLon: Double): Boolean {
         val lat = Math.max(Math.abs(loLat - originLat), Math.abs(hiLat - originLat))
-        val lon = Math.max(Math.abs(loLon - originLon), Math.abs(hiLon - originLon))
+        val lon = Math.max(Math.abs(apart(loLon, originLon)), Math.abs(apart(hiLon, originLon)))
         return Math.hypot(lat * METRES_PER_DEGREE_LAT,
             lon * metresPerDegreeLon(originLat)) < TerrainPager.ROOT_REACH_M
     }
@@ -339,10 +363,13 @@ class TerrainScene {
     private fun reanchorIfFar(nMinLat: Double, nMaxLat: Double,
                               nMinLon: Double, nMaxLon: Double, lowest: Float) {
         val midLat = (nMinLat + nMaxLat) / 2
-        val midLon = (nMinLon + nMaxLon) / 2
+        // the extent is counted on from the flight's first point, so its
+        // middle can lie past the meridian; the world's origin is a real
+        // longitude and comes back inside it
+        val midLon = wrapped((nMinLon + nMaxLon) / 2)
         val step = Math.hypot(
             (midLat - originLat) * METRES_PER_DEGREE_LAT,
-            (midLon - originLon) * metresPerDegreeLon(originLat))
+            apart(midLon, originLon) * metresPerDegreeLon(originLat))
         if (step <= KEEP_WORLD_WITHIN_M) return
         if (anchoredToFlight && withinTheRoots(nMinLat, nMaxLat, nMinLon, nMaxLon)) return
         anchoredToFlight = true
@@ -414,7 +441,8 @@ class TerrainScene {
     /** The place a point in the local frame stands for. */
     fun latAt(z: Float): Double = originLat - z / METRES_PER_DEGREE_LAT
 
-    fun lonAt(x: Float): Double = originLon + x / metresPerDegreeLon(originLat)
+    fun lonAt(x: Float): Double =
+        wrapped(originLon + x / metresPerDegreeLon(originLat))
 
     /** How far a degree of longitude reaches at this latitude, in metres. */
     fun metresAcross(lat: Double): Double = metresPerDegreeLon(lat)
@@ -425,7 +453,8 @@ class TerrainScene {
     private fun metresPerDegreeLon(lat: Double): Double =
         METRES_PER_DEGREE_LAT * Math.cos(Math.toRadians(lat))
 
-    fun east(lon: Double): Float = ((lon - originLon) * metresPerDegreeLon(originLat)).toFloat()
+    fun east(lon: Double): Float =
+        (apart(lon, originLon) * metresPerDegreeLon(originLat)).toFloat()
 
     fun north(lat: Double): Float = ((lat - originLat) * METRES_PER_DEGREE_LAT).toFloat()
 
@@ -486,12 +515,14 @@ class TerrainScene {
         // here, not through setTrack, and it must be able to re-anchor too.
         if (points.isNotEmpty()) {
             var loLat = points[0].lat; var hiLat = loLat
-            var loLon = points[0].lon; var hiLon = loLon
+            val meridian = points[0].lon
+            var loLon = meridian; var hiLon = meridian
             for (p in points) {
                 if (p.lat < loLat) loLat = p.lat
                 if (p.lat > hiLat) hiLat = p.lat
-                if (p.lon < loLon) loLon = p.lon
-                if (p.lon > hiLon) hiLon = p.lon
+                val lon = unwrapped(p.lon, meridian)
+                if (lon < loLon) loLon = lon
+                if (lon > hiLon) hiLon = lon
             }
             reanchorIfFar(loLat, hiLat, loLon, hiLon, Float.NaN)
         }
@@ -503,8 +534,11 @@ class TerrainScene {
             raw[i++] = -north(p.lat)
             if (p.lat < minLat) minLat = p.lat
             if (p.lat > maxLat) maxLat = p.lat
-            if (p.lon < minLon) minLon = p.lon
-            if (p.lon > maxLon) maxLon = p.lon
+            // in the same counting the extent above already uses, or a
+            // flight over the meridian widens it to the whole world
+            val lon = unwrapped(p.lon, minLon)
+            if (lon < minLon) minLon = lon
+            if (lon > maxLon) maxLon = lon
         }
         track = smoothed(raw)
         // How far the flight reaches, which decides how far the camera may be
@@ -558,20 +592,24 @@ class TerrainScene {
     fun setTrack(points: List<TrackPoint>): Boolean {
         if (points.size < 2) return false
         minLat = points[0].lat; maxLat = points[0].lat
-        minLon = points[0].lon; maxLon = points[0].lon
+        // counted on from the first point, so a flight that crosses the
+        // 180th meridian keeps its order and its middle
+        val meridian = points[0].lon
+        minLon = meridian; maxLon = meridian
         var lowest = Float.NaN
         for (p in points) {
             if (p.lat < minLat) minLat = p.lat
             if (p.lat > maxLat) maxLat = p.lat
-            if (p.lon < minLon) minLon = p.lon
-            if (p.lon > maxLon) maxLon = p.lon
+            val lon = unwrapped(p.lon, meridian)
+            if (lon < minLon) minLon = lon
+            if (lon > maxLon) maxLon = lon
             if (!p.altitudeMsl.isNaN() && (lowest.isNaN() || p.altitudeMsl < lowest)) {
                 lowest = p.altitudeMsl
             }
         }
         if (!originFixed) {
             originLat = (minLat + maxLat) / 2
-            originLon = (minLon + maxLon) / 2
+            originLon = wrapped((minLon + maxLon) / 2)
             // a stand-in until the ground is loaded and says otherwise
             if (!datumFromGround && !lowest.isNaN()) originAltitude = lowest
             originFixed = true
