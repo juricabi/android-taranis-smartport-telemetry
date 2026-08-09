@@ -238,6 +238,7 @@ class TerrainPager(
     private var statsAt = 0L
     private var builds = 0
     private var buildFails = 0
+    private var stripped = 0
     private var evictions = 0
 
     /** When the first mesh stood, and how often its pictures have refused. */
@@ -1096,6 +1097,46 @@ class TerrainPager(
         var textureTotal = 0L
         for (p in resident.values) textureTotal += p.textureBytes
         if (resident.size <= residentMost && textureTotal <= textureBudgetBytes) return
+        // Pictures first, whole tiles second. The frontier dresses every
+        // level on its way down, and the covered-over ancestors then kept
+        // those pictures forever under the spare-list — the working set
+        // swelled to the ceiling and the eviction treadmill returned, a
+        // thousand rebuilt tiles per session, measured. A tile that is not
+        // drawn does not need its picture: stripped, the mesh stays and
+        // the picture is twenty disk-milliseconds away — but only once all
+        // four children are dressed, so no bare descendant's borrow-walk
+        // still passes through it, and never a root. Down to nine tenths,
+        // not to the line, or this strips one tile every pass forever.
+        if (textureTotal > textureBudgetBytes) {
+            val candidates = ArrayList<Pair<Long, Paged>>()
+            for (e in resident.entries) {
+                val p = e.value
+                if (!p.dressed || p.textureBytes == 0L) continue
+                if (cover.contains(e.key) || cutSet.contains(e.key)) continue
+                if (TerrainScene.zoomOf(e.key) == ROOT_ZOOM) continue
+                candidates.add(Pair(e.key, p))
+            }
+            for ((key, p) in candidates) {
+                if (textureTotal <= textureBudgetBytes * 9 / 10) break
+                val z = TerrainScene.zoomOf(key)
+                val x = TerrainScene.tileXOf(key)
+                val y = TerrainScene.tileYOf(key)
+                var childrenDressed = true
+                for (cy in 0..1) {
+                    for (cx in 0..1) {
+                        val c = resident[TerrainScene.tileKey(z + 1, x * 2 + cx, y * 2 + cy)]
+                        if (c == null || !c.dressed) childrenDressed = false
+                    }
+                }
+                if (!childrenDressed) continue
+                textureTotal -= p.textureBytes
+                p.textureBytes = 0
+                p.dressed = false
+                p.extraDressed = -1
+                renderer.strip(key)
+                stripped++
+            }
+        }
         val it = resident.entries.iterator()
         while (it.hasNext() &&
             (resident.size > residentMost || textureTotal > textureBudgetBytes)) {
@@ -1137,6 +1178,6 @@ class TerrainPager(
         val heap = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024)
         DebugLog.note(TAG, "cut=${cut.size} cover=${cover.size} resident=$count " +
             "dressed=$dressed textures=${bytes / (1024 * 1024)}MB heap=${heap}MB " +
-            "builds=$builds fails=$buildFails evictions=$evictions")
+            "builds=$builds fails=$buildFails evictions=$evictions stripped=$stripped")
     }
 }

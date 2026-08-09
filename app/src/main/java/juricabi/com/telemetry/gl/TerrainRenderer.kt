@@ -237,6 +237,9 @@ class TerrainRenderer : GLSurfaceView.Renderer {
      */
     private val pendingPictures = ArrayList<TerrainScene.TileMesh>()
 
+    /** Tiles whose pictures the pager reclaimed; the GL objects die here. */
+    private val pendingStrips = ArrayList<Long>()
+
     /**
      * Told when a new context arrives with nothing in it; runs on the GL
      * thread. The meshes used to be retained on the heap for this moment —
@@ -795,6 +798,16 @@ class TerrainRenderer : GLSurfaceView.Renderer {
      * ground comes back with different heights under the same names.
      */
     @Synchronized
+    /**
+     * Drop a tile's picture but keep its mesh: the pager reclaims texture
+     * memory from covered-over ancestors this way. The GL deletes happen
+     * on the GL thread with the other uploads.
+     */
+    @Synchronized
+    fun strip(key: Long) {
+        pendingStrips.add(key)
+    }
+
     fun keepOnly(keys: Set<Long>) {
         keep = HashSet(keys)
         keepChanged = true
@@ -1191,11 +1204,30 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             // even with nothing new to put up — and so is a draw set waiting
             // for the queue to drain
             if (pending.isEmpty() && pendingPictures.isEmpty() &&
-                !keepChanged && drawSetWanted == null) {
+                pendingStrips.isEmpty() && !keepChanged && drawSetWanted == null) {
                 return
             }
             keepChanged = false
             pruneLocked()
+            if (pendingStrips.isNotEmpty()) {
+                for (key in pendingStrips) {
+                    // not what is drawn: the pager decided over a cover that
+                    // may have moved on by the time this runs
+                    if (drawSet?.contains(key) == true) continue
+                    val t = tiles[key] ?: continue
+                    if (t.textureId != 0) {
+                        GLES20.glDeleteTextures(1, intArrayOf(t.textureId), 0)
+                    }
+                    if (t.prevTextureId != 0) {
+                        GLES20.glDeleteTextures(1, intArrayOf(t.prevTextureId), 0)
+                    }
+                    t.textureId = 0
+                    t.prevTextureId = 0
+                    t.swappedAt = 0
+                    retiring.remove(key)
+                }
+                pendingStrips.clear()
+            }
             // A few at a time. A restored context queues every tile at once,
             // and sending them all in one frame is a visible freeze.
             val take = Math.min(pending.size, UPLOADS_PER_FRAME)
