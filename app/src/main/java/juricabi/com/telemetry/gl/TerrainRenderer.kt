@@ -2192,8 +2192,9 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     private val trafficMvp = FloatArray(16)
 
     /**
-     * Real aircraft as small planes in the traffic orange, at their true
-     * place and track — always the plane mesh, whatever the flown model is.
+     * Real aircraft as small planes in the red the 2D marker wears — orange
+     * is the operator's colour — at their true place and track, always the
+     * plane mesh, whatever the flown model is.
      * Sized off each one's own distance, a shade smaller than the model:
      * traffic is context, and the flight stays the subject.
      */
@@ -2226,7 +2227,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         buffer.position(6)
         GLES20.glVertexAttribPointer(aNormal, 3, GLES20.GL_FLOAT, false, stride, buffer)
         GLES20.glEnableVertexAttribArray(aNormal)
-        GLES20.glUniform3f(uBase, 1f, 0.6f, 0.1f)
+        GLES20.glUniform3f(uBase, 1f, 0.125f, 0.125f)
 
         var i = 0
         while (i + 3 < planes.size) {
