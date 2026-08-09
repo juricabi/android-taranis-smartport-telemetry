@@ -837,6 +837,17 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             TerrainScene.KEEP_WORLD_WITHIN_M
     }
 
+    /**
+     * Put the camera on a place and close enough to make it out — what the
+     * locate button does, and the one camera move in here that has always
+     * landed somewhere worth looking at. The angle is left alone: how far up
+     * the camera stands is the hand's business, how far away is this.
+     */
+    fun bringCameraTo(lat: Double, lon: Double, altitudeMsl: Float?) {
+        lookAt(lat, lon, altitudeMsl)
+        renderer.distance = Math.min(renderer.distance, 800f)
+    }
+
     fun goToMyLocation(): Boolean {
         if (myLat.isNaN() || myLon.isNaN()) return false
         // Replaying a flight from another country, the phone stands outside
@@ -855,8 +866,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // leaning out of the chase
         followingOff()
         status.text = ""
-        lookAt(myLat, myLon, null)
-        renderer.distance = Math.min(renderer.distance, 800f)
+        bringCameraTo(myLat, myLon, null)
         return true
     }
 

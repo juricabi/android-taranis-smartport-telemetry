@@ -3482,7 +3482,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // is put, which is the whole point of not snapping back.
         if (adopted != null) {
             juricabi.com.telemetry.gl.LiveFlightPath.latest()?.let {
-                view.lookAt(it.lat, it.lon, it.altitudeMsl)
+                // the locate button's camera, pointed at the model instead of
+                // at the phone: aimed, and close enough to make it out. Aiming
+                // alone arrived from wherever the last look had wandered to,
+                // which was often too far out to see anything at all.
+                view.bringCameraTo(it.lat, it.lon, it.altitudeMsl)
             }
         }
         // where the operator was, if this is opening over a replay
