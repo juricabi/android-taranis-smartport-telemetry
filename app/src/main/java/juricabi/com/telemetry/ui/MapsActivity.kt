@@ -641,6 +641,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // does. So from behind the model this is a step back to plain
             // tracking rather than a step to nothing.
             setFollowMode(!followMode)
+            // the same honesty as the chase button: armed is not engaged,
+            // and a button that visibly does nothing owes a word
+            if (followMode && lastGPS.lat == 0.0 && lastGPS.lon == 0.0) {
+                Toast.makeText(this,
+                    "Following centres on the model - it engages when a flight is up",
+                    Toast.LENGTH_SHORT).show()
+            }
             terrain3D?.setFollowing(keepingUp())
             if (keepingUp()) {
                 marker?.let {
