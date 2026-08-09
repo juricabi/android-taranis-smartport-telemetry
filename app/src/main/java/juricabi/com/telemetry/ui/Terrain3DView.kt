@@ -205,6 +205,9 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
                 }
             }
             pickUpNewPoints()
+            // a chase armed over an empty sky takes its pose the moment
+            // there is a model to stand behind
+            if (chasing && !chasePoseApplied) applyChasePose()
             // The ground under the arrows refines tile by tile; they
             // re-stand on whatever is drawn there now. A settled world
             // pays two height lookups — the rings rebuild only when the
@@ -1362,6 +1365,9 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     /** Chase turns nothing until a model heading — attitude or course — exists. */
     private var modelHeadingKnown = false
 
+    /** Whether the shoulder pose has been taken for the current chase. */
+    private var chasePoseApplied = false
+
     /** Leaning out of that, in degrees, the way [panX] leans out of following. */
     private var chaseYaw = 0f
 
@@ -1373,17 +1379,29 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         if (!on) {
             renderer.chasingModel = false
             renderer.azimuthWanted = Float.NaN
+            chasePoseApplied = false
             return
         }
         chaseYaw = 0f
-        // over its shoulder means keeping up with it, and from a low angle
         following = true
+        // The shoulder pose only over an actual model: armed with an empty
+        // sky, the low angle panned the camera down at nothing — the
+        // bearing was guarded, the pose was not, and the guard's spirit
+        // covers both. The tick applies it the moment a flight appears.
+        chasePoseApplied = false
+        if (LiveFlightPath.latest() != null) applyChasePose()
+        applyChaseBearing()
+    }
+
+    /** The over-its-shoulder pose: keeping up with it, from a low angle. */
+    private fun applyChasePose() {
+        val latest = LiveFlightPath.latest() ?: return
         panX = 0f
         panZ = 0f
         renderer.elevation = 22f
         renderer.distance = renderer.distance.coerceIn(80f, 400f)
-        LiveFlightPath.latest()?.let { lookAt(it.lat, it.lon, it.altitudeMsl) }
-        applyChaseBearing()
+        lookAt(latest.lat, latest.lon, latest.altitudeMsl)
+        chasePoseApplied = true
     }
 
     /**
