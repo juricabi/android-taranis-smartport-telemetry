@@ -343,6 +343,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private lateinit var rssiDbmd: TextView
     private lateinit var cell_voltage: TextView
     private lateinit var throttle: TextView
+
+    /** Which protocol the link turned out to speak. */
+    private lateinit var protocolView: TextView
     private lateinit var tlmRate: TextView
 
     private lateinit var sensorViewMap: HashMap<String, View>
@@ -602,6 +605,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         rssiDbmd = findViewById(R.id.dn_rssi_dbm)
         cell_voltage = findViewById(R.id.cell_voltage)
         throttle = findViewById(R.id.throttle)
+        protocolView = findViewById(R.id.protocol)
         tlmRate = findViewById(R.id.tlm_rate)
 
         sensorViewMap = hashMapOf(
@@ -2401,6 +2405,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         cell_voltage.text = "-"
         this.lastCellVoltage = 0.0f;
         throttle.text = "-"
+        protocolView.text = "-"
         tlmRate.text = "0 b/s"
     }
 
@@ -4803,6 +4808,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     override fun onProtocolDetected( protocolName: String) {
         detectedProtocol = protocolName
         runOnUiThread {
+            // what the link turned out to speak, in the row with the rest
+            // of what it is saying
+            protocolView.text =
+                juricabi.com.telemetry.protocol.ProtocolFactory.shortNameOf(protocolName)
             run {
                 // keep the icon on the side the current layout puts it on
                 val icon = androidx.core.content.ContextCompat.getDrawable(this, rateIconRes())

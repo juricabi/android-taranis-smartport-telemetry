@@ -153,6 +153,22 @@
                     app:minText="100"
                     app:iconWidthDp="24"/>
 
+            <juricabi.com.telemetry.ui.TextViewStableSize
+                    android:id="@+id/protocol"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_margin="6dp"
+                    android:drawableStart="@drawable/ic_protocol"
+                    android:drawableLeft="@drawable/ic_protocol"
+                    android:drawablePadding="4dp"
+                    android:layout_centerVertical="true"
+                    android:gravity="center_horizontal"
+                    android:text="-"
+                    android:textColor="@android:color/white"
+                    android:textSize="16sp"
+                    app:minText="CRSF+AP"
+                    app:iconWidthDp="24"/>
+
         </com.nex3z.flowlayout.FlowLayout>
 
     </RelativeLayout>

@@ -1,0 +1,19 @@
+<!-- A link speaking: two ends with a run of words between them. What the
+     readout beside it names. -->
+<vector android:height="24dp" android:width="24dp" android:tint="#FFFFFF"
+    android:viewportHeight="24.0" android:viewportWidth="24.0"
+    xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M2,6h4v12h-4z"/>
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M18,6h4v12h-4z"/>
+
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M8,11h2v2h-2z"/>
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M11,11h2v2h-2z"/>
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M14,11h2v2h-2z"/>
+
+</vector>

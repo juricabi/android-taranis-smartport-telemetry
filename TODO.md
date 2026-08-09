@@ -1,8 +1,8 @@
 # Known and open, after 2.4.0
 
 Two residuals, accepted and recorded here with what was learnt, so the
-next attempt starts from knowledge instead of theories. Then what is
-wanted and not built, and what has been done since.
+next attempt starts from knowledge instead of theories, and what has
+been done since.
 
 ## 3D: transient artifacts that clear on full load
 
@@ -32,19 +32,13 @@ sharpness.
   before showing an upgrade. Costs visible loading speed; decide with a
   side-by-side, not by taste.
 
-# Wanted
-
-## A new telemetry sensor
-
-Whatever the next one turns out to be, the path is the same and it is
-written down: protocol constant and parser, decoder listener, service
-forwarding, timeout state, screen view, logger and replay, preferences
-and layouts, then a decoder regression test — see the sensor note in
-`CLAUDE.md`. A sensor added to the screen but not to the logger is a
-sensor that vanishes on replay, which is the way this has gone wrong
-before.
-
 # Done since 2.4.0
+
+**The row says what the link speaks.** FrSky, CRSF, CRSF+AP, GHST, LTM,
+MAV v1, MAV v2 or MAV HL, beside the other readings — detection already
+knew it and only the rate icon ever asked. A replay says it too, read
+back from the log's own bytes, and passthrough names itself the moment
+its first word arrives.
 
 **A new flight keeps its world (c887324, in 2.4.0).** Connect,
 replay-open and replay-close re-open the per-flight questions over the

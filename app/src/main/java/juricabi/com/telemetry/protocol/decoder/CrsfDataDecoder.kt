@@ -2,6 +2,7 @@ package juricabi.com.telemetry.protocol.decoder
 
 import android.util.Log
 import juricabi.com.telemetry.protocol.Protocol
+import juricabi.com.telemetry.protocol.ProtocolFactory
 import juricabi.com.telemetry.protocol.SourceFreshness
 
 const val MAX_RSSI = -30
@@ -17,6 +18,23 @@ class CrsfDataDecoder(listener: Listener) : DataDecoder(listener) {
 
     /** The ArduPilot passthrough words, decoded where S.Port decodes them. */
     private val ardu = ArduPassthroughDecoder(listener)
+
+    /**
+     * Said once, when the first passthrough word arrives.
+     *
+     * Detection names the link, and the link is CRSF whether or not an
+     * autopilot is talking over it — but which of the two it is decides what
+     * half these readings mean, so it is worth saying. Reported down the same
+     * road detection uses: the screen and the log both hear it already, and a
+     * replay hears it again from the log's own bytes.
+     */
+    private var saidPassthrough = false
+
+    private fun sayPassthrough() {
+        if (saidPassthrough) return
+        saidPassthrough = true
+        listener.onProtocolDetected(ProtocolFactory.CRSF_WITH_PASSTHROUGH)
+    }
 
     /**
      * Which of two streams answers, when both carry the same value.
@@ -325,6 +343,7 @@ https://github.com/iNavFlight/inav/blob/135456936834ab4129e6ed540038b2e88dcb3c44
             //Native frames stay authoritative for what they carry at a higher
             //rate; the passthrough words answer for what only they know.
             Protocol.ARDU_AP_STATUS -> {
+                sayPassthrough()
                 passthroughStatus.arrived()
                 ardu.apStatus(data.data, withMode = true)
             }
