@@ -1989,7 +1989,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         map?.onPause()
         this.sensorTimeoutManager.pause();
         this.logPlayer?.stop();
-        stopFr24()
+        stopFr24(clear = false)
         updateFullscreenState()//check if user has brought system ui with swipe
         // The service keeps both location and compass for a connected flight;
         // this only removes callbacks to a screen that is no longer drawing.
@@ -4239,7 +4239,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     private fun switchToReplayMode() {
-        stopFr24()
+        stopFr24(clear = true)
         setFollowMode(true);
         seekBar.setOnSeekBarChangeListener(null)
         seekBar.progress = 0
@@ -5737,9 +5737,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         manager.start { myLastKnownPlace() }
     }
 
-    private fun stopFr24() {
+    /**
+     * [clear] scorches the sky as well: right for entering a replay, where
+     * this afternoon's airliners have no business standing over last
+     * month's flight — and wrong for a trip to the home screen, which used
+     * to come back to an empty sky for a whole poll interval. Paused, the
+     * last snapshot stands; the immediate fetch on resume replaces it in
+     * seconds.
+     */
+    private fun stopFr24(clear: Boolean) {
         fr24Manager?.stop()
         fr24Manager = null
+        if (!clear) return
         airplaneMarkers.values.forEach { it.remove() }
         airplaneMarkers.clear()
         // The ground view's posts and the list they are rebuilt from. Without
@@ -5755,6 +5764,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     override fun onAirplanesUpdated(airplanes: List<Fr24Manager.AirplaneInfo>) {
         lastAirplanes = airplanes
         runOnUiThread { terrain3D?.setTraffic(airplanes) }
+        juricabi.com.telemetry.utils.DebugLog.note("Fr24",
+            "update: ${airplanes.size} aircraft, markers=${airplaneMarkers.size}, " +
+            "map=${if (map == null) "null" else "up"}")
         val currentIds = airplanes.map { it.flightId }.toSet()
 
         // Remove stale markers

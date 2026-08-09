@@ -68,7 +68,9 @@ class Fr24Manager(
         this.phoneLocationProvider = phoneLocationProvider
         running = true
         Log.d(TAG, "Started, poll interval=${preferenceManager.getFr24PollIntervalSec()}s")
-        scheduleFetch()
+        // Now, not one poll interval from now: the first sky used to be
+        // empty for the whole interval on every start and every return.
+        scheduleFetch(0L)
     }
 
     fun stop() {
@@ -118,7 +120,7 @@ class Fr24Manager(
         listener.onProximityWarning(closest.airplane, closest.dist, direction)
     }
 
-    private fun scheduleFetch() {
+    private fun scheduleFetch(delayMs: Long = -1L) {
         if (!running) return
         val runnable = Runnable {
             val phonePos = phoneLocationProvider?.invoke()
@@ -143,7 +145,9 @@ class Fr24Manager(
             scheduleFetch()
         }
         fetchRunnable = runnable
-        handler.postDelayed(runnable, preferenceManager.getFr24PollIntervalSec() * 1000L)
+        handler.postDelayed(runnable,
+            if (delayMs >= 0) delayMs
+            else preferenceManager.getFr24PollIntervalSec() * 1000L)
     }
 
     private fun doFetch(phoneLat: Double, phoneLon: Double) {
