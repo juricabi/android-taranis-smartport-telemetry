@@ -1,7 +1,8 @@
 # Known and open, after 2.4.0
 
-Residuals, accepted and recorded here with what was learnt, so the next
-attempt starts from knowledge instead of theories.
+Three residuals, accepted and recorded here with what was learnt, so the
+next attempt starts from knowledge instead of theories. Then what is
+wanted and not built, and what has been done since.
 
 ## 3D: transient artifacts that clear on full load
 
@@ -37,28 +38,6 @@ hops instead of an even walk (fix-rate cadence). Accepted for 2.4.0.
   jump, the link's actual fix rate, and camera-callback logging — the
   1Hz cadence must be matched to a specific writer before changing one.
 
-## 3D: where the plain camera stands when a view is entered
-
-With neither following nor chase lit, the ground view arrives wherever
-the camera was last left — which after a chase is twenty-two degrees,
-low enough that a model can sit off the top of the screen or behind a
-hill. Reported 2026-08-09 as "3D normal cam too low".
-
-- Six changes were tried in one sitting and all reverted (frame each new
-  flight over a kept world; the opening angle and lean with it; standing
-  the camera up when a chase is dropped; the locate camera on arrival;
-  scoping that to the plain camera; one road out of a chase). Each fixed
-  what it aimed at and left the camera wrong somewhere else. The verdict
-  was "it was good enough" — do not retry these blind.
-- What is true and was learnt: three places let go of a chase and only
-  `setChasing(false)` knows how; `setFollowing(false)` and
-  `followingOff()` drop the flag directly; and a parked world is told
-  `setChasing(true)` but never `setChasing(false)`, so a world parked
-  while chasing comes back still chasing and still stooped.
-- If it is ever picked up again, that asymmetry is the honest starting
-  point, and it should be fixed on its own — without touching where the
-  camera is put on arriving, which is what made every attempt spread.
-
 ## Imagery: tone seams between sharpness steps
 
 Adjacent tiles briefly wear different sharpness levels, and the
@@ -71,7 +50,40 @@ sharpness.
   before showing an upgrade. Costs visible loading speed; decide with a
   side-by-side, not by taste.
 
-## Done since 2.4.0
+# Wanted
+
+Not faults — work that has not been done.
+
+## Roads on the 3D ground
+
+The ground view has the photograph and nothing else. A road is often the
+only thing that says where you are on it, and the one thing worth
+following on foot to a model that came down — which the map beside it
+shows and the ground does not.
+
+- The machinery is already here: flight plans are draped onto the
+  terrain point by point as it loads (`drapedPlans` in `Terrain3DView`,
+  settled against `groundAt`), and a road is the same shape of thing —
+  a polyline that has to find the surface and re-find it as detail
+  arrives.
+- What is missing is where the roads come from. The 2D styles get them
+  from raster tiles, which cannot be draped; this needs vector data, so
+  the first question is the source and its licence, not the drawing.
+- Decide what earns its place before drawing anything: roads and tracks,
+  probably; every field boundary, no. A ground view that becomes a map
+  has lost what it was for.
+
+## A new telemetry sensor
+
+Whatever the next one turns out to be, the path is the same and it is
+written down: protocol constant and parser, decoder listener, service
+forwarding, timeout state, screen view, logger and replay, preferences
+and layouts, then a decoder regression test — see the sensor note in
+`CLAUDE.md`. A sensor added to the screen but not to the logger is a
+sensor that vanishes on replay, which is the way this has gone wrong
+before.
+
+# Done since 2.4.0
 
 **A new flight keeps its world (c887324, in 2.4.0).** Connect,
 replay-open and replay-close re-open the per-flight questions over the
