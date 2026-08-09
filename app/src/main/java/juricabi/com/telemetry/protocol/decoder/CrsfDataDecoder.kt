@@ -30,11 +30,24 @@ class CrsfDataDecoder(listener: Listener) : DataDecoder(listener) {
      */
     private var saidPassthrough = false
 
-    private fun sayPassthrough() {
+    private fun sayPassthrough(telemetryType: Int) {
         if (saidPassthrough) return
+        if (telemetryType !in passthroughWords) return
         saidPassthrough = true
         listener.onProtocolDetected(ProtocolFactory.CRSF_WITH_PASSTHROUGH)
     }
+
+    /**
+     * Every word that only an autopilot sends. Asked once where the words are
+     * dispatched rather than in each branch, which had it announced from the
+     * status word alone — so a link sending battery and position and nothing
+     * else went on calling itself plain CRSF.
+     */
+    private val passthroughWords = setOf(
+        Protocol.ARDU_TEXT, Protocol.ARDU_ATTITUDE, Protocol.ARDU_VEL_YAW,
+        Protocol.ARDU_AP_STATUS, Protocol.ARDU_GPS_STATUS, Protocol.ARDU_HOME,
+        Protocol.ARDU_BATT_2, Protocol.ARDU_BATT_1, Protocol.ARDU_PARAM
+    )
 
     /**
      * Which of two streams answers, when both carry the same value.
@@ -71,6 +84,7 @@ class CrsfDataDecoder(listener: Listener) : DataDecoder(listener) {
     }
 
     override fun decodeData(data: Protocol.Companion.TelemetryData) {
+        sayPassthrough(data.telemetryType)
         var decoded = true
         when (data.telemetryType) {
             Protocol.VBAT -> {
@@ -343,7 +357,6 @@ https://github.com/iNavFlight/inav/blob/135456936834ab4129e6ed540038b2e88dcb3c44
             //Native frames stay authoritative for what they carry at a higher
             //rate; the passthrough words answer for what only they know.
             Protocol.ARDU_AP_STATUS -> {
-                sayPassthrough()
                 passthroughStatus.arrived()
                 ardu.apStatus(data.data, withMode = true)
             }

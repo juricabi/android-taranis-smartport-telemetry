@@ -55,6 +55,8 @@ class CrsfPassthroughTest {
         override fun onHeadingData(heading: Float) { this.heading = heading }
         override fun onVSpeedData(vspeed: Float) { this.vspeed = vspeed }
         override fun onStatusText(message: String) { status = message }
+        val namedAs = ArrayList<String>()
+        override fun onProtocolDetected(protocolName: String) { namedAs.add(protocolName) }
     }
 
     private fun frame(type: Int, payload: ByteArray): ByteArray {
@@ -80,6 +82,35 @@ class CrsfPassthroughTest {
 
     /** 0x5003: 25.2 V, 12.3 A, 987 mAh. Voltage 252 = asymmetric LE proof. */
     private val batteryWord = (252L) or (123L shl 10) or (987L shl 17)
+
+    @Test
+    fun aPassthroughWordNamesTheLinkThatCarriesIt() {
+        // The link is CRSF either way, and detection says so — but which of
+        // the two it is decides what half the readings mean, so the first
+        // passthrough word says the longer name. The readout is the only
+        // place a person sees it, and nobody here can fly an ArduPilot.
+        val captor = Captor()
+        feed(CrsfProtocol(captor), frame(0x80, single(0x5003, batteryWord)))
+        assertEquals(listOf(ProtocolFactory.CRSF_WITH_PASSTHROUGH), captor.namedAs)
+    }
+
+    @Test
+    fun theNameIsSaidOnceHoweverManyWordsArrive() {
+        val captor = Captor()
+        val protocol = CrsfProtocol(captor)
+        repeat(5) { feed(protocol, frame(0x80, single(0x5003, batteryWord))) }
+        assertEquals(1, captor.namedAs.size)
+    }
+
+    @Test
+    fun plainCrsfNeverClaimsPassthrough() {
+        // a native battery frame, no passthrough word anywhere in it
+        val captor = Captor()
+        val payload = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN)
+            .putShort(252).putShort(123).put(byteArrayOf(0, 3, 219.toByte())).put(50.toByte())
+        feed(CrsfProtocol(captor), frame(0x08, payload.array()))
+        assertTrue("plain CRSF named itself " + captor.namedAs, captor.namedAs.isEmpty())
+    }
 
     @Test
     fun singlePacketAt0x80Decodes() {
