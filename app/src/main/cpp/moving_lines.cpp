@@ -162,6 +162,75 @@ GLuint linkProgram(
     return 0;
 }
 
+/**
+ * The GL context as it was found, put back as it was left.
+ *
+ * A custom layer is handed a live context in the middle of somebody else's
+ * frame. Everything this one changes to draw with — the program, the vertex
+ * array, the buffer, the texture unit, the blend equation, the tests it
+ * turns off — belongs to the renderer around it, which re-applies only what
+ * it thinks has changed. Anything altered and not restored is therefore
+ * altered for the rest of that frame and the next.
+ */
+struct BorrowedContext {
+    GLint program = 0;
+    GLint vertexArray = 0;
+    GLint arrayBuffer = 0;
+    GLint activeTexture = GL_TEXTURE0;
+    GLint texture2d = 0;
+    GLint unpackAlignment = 4;
+    GLint blendSrcRgb = GL_ONE;
+    GLint blendDstRgb = GL_ZERO;
+    GLint blendSrcAlpha = GL_ONE;
+    GLint blendDstAlpha = GL_ZERO;
+    GLboolean blend = GL_FALSE;
+    GLboolean depthTest = GL_FALSE;
+    GLboolean stencilTest = GL_FALSE;
+    GLboolean cullFace = GL_FALSE;
+
+    BorrowedContext() {
+        glGetIntegerv(GL_CURRENT_PROGRAM, &program);
+        glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vertexArray);
+        glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &arrayBuffer);
+        glGetIntegerv(GL_ACTIVE_TEXTURE, &activeTexture);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &texture2d);
+        glGetIntegerv(GL_UNPACK_ALIGNMENT, &unpackAlignment);
+        glGetIntegerv(GL_BLEND_SRC_RGB, &blendSrcRgb);
+        glGetIntegerv(GL_BLEND_DST_RGB, &blendDstRgb);
+        glGetIntegerv(GL_BLEND_SRC_ALPHA, &blendSrcAlpha);
+        glGetIntegerv(GL_BLEND_DST_ALPHA, &blendDstAlpha);
+        blend = glIsEnabled(GL_BLEND);
+        depthTest = glIsEnabled(GL_DEPTH_TEST);
+        stencilTest = glIsEnabled(GL_STENCIL_TEST);
+        cullFace = glIsEnabled(GL_CULL_FACE);
+    }
+
+    ~BorrowedContext() {
+        glBindVertexArray(static_cast<GLuint>(vertexArray));
+        glBindBuffer(GL_ARRAY_BUFFER, static_cast<GLuint>(arrayBuffer));
+        glUseProgram(static_cast<GLuint>(program));
+        glActiveTexture(static_cast<GLenum>(activeTexture));
+        glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(texture2d));
+        glPixelStorei(GL_UNPACK_ALIGNMENT, unpackAlignment);
+        glBlendFuncSeparate(
+            static_cast<GLenum>(blendSrcRgb),
+            static_cast<GLenum>(blendDstRgb),
+            static_cast<GLenum>(blendSrcAlpha),
+            static_cast<GLenum>(blendDstAlpha)
+        );
+        if (blend == GL_TRUE) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+        if (depthTest == GL_TRUE) glEnable(GL_DEPTH_TEST);
+        else glDisable(GL_DEPTH_TEST);
+        if (stencilTest == GL_TRUE) glEnable(GL_STENCIL_TEST);
+        else glDisable(GL_STENCIL_TEST);
+        if (cullFace == GL_TRUE) glEnable(GL_CULL_FACE);
+        else glDisable(GL_CULL_FACE);
+    }
+
+    BorrowedContext(const BorrowedContext&) = delete;
+    BorrowedContext& operator=(const BorrowedContext&) = delete;
+};
+
 bool clipTest(double p, double q, double& first, double& last) {
     if (p == 0.0) return q >= 0.0;
     const double at = q / p;
@@ -330,6 +399,14 @@ public:
             modelProgram != 0 &&
             buildModelVertices(parameters, snapshot.model, modelVertices);
         if (lineVertices.empty() && !drawModel) return;
+
+        // Everything below is borrowed. The renderer around this layer keeps
+        // its own idea of what the context is set to and re-applies only what
+        // it believes has changed, so state left altered here is state it
+        // never puts back: its tiles then draw through this layer's program,
+        // its buffers and its blending, which is a map of shifting colours
+        // over ground that will not settle.
+        const BorrowedContext borrowed;
 
         glDisable(GL_DEPTH_TEST);
         glDisable(GL_STENCIL_TEST);
