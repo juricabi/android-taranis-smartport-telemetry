@@ -1062,6 +1062,13 @@ class TerrainPager(
             }
             val key = job[0]
             try {
+                // Backpressure before the stitch allocates: a picture waiting
+                // for its one-per-frame upload is heap doing nothing, and
+                // four workers stitching into a growing queue was the chase
+                // cam's OutOfMemory.
+                while (renderer.pictureBacklog() >= 6 && !abandoned && !paused) {
+                    Thread.sleep(25)
+                }
                 fetchAndDress(key, job[1].toInt(), job[3].toInt())
             } catch (e: Throwable) {
                 // a worker that dies of one bad tile is a quarter of the

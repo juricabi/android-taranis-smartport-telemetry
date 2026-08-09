@@ -31,7 +31,12 @@
             android:name="android.hardware.bluetooth_le"
             android:required="false"/>
 
+    <!-- largeHeap: the 3D ground streams full-screen imagery — the mosaics
+         mid-assembly and the upload queue legitimately hold north of a
+         hundred megabytes of bitmaps, and the stock 256MB limit died of a
+         48-byte allocation over Velebit. -->
     <application
+            android:largeHeap="true"
             android:usesCleartextTraffic="true"
             android:allowBackup="true"
             android:icon="@mipmap/ic_launcher"

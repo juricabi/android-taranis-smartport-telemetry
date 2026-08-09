@@ -28,6 +28,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             attribute vec2 aShades;
             attribute float aParentY;
             attribute float aGrandY;
+            attribute float aEdge;
             uniform float uUvScale;
             uniform vec2 uUvOff;
             uniform vec3 uEye;
@@ -54,17 +55,9 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                 // between them stood as the wall. An edge lying fully on
                 // the neighbour's own line has nothing to step over.
                 //
-                // The force ramps a quarter of the tile deep instead of
-                // pinning the edge row alone: pinned, the next row inward
-                // stayed on the fine line and the one-cell notch between
-                // them stood as teeth along every high crest. Full force
-                // ON the edge keeps the seam exactly closed; inward it
-                // fades into the vertex's own morph.
-                float fw = uForce[1] * clamp(1.0 - aTexture.x * 4.0, 0.0, 1.0);
-                float fn = uForce[2] * clamp(1.0 - aTexture.y * 4.0, 0.0, 1.0);
-                float fe = uForce[3] * clamp(1.0 - (1.0 - aTexture.x) * 4.0, 0.0, 1.0);
-                float fs = uForce[4] * clamp(1.0 - (1.0 - aTexture.y) * 4.0, 0.0, 1.0);
-                float f = max(max(fw, fn), max(fe, fs));
+                float fa = uForce[int(floor(aEdge / 5.0))];
+                float fb = uForce[int(mod(aEdge, 5.0))];
+                float f = max(fa, fb);
                 float d = distance(aPosition.xyz, uEye);
                 float m = clamp((d - uMorph.x) * uMorph.y, 0.0, 1.0);
                 m = max(m, min(f, 1.0));
@@ -231,20 +224,6 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         var prevTextureId = 0
         var swappedAt = 0L
 
-        /**
-         * The edge forces as currently drawn, eased toward each frame's
-         * target. The targets are binary — an edge either faces a coarser
-         * drawn tile or it does not — and applying them raw snapped whole
-         * edges between lines whenever the draw set or a quadrant mask
-         * changed, which following a flying model they do every pass:
-         * rolling waves of geometry jumps at the leading edge. Eased, the
-         * same transitions are slides; a half-eased edge sits between
-         * lines over the coarser neighbour's continuous surface, so no
-         * hole can open.
-         */
-        val forceNow = FloatArray(5)
-        var forceFrame = 0L
-        var forceInit = false
     }
 
     /** By key, so a tile without its own picture can find an ancestor's. */
@@ -274,6 +253,13 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     fun strip(key: Long) {
         pendingStrips.add(key)
     }
+
+    /** Pictures stitched but not yet on the card, for the dress workers'
+     * backpressure: each can be eight megabytes of heap, and stitching
+     * faster than one-per-frame uploads drain simply piles them up —
+     * chase cam over Velebit piled the heap to death. */
+    @Synchronized
+    fun pictureBacklog(): Int = pendingPictures.size
 
     /**
      * Told when a new context arrives with nothing in it; runs on the GL
@@ -1598,6 +1584,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val aPosition = GLES20.glGetAttribLocation(terrainProgram, "aPosition")
         val aTexture = GLES20.glGetAttribLocation(terrainProgram, "aTexture")
         val aShades = GLES20.glGetAttribLocation(terrainProgram, "aShades")
+        val aEdge = GLES20.glGetAttribLocation(terrainProgram, "aEdge")
         val uMvp = GLES20.glGetUniformLocation(terrainProgram, "uMvp")
         val uHasTexture = GLES20.glGetUniformLocation(terrainProgram, "uHasTexture")
         val uBase = GLES20.glGetUniformLocation(terrainProgram, "uBase")
@@ -1742,26 +1729,10 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glEnableVertexAttribArray(aParentY)
             GLES20.glVertexAttribPointer(aGrandY, 1, GLES20.GL_FLOAT, false, stride, 8 * 4)
             GLES20.glEnableVertexAttribArray(aGrandY)
+            GLES20.glVertexAttribPointer(aEdge, 1, GLES20.GL_FLOAT, false, stride, 9 * 4)
+            GLES20.glEnableVertexAttribArray(aEdge)
             fillForce(tile)
-            // once per frame per tile, however many passes draw it
-            if (tile.forceFrame != now) {
-                tile.forceFrame = now
-                if (!tile.forceInit) {
-                    // born already where it belongs: a fresh tile easing in
-                    // from zero would arrive misaligned under its dissolve
-                    tile.forceInit = true
-                    for (i in 1..4) tile.forceNow[i] = force[i]
-                } else {
-                    for (i in 1..4) {
-                        val d = force[i] - tile.forceNow[i]
-                        tile.forceNow[i] += d * 0.08f
-                        if (Math.abs(force[i] - tile.forceNow[i]) < 0.01f) {
-                            tile.forceNow[i] = force[i]
-                        }
-                    }
-                }
-            }
-            GLES20.glUniform1fv(uForce, 5, tile.forceNow, 0)
+            GLES20.glUniform1fv(uForce, 5, force, 0)
 
             // The band where this level lives, from the same error model the
             // pager splits by: a level-z tile stands between D and 2D from
@@ -1811,6 +1782,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glDisableVertexAttribArray(aShades)
             GLES20.glDisableVertexAttribArray(aParentY)
             GLES20.glDisableVertexAttribArray(aGrandY)
+            GLES20.glDisableVertexAttribArray(aEdge)
         }
 
         val fadeIn = ArrayList<Tile>()
