@@ -222,6 +222,21 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         /** The picture this one replaced, kept while the new one dissolves in. */
         var prevTextureId = 0
         var swappedAt = 0L
+
+        /**
+         * The edge forces as currently drawn, eased toward each frame's
+         * target. The targets are binary — an edge either faces a coarser
+         * drawn tile or it does not — and applying them raw snapped whole
+         * edges between lines whenever the draw set or a quadrant mask
+         * changed, which following a flying model they do every pass:
+         * rolling waves of geometry jumps at the leading edge. Eased, the
+         * same transitions are slides; a half-eased edge sits between
+         * lines over the coarser neighbour's continuous surface, so no
+         * hole can open.
+         */
+        val forceNow = FloatArray(5)
+        var forceFrame = 0L
+        var forceInit = false
     }
 
     /** By key, so a tile without its own picture can find an ancestor's. */
@@ -1723,7 +1738,25 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glVertexAttribPointer(aEdge, 1, GLES20.GL_FLOAT, false, stride, 9 * 4)
             GLES20.glEnableVertexAttribArray(aEdge)
             fillForce(tile)
-            GLES20.glUniform1fv(uForce, 5, force, 0)
+            // once per frame per tile, however many passes draw it
+            if (tile.forceFrame != now) {
+                tile.forceFrame = now
+                if (!tile.forceInit) {
+                    // born already where it belongs: a fresh tile easing in
+                    // from zero would arrive misaligned under its dissolve
+                    tile.forceInit = true
+                    for (i in 1..4) tile.forceNow[i] = force[i]
+                } else {
+                    for (i in 1..4) {
+                        val d = force[i] - tile.forceNow[i]
+                        tile.forceNow[i] += d * 0.08f
+                        if (Math.abs(force[i] - tile.forceNow[i]) < 0.01f) {
+                            tile.forceNow[i] = force[i]
+                        }
+                    }
+                }
+            }
+            GLES20.glUniform1fv(uForce, 5, tile.forceNow, 0)
 
             // The band where this level lives, from the same error model the
             // pager splits by: a level-z tile stands between D and 2D from
