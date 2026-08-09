@@ -430,8 +430,11 @@ class TerrainPager(
 
         val newCut = ArrayList<Long>()
         val newSplit = HashSet<Long>()
+        // keys only, snapshotted under the lock: visit must not read the
+        // map while another thread clears it
+        val built = synchronized(lock) { HashSet(resident.keys) }
         for (root in roots()) {
-            visit(root, eyeX, eyeY, eyeZ, k, newCut, newSplit)
+            visit(root, eyeX, eyeY, eyeZ, k, built, newCut, newSplit)
         }
         // nearest worst first: the order builds and pictures are wanted in
         newCut.sortByDescending { rho(it, eyeX, eyeY, eyeZ, k) }
@@ -516,18 +519,27 @@ class TerrainPager(
     }
 
     private fun visit(key: Long, ex: Float, ey: Float, ez: Float, k: Double,
-                      outCut: ArrayList<Long>, outSplit: HashSet<Long>) {
+                      built: HashSet<Long>, outCut: ArrayList<Long>, outSplit: HashSet<Long>) {
         val z = TerrainScene.zoomOf(key)
         var tau = if (splitLastPass.contains(key)) MERGE_PX else SPLIT_PX
         if (behind(key, ex, ey, ez)) tau *= BEHIND_TIMES
-        if (z < LEAF_ZOOM && rho(key, ex, ey, ez, k) > tau) {
+        // Only through standing ground. The cut used to name its final depth
+        // outright, and cover() then held the whole square soft until every
+        // descendant stood — a z8's worth of z13s built before anything
+        // sharpened, the world updating in continents. Gated on built, the
+        // cut is a frontier one level past what stands: every square
+        // sharpens a quartet at a time, dissolving in as it lands, nearest
+        // first — the ground draws the way the loading grid fills. The
+        // single-level swaps are also the ones the morph and the stitch
+        // cover best.
+        if (z < LEAF_ZOOM && rho(key, ex, ey, ez, k) > tau && built.contains(key)) {
             outSplit.add(key)
             val x = TerrainScene.tileXOf(key)
             val y = TerrainScene.tileYOf(key)
             for (cx in 0..1) {
                 for (cy in 0..1) {
                     visit(TerrainScene.tileKey(z + 1, x * 2 + cx, y * 2 + cy),
-                        ex, ey, ez, k, outCut, outSplit)
+                        ex, ey, ez, k, built, outCut, outSplit)
                 }
             }
         } else {
