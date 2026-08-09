@@ -457,11 +457,12 @@ class TerrainPager(
         cut = newCut
 
         val newCover = HashSet<Long>()
+        val newMasks = HashMap<Long, Int>()
         val newAncestors = HashSet<Long>()
         val cutSet = HashSet(newCut)
         synchronized(lock) {
             for (root in roots()) {
-                cover(root, cutSet, newCover)
+                cover(root, cutSet, newCover, newMasks)
             }
             for (key in cutSet) {
                 var at = key
@@ -481,7 +482,7 @@ class TerrainPager(
         // the k this cut was selected under rides with it, so the morph
         // bands belong to the cut they guard, not to this frame's surface
         publishedCover = newCover
-        renderer.setDrawSet(newCover, k)
+        renderer.setDrawSet(newCover, newMasks, k)
         onProgress?.invoke(dressedInCut, cutSet.size)
         wantTextures(cutSet, eyeX, eyeY, eyeZ, k)
 
@@ -643,7 +644,8 @@ class TerrainPager(
      * four dressed subtrees meant a whole ancestry of downloads before one
      * sharp tile could show, which read as detail never arriving at all.
      */
-    private fun cover(key: Long, cutSet: Set<Long>, out: HashSet<Long>): Boolean {
+    private fun cover(key: Long, cutSet: Set<Long>, out: HashSet<Long>,
+                      masks: HashMap<Long, Int>): Boolean {
         val z = TerrainScene.zoomOf(key)
         if (cutSet.contains(key) || z >= LEAF_ZOOM) {
             val p = resident[key] ?: return false
@@ -680,17 +682,39 @@ class TerrainPager(
         }
         val x = TerrainScene.tileXOf(key)
         val y = TerrainScene.tileYOf(key)
-        // Against a scratch set first: half-covering children must not draw
-        // over the tile that will stand for the whole square.
+        // Each child square into its own scratch, so a half-covered corner
+        // can be kept while its unfinished siblings are not. The whole-square
+        // wait was the load's face: eighty-three dressed tiles stood
+        // invisible while the four roots drew, because the far corner of a
+        // 112km square builds last — the world then flipped all at once at
+        // the end, and the first sharp ground under the camera showed at
+        // the last dots of the grid.
         val scratch = HashSet<Long>()
+        var mask = 0
         var whole = true
         for (cx in 0..1) {
             for (cy in 0..1) {
-                if (!cover(TerrainScene.tileKey(z + 1, x * 2 + cx, y * 2 + cy),
-                        cutSet, scratch)) {
+                val childScratch = HashSet<Long>()
+                val childMasks = HashMap<Long, Int>()
+                if (cover(TerrainScene.tileKey(z + 1, x * 2 + cx, y * 2 + cy),
+                        cutSet, childScratch, childMasks)) {
+                    scratch.addAll(childScratch)
+                    masks.putAll(childMasks)
+                    mask = mask or (1 shl (cy * 2 + cx))
+                } else {
                     whole = false
                 }
             }
+        }
+        // Standing quarters draw as children; this tile draws the rest.
+        // Without a mesh of its own it cannot, and the square stays its
+        // parent's problem — the partial corners are dropped again, since
+        // nothing may draw over the tile that stands for the whole square.
+        if (!whole && mask != 0 && resident.containsKey(key)) {
+            out.addAll(scratch)
+            out.add(key)
+            masks[key] = mask
+            return true
         }
         if (whole) {
             out.addAll(scratch)
@@ -1078,7 +1102,8 @@ class TerrainPager(
                     (extra < was && p.extraDressed > extra))) {
                 val old = p.mesh
                 p.mesh = TerrainScene.TileMesh(old.key, old.vertices, old.indices,
-                    bmp, old.minX, old.maxX, old.minY, old.maxY, old.minZ, old.maxZ)
+                    bmp, old.minX, old.maxX, old.minY, old.maxY, old.minZ, old.maxZ,
+                    quadCount = old.quadCount)
                 p.dressed = true
                 // The larger of what was asked and what arrived. Softer than
                 // asked is the imagery's ceiling where ArcGIS ends — record

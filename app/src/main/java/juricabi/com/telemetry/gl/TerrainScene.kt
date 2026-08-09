@@ -36,7 +36,9 @@ class TerrainScene {
         val minY: Float = 0f, val maxY: Float = 0f,
         val minZ: Float = 0f, val maxZ: Float = 0f,
         /** False when a rim was built blind; the pager rebuilds it later. */
-        val rimComplete: Boolean = true
+        val rimComplete: Boolean = true,
+        /** Indices per quadrant run; the skirts follow the four runs. */
+        val quadCount: Int = 0
     )
 
     companion object {
@@ -937,16 +939,28 @@ class TerrainScene {
             vertices[v++] = vertices[src + 9]
         }
 
+        // Cells grouped by quadrant — four equal runs, then the skirts — so
+        // the renderer can draw any subset of quarters. A parent whose
+        // corner already stands as children draws only the quarters they do
+        // not cover: the first sharp ground shows the moment it exists,
+        // instead of when the last corner of a 112km square completes. The
+        // quadrant order matches the child index the pager masks by:
+        // bit cy*2+cx, row 0 north, col 0 west.
         val indices = ShortArray((grid - 1) * (grid - 1) * 6 + rim * 6)
+        val quadHalf = (grid - 1) / 2
         var i = 0
-        for (row in 0 until grid - 1) {
-            for (col in 0 until grid - 1) {
-                val a = (row * grid + col).toShort()
-                val b = (row * grid + col + 1).toShort()
-                val c = ((row + 1) * grid + col).toShort()
-                val d = ((row + 1) * grid + col + 1).toShort()
-                indices[i++] = a; indices[i++] = c; indices[i++] = b
-                indices[i++] = b; indices[i++] = c; indices[i++] = d
+        for (q in 0 until 4) {
+            val rowBase = (q shr 1) * quadHalf
+            val colBase = (q and 1) * quadHalf
+            for (row in rowBase until rowBase + quadHalf) {
+                for (col in colBase until colBase + quadHalf) {
+                    val a = (row * grid + col).toShort()
+                    val b = (row * grid + col + 1).toShort()
+                    val c = ((row + 1) * grid + col).toShort()
+                    val d = ((row + 1) * grid + col + 1).toShort()
+                    indices[i++] = a; indices[i++] = c; indices[i++] = b
+                    indices[i++] = b; indices[i++] = c; indices[i++] = d
+                }
             }
         }
         val ringBase = grid * grid
@@ -971,7 +985,8 @@ class TerrainScene {
             east(westLon), east(eastLon),
             lowest - skirtDepth - pad, highest + pad,
             -north(northLat), -north(southLat),
-            rimComplete = !rimMissing)
+            rimComplete = !rimMissing,
+            quadCount = quadHalf * quadHalf * 6)
     }
 
     /** A height just past this tile's edge, origin-relative, or null. */

@@ -211,6 +211,8 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         val vertexBuffer: Int,
         val indexBuffer: Int,
         val count: Int,
+        /** Indices per quadrant run, skirts after; 0 when ungrouped. */
+        val quadCount: Int,
         var textureId: Int,
         /** The tile's box in world metres, for the frustum test. */
         val minX: Float, val maxX: Float,
@@ -272,6 +274,8 @@ class TerrainRenderer : GLSurfaceView.Renderer {
      */
     private var drawSet: HashSet<Long>? = null
     private var drawSetWanted: HashSet<Long>? = null
+    private var quadMasks: HashMap<Long, Int> = HashMap()
+    private var drawSetWantedMasks: HashMap<Long, Int> = HashMap()
 
     /**
      * The pixels-per-radian the pager selected this cut with. Applied in
@@ -291,9 +295,16 @@ class TerrainRenderer : GLSurfaceView.Renderer {
      */
     private val retiring = HashMap<Long, Long>()
 
+    /**
+     * [masks]: for a tile drawn partially, which quadrants its standing
+     * children cover — bit cy*2+cx set means that quarter is theirs.
+     * Applied atomically with the draw set, or a quarter would double-draw
+     * for a frame.
+     */
     @Synchronized
-    fun setDrawSet(keys: Set<Long>, selectedK: Double) {
+    fun setDrawSet(keys: Set<Long>, masks: Map<Long, Int>, selectedK: Double) {
         drawSetWanted = HashSet(keys)
+        drawSetWantedMasks = HashMap(masks)
         morphKWanted = selectedK
     }
 
@@ -1047,6 +1058,8 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             pendingPictures.clear()
             drawSet = null
             drawSetWanted = null
+            quadMasks = HashMap()
+            drawSetWantedMasks = HashMap()
             retiring.clear()
         }
         onPicturesLost?.invoke()
@@ -1332,7 +1345,8 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
             GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, 0)
             synchronized(this) {
-                tiles[mesh.key] = Tile(mesh.key, ids[0], ids[1], mesh.indices.size, texture,
+                tiles[mesh.key] = Tile(mesh.key, ids[0], ids[1], mesh.indices.size,
+                    mesh.quadCount, texture,
                     mesh.minX, mesh.maxX, mesh.minY, mesh.maxY, mesh.minZ, mesh.maxZ)
                 tilesDirty = true
             }
@@ -1359,6 +1373,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                 for (key in wanted) retiring.remove(key)
                 drawSet = wanted
                 drawSetWanted = null
+                quadMasks = drawSetWantedMasks
                 morphK = morphKWanted
                 // what the old list was still showing can go now
                 pruneLocked()
@@ -1420,6 +1435,8 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         tilesDirty = true
         drawSet = null
         drawSetWanted = null
+        quadMasks = HashMap()
+        drawSetWantedMasks = HashMap()
         retiring.clear()
     }
 
@@ -1565,6 +1582,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // paid on the one thread that cannot pause for it.
         val snapshot: HashMap<Long, Tile>
         val drawn: HashSet<Long>?
+        val masks: HashMap<Long, Int>
         val kApplied: Double
         val now = android.os.SystemClock.elapsedRealtime()
         val fadeOut = ArrayList<Pair<Tile, Long>>()
@@ -1575,6 +1593,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             }
             snapshot = tilesSnapshot
             drawn = drawSet
+            masks = quadMasks
             kApplied = morphK
             // who is still dissolving out this frame; a finished goodbye
             // frees its entry, and pruneLocked may then take the tile
@@ -1642,7 +1661,8 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // its alpha. Everything per-tile lives here so the dissolve passes
         // below draw exactly what the opaque pass draws — above all the
         // morph band, or a fading generation would swim off its geometry.
-        fun drawOne(tile: Tile, texId: Int, scale: Float, offU: Float, offV: Float) {
+        fun drawOne(tile: Tile, texId: Int, scale: Float, offU: Float, offV: Float,
+                    mask: Int = 0) {
             GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, tile.vertexBuffer)
             GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, tile.indexBuffer)
             GLES20.glVertexAttribPointer(aPosition, 3, GLES20.GL_FLOAT, false, stride, 0)
@@ -1685,8 +1705,21 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                 GLES20.glUniform1f(uUvScale, 1f)
                 GLES20.glUniform2f(uUvOff, 0f, 0f)
             }
-            GLES20.glDrawElements(GLES20.GL_TRIANGLES, tile.count,
-                GLES20.GL_UNSIGNED_SHORT, 0)
+            if (mask == 0 || tile.quadCount == 0) {
+                GLES20.glDrawElements(GLES20.GL_TRIANGLES, tile.count,
+                    GLES20.GL_UNSIGNED_SHORT, 0)
+            } else {
+                // only the quarters no child covers, then the skirts; the
+                // offsets are in bytes, two per short index
+                for (q in 0 until 4) {
+                    if (mask and (1 shl q) != 0) continue
+                    GLES20.glDrawElements(GLES20.GL_TRIANGLES, tile.quadCount,
+                        GLES20.GL_UNSIGNED_SHORT, q * tile.quadCount * 2)
+                }
+                val skirtStart = 4 * tile.quadCount
+                GLES20.glDrawElements(GLES20.GL_TRIANGLES, tile.count - skirtStart,
+                    GLES20.GL_UNSIGNED_SHORT, skirtStart * 2)
+            }
 
             GLES20.glDisableVertexAttribArray(aPosition)
             GLES20.glDisableVertexAttribArray(aTexture)
@@ -1739,7 +1772,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                     scale = 1f; offU = 0f; offV = 0f
                 }
             }
-            drawOne(tile, texId, scale, offU, offV)
+            drawOne(tile, texId, scale, offU, offV, masks[tile.key] ?: 0)
         }
 
         if (fadeIn.isNotEmpty() || fadeOut.isNotEmpty()) {
@@ -1756,12 +1789,12 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glPolygonOffset(1.0f, 2f)
             for (tile in fadeIn) {
                 GLES20.glUniform1f(uAlpha, (now - tile.swappedAt) / FADE_MS)
-                drawOne(tile, tile.textureId, 1f, 0f, 0f)
+                drawOne(tile, tile.textureId, 1f, 0f, 0f, masks[tile.key] ?: 0)
             }
             for ((tile, began) in fadeOut) {
                 if (!boxVisible(tile)) continue
                 GLES20.glUniform1f(uAlpha, 1f - (now - began) / FADE_MS)
-                drawOne(tile, tile.textureId, 1f, 0f, 0f)
+                drawOne(tile, tile.textureId, 1f, 0f, 0f, masks[tile.key] ?: 0)
             }
             GLES20.glDepthMask(true)
             GLES20.glDepthFunc(GLES20.GL_LESS)
