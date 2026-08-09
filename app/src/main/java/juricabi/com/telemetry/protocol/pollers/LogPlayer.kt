@@ -724,6 +724,10 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
     }
 
     override fun onProtocolDetected( protocolName: String) {
+        // What the decoder says while the log is being played, as against what
+        // the load worked out from its first bytes: the two agree about the
+        // link, and only this one knows an autopilot is talking over it.
+        dataReadyListener?.onProtocolDetected(protocolName)
     }
 
     override fun commit() {

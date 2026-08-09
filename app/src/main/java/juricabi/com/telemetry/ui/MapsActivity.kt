@@ -1682,7 +1682,16 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
                 override fun onProtocolDetected(protocolName: String) {
                     runOnUiThread {
-                        Toast.makeText(context, "Protocol: $protocolName", Toast.LENGTH_SHORT).show()
+                        // Said out loud only when the answer changes: the log
+                        // says one thing as it loads and the decoder may say a
+                        // longer one later, and a seek asks all of it again.
+                        if (protocolName != detectedProtocol) {
+                            Toast.makeText(context, "Protocol: $protocolName",
+                                Toast.LENGTH_SHORT).show()
+                        }
+                        // and into the row, which a replay left empty: it is
+                        // as much a part of the flight as the rest of the row
+                        this@MapsActivity.onProtocolDetected(protocolName)
                     }
                 }
             })
