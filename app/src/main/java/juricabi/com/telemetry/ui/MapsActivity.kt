@@ -4499,6 +4499,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         lastKnownGPSAt = 0L
         // the height question belonged to the flight that raised it
         juricabi.com.telemetry.gl.AltitudeFrame.forget()
+        // and the link's own business ends with it. Pressing Disconnect
+        // already stops the retries; a flight ended from the locate button
+        // was left with them running, so a link that had dropped on its own
+        // could come back a few seconds after somebody said they were done
+        // — and the ending would read as though it had not worked. The
+        // retry already scheduled reads this before it acts.
+        lastConnectionType = CONNTYPE_NONE
         // There is no link, so there is no fix. Left standing, a frame the
         // decoder was already holding when the button was pressed lands
         // afterwards and draws the first point of a flight that has ended.
