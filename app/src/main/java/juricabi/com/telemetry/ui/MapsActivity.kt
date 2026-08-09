@@ -3402,8 +3402,20 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // handover, and the only button whose whole job is "show me where I
         // am" should be able to do it.
         view.onLocateBeyondWorld = {
-            if (isIdle()) {
-                askToEndTheFlight()
+            // Somewhere to go home to, or there is nothing this can offer and
+            // the view's own words are the honest answer.
+            val fix = bestPhoneFix ?: myLastKnownFix()
+            if (isIdle() && fix != null) {
+                // The asking is to protect a flight that is still drawn. With
+                // none — ended already, and only its world left standing in
+                // another country — there is nothing to lose and nothing to
+                // ask about, and "end the flight" named something that was
+                // not there.
+                if (juricabi.com.telemetry.gl.LiveFlightPath.size() > 0) {
+                    askToEndTheFlight()
+                } else {
+                    endTheFlight()
+                }
                 true
             } else false
         }
