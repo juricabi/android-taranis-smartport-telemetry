@@ -84,6 +84,9 @@ interface MapWrapper {
 
     /** Where the map is looking now, which after a drag is where the hand left it. */
     fun getCentre(): Position
+
+    /** The zoom in the same terms [moveCamera] takes, NaN before a camera. */
+    fun getZoom(): Float = Float.NaN
     fun resetMapOrientation()
 
     /** Turn the map to an angle and stay there, for heading up. */
