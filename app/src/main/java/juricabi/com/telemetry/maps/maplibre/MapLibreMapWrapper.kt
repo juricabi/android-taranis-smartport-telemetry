@@ -445,6 +445,9 @@ class MapLibreMapWrapper(
     private var wroteLon = Double.NaN
     private var wroteBearing = Float.NaN
 
+    /** When the follow last wrote, so a write after a silence glides. */
+    private var lastWroteAt = 0L
+
     override fun moveCameraNow(position: Position, orientationDegrees: Float) {
         val ready = map
         if (ready == null) {
@@ -471,6 +474,26 @@ class MapLibreMapWrapper(
         wroteLat = position.lat
         wroteLon = position.lon
         wroteBearing = orientationDegrees
+
+        // A write arriving after a silence is a re-centring, not a follow
+        // step: the silences are hands on the map, and immediate, the
+        // camera snapped home from wherever each pinch stroke left it —
+        // one jump per stroke of a zoom-out, the writes' own one-second
+        // rhythm in the diagnostic. It glides home instead, and while the
+        // glide is still on its way every following write feeds its
+        // target rather than cancelling it — the immediate road resumes
+        // by itself the moment the glide arrives.
+        val nowMs = android.os.SystemClock.elapsedRealtime()
+        val resuming = nowMs - lastWroteAt > 400L
+        lastWroteAt = nowMs
+        if (resuming || glideTo != null) {
+            glideTo = position
+            if (!orientationDegrees.isNaN()) {
+                glideBearing = -orientationDegrees.toDouble()
+            }
+            keepGliding()
+            return
+        }
 
         glideTo = null
         glideBearing = Double.NaN
