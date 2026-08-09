@@ -145,6 +145,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // zoom used when jumping to a position; 18 is the deepest real satellite level
         private const val LOCATE_ZOOM = 18f
 
+        /**
+         * The height a flight is watched from: kilometres of context, not
+         * the street-level frame the locate button uses for a person
+         * standing still. Coming back from 3D at 18 put the camera a few
+         * hundred metres wide over a model that covers kilometres.
+         */
+        private const val FLIGHT_ZOOM = 15f
+
         private const val CONNTYPE_NONE = 0
         private const val CONNTYPE_BT = 1
         private const val CONNTYPE_BLE = 2
@@ -919,7 +927,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // turning the map to a heading swung it round the empty middle
             // instead of round the model.
             centreOnModel()
-            map?.moveCamera(shownPosition(), LOCATE_ZOOM)
+            map?.moveCamera(shownPosition(), FLIGHT_ZOOM)
             updateHeading()
         } else {
             // Nothing flown yet: open on where this phone is, at the same
