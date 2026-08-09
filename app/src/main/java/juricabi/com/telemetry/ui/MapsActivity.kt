@@ -455,6 +455,16 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var lastSelectedBLEDeviceAddress = "";
 
     private var reconnectionStartTime = 0L;
+
+    /**
+     * Whether this disconnection was asked for.
+     *
+     * Both kinds arrive at [onDisconnected], and they mean opposite things: a
+     * link that drops may be a model in a field, where the last place it was
+     * seen is the one thing worth keeping; pressing Disconnect is a person
+     * saying they are finished, and then the flight goes.
+     */
+    private var disconnectAsked = false
     private var lastConnectionType = CONNTYPE_NONE;
     private var lastBluetoothDevice: BluetoothDevice? = null;
     private var reconnectOnFailure = false;
@@ -2842,7 +2852,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         recentVisualTrack.clear()
         publishedVisualTrack.clear()
         gatheredVisualBatch = null
-        terrain3D?.onFlightReset()
+        // The world behind the map is this flight's too. It used to be thrown
+        // away wherever a flight ended, so it could not go stale; now that it
+        // is kept, a parked world told nothing draws the dead flight again on
+        // the next switch to 3D. At most one of the two exists — adopting
+        // nulls the parked one, parking nulls the live one.
+        (terrain3D ?: parked3D)?.onFlightReset()
         lastTraveledDistance = 0.0
         flightAltitude.clear()
         isArmed = false
@@ -4218,7 +4233,19 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     override fun onDisconnected() {
         runOnUiThread {
             Toast.makeText(this, "Disconnected", Toast.LENGTH_SHORT).show()
+            val asked = disconnectAsked
+            disconnectAsked = false
             switchToIdleState()
+            // Asked for, so the flight goes with the link: what was flown is
+            // in the recording, and the replay is where it is looked at. A
+            // link that drops keeps everything, because that is the one the
+            // model may be lying in a field after. And with nothing written
+            // there is no replay to see it in — the screen is the only copy
+            // there is, so it stays. Asked of the service, which knows
+            // whether a file was opened: the setting only says one was
+            // wanted, and a full card or a link brought up without the
+            // storage permission leaves it on with nothing behind it.
+            if (asked && dataService?.isRecording() == true) endTheFlight()
 
             if (preferenceManager.getConnectionVoiceMessagesEnabled()) {
                 soundPool!!.play(disconnectedSoundId, 1f, 1f, 0, 0, 1f)
@@ -4379,6 +4406,58 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         headingPolyline = null
     }
 
+    /**
+     * The end of a flight that was ended on purpose.
+     *
+     * Everything the flight put on the screen goes, in both views, and both
+     * come back to where the person is standing. The ground is the one thing
+     * kept when it can still serve: near home the same tiles cover the phone,
+     * and only a flight that had carried the world away rebuilds it.
+     */
+    private fun endTheFlight() {
+        forgetFlight()
+        // The model's own marker and the line off its nose: forgetFlight
+        // empties the lines, but the marker belongs to the map, which is why
+        // closing a replay — the other deliberate ending — takes it by hand.
+        marker?.remove()
+        marker = null
+        headingPolyline?.remove()
+        headingPolyline = null
+        // and where the model was last seen. That memory is for walking to a
+        // model that went down, which is the other kind of disconnection.
+        lastKnownGPS = null
+        lastKnownGPSAt = 0L
+        // the height question belonged to the flight that raised it
+        juricabi.com.telemetry.gl.AltitudeFrame.forget()
+        // There is no link, so there is no fix. Left standing, a frame the
+        // decoder was already holding when the button was pressed lands
+        // afterwards and draws the first point of a flight that has ended.
+        hasGPSFix = false
+        // and the sky stops warning about traffic near where the model was
+        fr24Manager?.forgetDronePosition()
+        // Following and chase are the person's, not the flight's: switched
+        // off here, someone who lands, swaps a pack and connects again finds
+        // the camera no longer keeping up and nothing to say why.
+        val mine = myLastKnownPlace()
+        // Nowhere to come home to: end the flight and leave the ground alone
+        // rather than tear down a working world for a place we do not know.
+        if (mine == null) {
+            startFlightIn3D()
+            return
+        }
+        val standing = terrain3D ?: parked3D
+        startFlightIn3D(keepWorld = standing?.worldNear(mine.lat, mine.lon) == true)
+        // A rebuilt world opens at the phone already; a kept one is walked
+        // there. lookAt rather than the locate button's own road, which
+        // means "leave the model behind" and gives up following to say so —
+        // there is no model to leave, and the next flight is still owed it.
+        terrain3D?.let { view ->
+            view.lookAt(mine.lat, mine.lon, null)
+            return
+        }
+        map?.flyTo(mine, LOCATE_ZOOM)
+    }
+
     private fun switchToConnectedState() {
         // A link and a replay are two different flights, and this screen can
         // only be showing one of them.
@@ -4399,6 +4478,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             closeReplay()
         }
         replayButton.visibility = View.GONE
+        // A link is up, so nothing that has been asked for is still pending:
+        // left set by a disconnection that never reported back, the next
+        // link to drop on its own would have been treated as one asked for.
+        disconnectAsked = false
         // The menu is for replay: log rename, delete, export, playback length.
         // While connected it only ever offered "copy UAV location" and "show
         // route to UAV", and both of those are in the Find my quad button now,
@@ -4411,6 +4494,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             connectButton.isEnabled = false
             connectButton.text = getString(R.string.disconnecting)
             lastConnectionType = CONNTYPE_NONE; //reset last connection type to skip reconnection
+            // asked for, so the flight ends with the link — noted here rather
+            // than read off the connection type, which a transport that forgot
+            // to set it would answer wrongly
+            disconnectAsked = true
             dataService?.disconnect()
         }
     }

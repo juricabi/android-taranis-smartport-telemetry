@@ -91,6 +91,17 @@ class Fr24Manager(
         droneLon = lon
     }
 
+    /**
+     * The flight has been ended. Without this, traffic goes on being measured
+     * against where the model used to be, and the warnings name a model that
+     * is no longer on the screen. The same nowhere [checkProximity] already
+     * reads as "no drone".
+     */
+    fun forgetDronePosition() {
+        droneLat = 0.0
+        droneLon = 0.0
+    }
+
     private fun checkProximity() {
         val lat = droneLat
         val lon = droneLon

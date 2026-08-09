@@ -95,9 +95,22 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         flightShown = false
         seenVersion = -1
         lastAppendedPoint = null
+        // the rest of how far along the old flight this view had got: left
+        // set, the new one appended from a stale index and arrived without
+        // the snap that drops the camera onto it
+        appendedThrough = 0
+        placedOnce = false
         hasAttitude = false
         modelHeadingKnown = false
         chasePoseApplied = false
+        // Chase stays armed — the button is the person's, not the flight's —
+        // but it lets go of the model that has gone. Both halves, as
+        // setChasing does: the renderer writes the wanted bearing only while
+        // chasing and then eases towards whatever it last held forever, so
+        // clearing the steer alone left the camera springing back to a dead
+        // flight's heading against every attempt to turn it.
+        applyChaseBearing()
+        renderer.azimuthWanted = Float.NaN
         pickUpNewPoints()
     }
 

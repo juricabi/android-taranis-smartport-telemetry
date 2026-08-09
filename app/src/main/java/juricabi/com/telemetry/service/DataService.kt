@@ -293,6 +293,15 @@ class DataService : Service(), DataDecoder.Listener {
      */
     @Volatile private var recording: CountingLog? = null
 
+    /**
+     * Whether the flight going on — or the one that has just ended — reached a
+     * file. The setting says a recording was wanted; a full card, a volume
+     * that has gone, or a link brought up without the storage permission all
+     * leave the setting on and nothing written. Anything about to throw the
+     * flight away on the grounds that the replay has it must ask this.
+     */
+    fun isRecording(): Boolean = recording != null
+
     private fun createLogFile(): FileOutputStream? {
         var fileOutputStream: FileOutputStream? = null
         logName = null
