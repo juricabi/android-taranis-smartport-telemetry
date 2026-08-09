@@ -148,6 +148,7 @@ class MapLibreMapWrapper(
                 }
                 glideTo = null
                 glideBearing = Double.NaN
+                homing = false
                 cameraMoveListener?.invoke()
                 false
             }
@@ -342,6 +343,9 @@ class MapLibreMapWrapper(
     /** How much of what is left the camera takes each frame. */
     private val GLIDE = 0.25
 
+    /** The homecoming pace: about half a second of visible travel. */
+    private val HOMING_GLIDE = 0.06
+
     private val glide = object : Runnable {
         override fun run() {
             gliding = false
@@ -365,13 +369,14 @@ class MapLibreMapWrapper(
             if (to != null) {
                 val dLat = to.lat - lat
                 val dLon = to.lon - lon
+                val ease = if (homing) HOMING_GLIDE else GLIDE
                 if (Math.abs(dLat) < 1e-7 && Math.abs(dLon) < 1e-7) {
                     lat = to.lat
                     lon = to.lon
                     glideTo = null
                 } else {
-                    lat += dLat * GLIDE
-                    lon += dLon * GLIDE
+                    lat += dLat * ease
+                    lon += dLon * ease
                     again = true
                 }
             }
@@ -384,7 +389,7 @@ class MapLibreMapWrapper(
                     bearing = turnTo
                     glideBearing = Double.NaN
                 } else {
-                    bearing += turn * GLIDE
+                    bearing += turn * (if (homing) HOMING_GLIDE else GLIDE)
                     again = true
                 }
             }
@@ -397,7 +402,11 @@ class MapLibreMapWrapper(
                         .build()
                 )
             )
-            if (again) keepGliding()
+            if (again) {
+                keepGliding()
+            } else {
+                homing = false
+            }
         }
     }
 
@@ -423,15 +432,18 @@ class MapLibreMapWrapper(
             pendingZoom = zoom
             return
         }
-        // asked for a place rather than followed to it, so it arrives
+        // Asked for a place rather than followed to it — but asked-for is
+        // a journey, not a teleport: arriving in one frame read as the
+        // locate button "jumping". MapLibre's own ease carries it.
         glideTo = null
-        ready.moveCamera(
+        ready.easeCamera(
             CameraUpdateFactory.newCameraPosition(
                 CameraPosition.Builder(ready.cameraPosition)
                     .target(LatLng(position.lat, position.lon))
                     .zoom(cameraZoom(zoom))
                     .build()
-            )
+            ),
+            700
         )
     }
 
@@ -447,6 +459,16 @@ class MapLibreMapWrapper(
 
     /** When the follow last wrote, so a write after a silence glides. */
     private var lastWroteAt = 0L
+
+    /**
+     * Whether the glide is a homecoming rather than a follow step. The
+     * follow glide takes a quarter of the distance per frame — converged
+     * in eighty milliseconds, which as a re-centre after a pinch IS the
+     * jump it was meant to cure. A homecoming eases at a pace the eye
+     * can ride, and hands the camera back to the immediate road on
+     * arrival.
+     */
+    private var homing = false
 
     override fun moveCameraNow(position: Position, orientationDegrees: Float) {
         val ready = map
@@ -487,6 +509,7 @@ class MapLibreMapWrapper(
         val resuming = nowMs - lastWroteAt > 400L
         lastWroteAt = nowMs
         if (resuming || glideTo != null) {
+            homing = true
             glideTo = position
             if (!orientationDegrees.isNaN()) {
                 glideBearing = -orientationDegrees.toDouble()
