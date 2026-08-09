@@ -102,7 +102,9 @@
                 app:outlineSize="3dp" />
 
         <!-- Stretched across the buttons column so the grid centres on it:
-             the tiles sit at the top of the stack the buttons live in. -->
+             the tiles sit under the heading, at the top of the stack the
+             buttons live in. Below, because the column is empty up here and
+             the heading claims the corner itself. -->
         <FrameLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -110,8 +112,8 @@
                 android:layout_alignLeft="@+id/buttons_box"
                 android:layout_alignEnd="@+id/buttons_box"
                 android:layout_alignRight="@+id/buttons_box"
-                android:layout_alignParentTop="true"
-                android:layout_marginTop="8dp">
+                android:layout_below="@+id/compass_heading"
+                android:layout_marginTop="6dp">
 
             <juricabi.com.telemetry.ui.LoadingGrid
                     android:id="@+id/loading_grid"
