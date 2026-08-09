@@ -1020,6 +1020,19 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         GLES20.glClearColor(0.09f, 0.11f, 0.14f, 1f)
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
+        // The context usually survives the surface: preserveEGLContextOnPause
+        // keeps it across a screen-off or a fullscreen toggle, and everything
+        // uploaded is still on the card. Wiping unconditionally here threw a
+        // living world away and rebuilt it for fifteen seconds on every
+        // unlock. Only a context whose old names have actually died gets the
+        // rebuild.
+        if (terrainProgram != 0 && GLES20.glIsProgram(terrainProgram)) {
+            juricabi.com.telemetry.utils.DebugLog.note("TerrainRenderer",
+                "surface recreated, context survived")
+            return
+        }
+        juricabi.com.telemetry.utils.DebugLog.note("TerrainRenderer",
+            "world rebuilt: fresh GL context")
         terrainProgram = program(TERRAIN_VERTEX, TERRAIN_FRAGMENT)
         // At a virgin region there is no ancestor picture to borrow, and a
         // tile drawn with texture 0 samples an incomplete texture: black

@@ -294,6 +294,7 @@ class TerrainPager(
      * seconds without a byte held in reserve.
      */
     fun redress() {
+        DebugLog.note(TAG, "world rebuilt: pictures lost with the GL context")
         synchronized(lock) {
             resident.clear()
             lock.notifyAll()
@@ -406,6 +407,7 @@ class TerrainPager(
                 had
             }
             if (hadTiles) {
+                DebugLog.note(TAG, "world rebuilt: datum settled and moved")
                 renderer.keepOnly(emptySet())
                 onWorldMoved?.invoke()
             }
@@ -432,6 +434,7 @@ class TerrainPager(
                 h
             }
             if (had) {
+                DebugLog.note(TAG, "world rebuilt: re-anchored to the flight")
                 renderer.keepOnly(emptySet())
                 onWorldMoved?.invoke()
             }
