@@ -432,9 +432,30 @@ class MapLibreMapWrapper(
             pendingZoom = zoom
             return
         }
-        // Asked for a place rather than followed to it — but asked-for is
-        // a journey, not a teleport: arriving in one frame read as the
-        // locate button "jumping". MapLibre's own ease carries it.
+        // Asked for a place rather than followed to it, so it arrives.
+        // Instantly, and that matters: this also aims a map still being
+        // built, and an ease started under construction is cancelled by
+        // the style landing — the camera then stayed on the whole world
+        // at zoom four. The buttons that want a watchable journey take
+        // flyTo.
+        glideTo = null
+        ready.moveCamera(
+            CameraUpdateFactory.newCameraPosition(
+                CameraPosition.Builder(ready.cameraPosition)
+                    .target(LatLng(position.lat, position.lon))
+                    .zoom(cameraZoom(zoom))
+                    .build()
+            )
+        )
+    }
+
+    override fun flyTo(position: Position, zoom: Float) {
+        val ready = map
+        if (ready == null) {
+            pendingTarget = position
+            pendingZoom = zoom
+            return
+        }
         glideTo = null
         ready.easeCamera(
             CameraUpdateFactory.newCameraPosition(

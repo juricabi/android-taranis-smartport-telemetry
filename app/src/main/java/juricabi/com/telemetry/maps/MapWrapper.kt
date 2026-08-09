@@ -28,6 +28,9 @@ interface MapWrapper {
     fun moveCamera(position: Position)
     fun moveCamera(position: Position, zoom: Float)
 
+    /** The same journey, flown: for buttons, where arrival is watchable. */
+    fun flyTo(position: Position, zoom: Float) = moveCamera(position, zoom)
+
     /**
      * Put the camera at a position already eased by the caller.
      *

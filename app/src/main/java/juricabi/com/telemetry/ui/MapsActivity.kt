@@ -693,7 +693,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             val pos = map?.getMyLocation()
             if (pos != null) {
                 setFollowMode(false)
-                map?.moveCamera(pos, LOCATE_ZOOM)
+                map?.flyTo(pos, LOCATE_ZOOM)
             } else {
                 Toast.makeText(this, "Phone location not available", Toast.LENGTH_SHORT).show()
             }
@@ -718,7 +718,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             }
             if (terrain3D == null && quad != null) {
                 setFollowMode(false)
-                map?.moveCamera(quad, LOCATE_ZOOM)
+                map?.flyTo(quad, LOCATE_ZOOM)
             }
             showFindMyQuad()
         }
