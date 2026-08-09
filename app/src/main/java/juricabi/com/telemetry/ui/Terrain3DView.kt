@@ -100,12 +100,6 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // the snap that drops the camera onto it
         appendedThrough = 0
         placedOnce = false
-        // and the camera frames the new flight the way a view built for it
-        // would have. A world thrown away took its camera with it; a world
-        // kept carries the last flight's distance into the next one, so a
-        // pack flown after a long one was watched from wherever that one
-        // had been left — which is not a decision anybody made.
-        framedThisFlight = false
         hasAttitude = false
         modelHeadingKnown = false
         chasePoseApplied = false
@@ -355,10 +349,6 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         } else {
             500f
         }
-        // Framed here when there is a flight to frame; without one the first
-        // one to arrive gets it instead, on the same road a later flight over
-        // this world takes.
-        framedThisFlight = hasFlight
         // Zooming out past the ground shows nothing but sky, so the limit
         // follows the flight: a couple of kilometres for an ordinary one, more
         // for a flight that covers more.
@@ -510,14 +500,6 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private var placedOnce = false
 
     /**
-     * Whether the camera has been put on this flight yet. A view built for a
-     * flight frames it once in [start]; over a world that is kept, that has
-     * to happen again for each new flight — and only once, or every batch of
-     * points would drag the camera back from wherever it had been moved to.
-     */
-    private var framedThisFlight = false
-
-    /**
      * Told when a fix lands, so the model moves with the one on the map rather
      * than up to a tick behind it.
      *
@@ -662,23 +644,6 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         renderer.setTrack(scene.track, scene.shadow)
         // as the flight grows, so does how far back the camera may be pulled
         renderer.maxDistance = reachOfFlight()
-        // The first sight of a new flight over a world that was kept: put the
-        // camera on it, as building a view for it would have. Once — after
-        // this the distance is whatever the hands have made it, and a chase
-        // takes it over on its own road.
-        if (!framedThisFlight) {
-            framedThisFlight = true
-            renderer.target = floatArrayOf(0f, heightOfTrack() / 2f, 0f)
-            renderer.distance = Math.max(400f, scene.extent * 2.2f)
-            // and looking down from where a view opens, not from wherever the
-            // last flight left the camera: after a chase that is twenty-two
-            // degrees, low enough that the new flight sat above the top of
-            // the screen. The lean goes too — framing means the flight is in
-            // the middle of it.
-            renderer.elevation = TerrainRenderer.LOOKING_DOWN_AT
-            panX = 0f
-            panZ = 0f
-        }
         // rebuilt from the whole flight, so everything is accounted for again
         appendedThrough = points.size
 
@@ -738,11 +703,8 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     fun setFollowing(on: Boolean) {
         following = on
         status.text = ""
-        // there is no riding behind something that is not being kept up with —
-        // dropped down the chase's own road, or the flag went and everything
-        // the chase had done to the camera stayed: the steer, the wanted
-        // bearing, and the low angle it stoops to
-        if (!on && chasing) setChasing(false)
+        // there is no riding behind something that is not being kept up with
+        if (!on) chasing = false
         if (on) {
             panX = 0f
             panZ = 0f
@@ -840,17 +802,6 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             TerrainScene.KEEP_WORLD_WITHIN_M
     }
 
-    /**
-     * Put the camera on a place and close enough to make it out — what the
-     * locate button does, and the one camera move in here that has always
-     * landed somewhere worth looking at. The angle is left alone: how far up
-     * the camera stands is the hand's business, how far away is this.
-     */
-    fun bringCameraTo(lat: Double, lon: Double, altitudeMsl: Float?) {
-        lookAt(lat, lon, altitudeMsl)
-        renderer.distance = Math.min(renderer.distance, 800f)
-    }
-
     fun goToMyLocation(): Boolean {
         if (myLat.isNaN() || myLon.isNaN()) return false
         // Replaying a flight from another country, the phone stands outside
@@ -869,7 +820,8 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // leaning out of the chase
         followingOff()
         status.text = ""
-        bringCameraTo(myLat, myLon, null)
+        lookAt(myLat, myLon, null)
+        renderer.distance = Math.min(renderer.distance, 800f)
         return true
     }
 
@@ -1513,15 +1465,6 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             renderer.chasingModel = false
             renderer.azimuthWanted = Float.NaN
             chasePoseApplied = false
-            // and back up to where the camera was standing before the chase
-            // stooped it. Riding behind a model is a low angle on purpose;
-            // left there when the chase is dropped, every later view of the
-            // flight was from the ground — including the one a switch back
-            // to this view arrives at, with the model then behind a hill.
-            if (!elevationBeforeChase.isNaN()) {
-                renderer.elevation = elevationBeforeChase
-                elevationBeforeChase = Float.NaN
-            }
             return
         }
         chaseYaw = 0f
@@ -1535,17 +1478,11 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         applyChaseBearing()
     }
 
-    /** Where the camera stood before a chase stooped it, to stand it back up. */
-    private var elevationBeforeChase = Float.NaN
-
     /** The over-its-shoulder pose: keeping up with it, from a low angle. */
     private fun applyChasePose() {
         val latest = LiveFlightPath.latest() ?: return
         panX = 0f
         panZ = 0f
-        // remembered once per chase, so a pose applied again over a new
-        // flight does not record the low angle as the one to go back to
-        if (elevationBeforeChase.isNaN()) elevationBeforeChase = renderer.elevation
         renderer.elevation = 22f
         renderer.distance = renderer.distance.coerceIn(80f, 400f)
         lookAt(latest.lat, latest.lon, latest.altitudeMsl)
@@ -1575,8 +1512,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private fun followingOff() {
         if (!following) return
         following = false
-        // down the chase's own road, which knows everything a chase changed
-        if (chasing) setChasing(false)
+        chasing = false
         renderer.chasingModel = false
         renderer.azimuthWanted = Float.NaN
         onFollowingLost?.invoke()

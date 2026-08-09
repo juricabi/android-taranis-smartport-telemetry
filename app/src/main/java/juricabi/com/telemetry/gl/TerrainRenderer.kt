@@ -21,15 +21,6 @@ import javax.microedition.khronos.opengles.GL10
 class TerrainRenderer : GLSurfaceView.Renderer {
 
     companion object {
-
-        /**
-         * How far up the camera sits when nothing has asked for otherwise:
-         * the angle a view opens at, and the angle a new flight is framed
-         * from. Low enough to see the lie of the ground, high enough to see
-         * the flight on it.
-         */
-        const val LOOKING_DOWN_AT = 28f
-
         private const val TERRAIN_VERTEX = """
             uniform mat4 uMvp;
             attribute vec4 aPosition;
@@ -480,7 +471,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
 
     /** Orbit: degrees round, degrees up, and how far out. */
     @Volatile var azimuth = 30f
-    @Volatile var elevation = LOOKING_DOWN_AT
+    @Volatile var elevation = 28f
     @Volatile var distance = 1500f
 
     /**
