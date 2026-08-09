@@ -35,6 +35,11 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private val surface = GLSurfaceView(context)
     private val renderer = TerrainRenderer()
     private val scene = TerrainScene()
+
+    /** The ground's own word — no data here — which outranks the counter. */
+    private var statusWord = ""
+    @Volatile private var progressDone = -1
+    @Volatile private var progressTotal = -1
     private val pager = TerrainPager(scene, renderer,
         (context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager)
             .let { am -> android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) } }
@@ -303,11 +308,23 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         }
         pager.onStatus = { message: String ->
             postFromTerrain {
-                status.text = message
+                statusWord = message
+                showStatus()
                 // Nothing will ever build here — the sea, or no signal and no
                 // cache. That is as ready as the ground will be: held any
                 // longer, a replay over it would never play at all.
                 if (message.isNotEmpty()) groundDressed()
+            }
+        }
+        // Twenty seconds of a world quietly rebuilding read as a hang. The
+        // counter is the pager's own count of wanted ground dressed, it is
+        // live with every pass, and it clears itself when the ground is
+        // whole.
+        pager.onProgress = { done, total ->
+            if (done != progressDone || total != progressTotal) {
+                progressDone = done
+                progressTotal = total
+                postFromTerrain { showStatus() }
             }
         }
         pager.start()
@@ -1095,6 +1112,16 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
      * over empty space.
      */
     var groundFollowsPhone = true
+
+    /** One writer for the status line: a word if there is one, else the count. */
+    private fun showStatus() {
+        status.text = when {
+            statusWord.isNotEmpty() -> statusWord
+            progressTotal > 0 && progressDone < progressTotal ->
+                "Ground $progressDone / $progressTotal"
+            else -> ""
+        }
+    }
 
     private fun placeMyArrow() {
         // beyond the world's edge there is no ground to stand it on

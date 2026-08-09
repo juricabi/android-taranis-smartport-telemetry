@@ -119,6 +119,11 @@ class TerrainPager(
     /** "" when there is ground; a word for the screen when there is none. */
     @Volatile var onStatus: ((String) -> Unit)? = null
 
+    /** How much of the wanted ground is dressed, after every pass. */
+    @Volatile var onProgress: ((done: Int, total: Int) -> Unit)? = null
+
+    private var dressedInCut = 0
+
     private class Paged(
         @Volatile var mesh: TerrainScene.TileMesh,
         @Volatile var dressed: Boolean,
@@ -175,7 +180,8 @@ class TerrainPager(
             if (!drawn.contains(key)) continue
             // one drawn tile covers any spot; missing here means a world
             // mid-rebuild, and the caller falls back to the data
-            val mesh = synchronized(lock) { resident[key]?.mesh } ?: return null
+            val p = synchronized(lock) { resident[key] } ?: return null
+            val mesh = p.mesh
             val grid = TerrainScene.gridFor(z)
             val west = TerrainScene.tileLon(tx, z)
             val east = TerrainScene.tileLon(tx + 1, z)
@@ -188,9 +194,20 @@ class TerrainPager(
             val r0 = Math.min(fv.toInt(), grid - 2)
             val du = (fu - c0).toFloat()
             val dv = (fv - r0).toFloat()
-            fun y(r: Int, c: Int) = mesh.vertices[(r * grid + c) * 10 + 1]
-            val worldY = (y(r0, c0) * (1 - du) + y(r0, c0 + 1) * du) * (1 - dv) +
-                (y(r0 + 1, c0) * (1 - du) + y(r0 + 1, c0 + 1) * du) * dv
+            fun lerp(idx: Int): Float {
+                fun at(r: Int, c: Int) = mesh.vertices[(r * grid + c) * 10 + idx]
+                return (at(r0, c0) * (1 - du) + at(r0, c0 + 1) * du) * (1 - dv) +
+                    (at(r0 + 1, c0) * (1 - du) + at(r0 + 1, c0 + 1) * du) * dv
+            }
+            var worldY = lerp(1)
+            // Still wearing an ancestor's picture: the renderer forces such
+            // a tile onto the coarser line until its own picture lands, so
+            // for that second the drawn surface is the highest of the lines
+            // this vertex is strung between — stood on its own line alone,
+            // the arrow dropped into the ground and climbed back out.
+            if (!p.dressed) {
+                worldY = Math.max(worldY, Math.max(lerp(7), lerp(8)))
+            }
             if (worldY.isNaN()) return null
             return worldY + scene.originAltitude
         }
@@ -439,11 +456,15 @@ class TerrainPager(
             coverAncestors = newAncestors
             evictLocked(cutSet)
             renderer.keepOnly(HashSet(resident.keys))
+            var done = 0
+            for (key in cutSet) if (resident[key]?.dressed == true) done++
+            dressedInCut = done
         }
         // the k this cut was selected under rides with it, so the morph
         // bands belong to the cut they guard, not to this frame's surface
         publishedCover = newCover
         renderer.setDrawSet(newCover, k)
+        onProgress?.invoke(dressedInCut, cutSet.size)
         wantTextures(cutSet, eyeX, eyeY, eyeZ, k)
 
         // The heights for the next handful of builds, fired into the pool —
