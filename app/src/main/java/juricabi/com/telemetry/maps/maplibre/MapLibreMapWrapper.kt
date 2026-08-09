@@ -315,33 +315,19 @@ class MapLibreMapWrapper(
         }
     }
 
-    /** When the current unbroken hold began, and when holding may resume. */
-    private var heldSince = 0L
-    private var holdCooldownUntil = 0L
-
     private fun holdRasterMotion(ready: MapLibreMap) {
-        val now = android.os.SystemClock.elapsedRealtime()
         mapView.removeCallbacks(releaseRasterMotion)
-        // Held without a break, this flag starves the whole map. MapLibre
-        // treats every tile begun during a gesture as cancellable — real
-        // gestures end within a second, so nothing is lost. A follow that
-        // writes the camera every frame held it for minutes: fresh ground
-        // completed its fetches and had them cancelled in the same
-        // millisecond, forever, while cached ground drew on — the map that
-        // "loads where the drone rides but nowhere else", two days of it.
-        // So the hold breathes: at most a third of a second held, then a
-        // window for the loads to commit; the pixel-snap it exists to
-        // prevent gets those brief windows, which is the lesser wrong.
-        if (rasterMotionHeld && now - heldSince > 300L) {
-            TrackingTransform.setInProgress(ready, false)
-            rasterMotionHeld = false
-            holdCooldownUntil = now + 100L
-            return
-        }
-        if (!rasterMotionHeld && now >= holdCooldownUntil) {
+        // Held steadily for as long as tracking drives the camera. The hold
+        // briefly "breathed" — 300ms held, 100ms released — on the theory
+        // that an unbroken hold starved fresh tiles; the grey-map hunt
+        // disproved it (the starving happened with breathing in place, the
+        // cancel churn it feared measured the same on a healthy bare map,
+        // and the true cause was the location arrows' native layer). The
+        // breathing's own residual was a pixel-snap tick four times a
+        // second, which is the jiggle this returns to stillness.
+        if (!rasterMotionHeld) {
             TrackingTransform.setInProgress(ready, true)
             rasterMotionHeld = true
-            heldSince = now
         }
         // Longer than an isolated slow frame, short enough to become crisp
         // immediately when a model stops.
