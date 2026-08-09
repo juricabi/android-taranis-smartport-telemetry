@@ -459,14 +459,19 @@ class TerrainPager(
         splitLastPass = newSplit
         cut = newCut
 
-        val newCover = HashSet<Long>()
-        val newMasks = HashMap<Long, Int>()
+        val coverList = ArrayList<Long>(256)
+        val maskKeys = ArrayList<Long>()
+        val maskBits = ArrayList<Int>()
         val newAncestors = HashSet<Long>()
         val cutSet = HashSet(newCut)
+        val newCover: HashSet<Long>
+        val newMasks = HashMap<Long, Int>()
         synchronized(lock) {
             for (root in roots()) {
-                cover(root, cutSet, newCover, newMasks)
+                cover(root, cutSet, coverList, maskKeys, maskBits)
             }
+            newCover = HashSet(coverList)
+            for (i in maskKeys.indices) newMasks[maskKeys[i]] = maskBits[i]
             for (key in cutSet) {
                 var at = key
                 while (TerrainScene.zoomOf(at) > ROOT_ZOOM) {
@@ -647,8 +652,13 @@ class TerrainPager(
      * four dressed subtrees meant a whole ancestry of downloads before one
      * sharp tile could show, which read as detail never arriving at all.
      */
-    private fun cover(key: Long, cutSet: Set<Long>, out: HashSet<Long>,
-                      masks: HashMap<Long, Int>): Boolean {
+    /** Roll a list back to [size]; the recursion's cheap undo. */
+    private fun <T> trim(list: ArrayList<T>, size: Int) {
+        while (list.size > size) list.removeAt(list.size - 1)
+    }
+
+    private fun cover(key: Long, cutSet: Set<Long>, out: ArrayList<Long>,
+                      maskKeys: ArrayList<Long>, maskBits: ArrayList<Int>): Boolean {
         val z = TerrainScene.zoomOf(key)
         if (cutSet.contains(key) || z >= LEAF_ZOOM) {
             val p = resident[key] ?: return false
@@ -685,44 +695,44 @@ class TerrainPager(
         }
         val x = TerrainScene.tileXOf(key)
         val y = TerrainScene.tileYOf(key)
-        // Each child square into its own scratch, so a half-covered corner
-        // can be kept while its unfinished siblings are not. The whole-square
-        // wait was the load's face: eighty-three dressed tiles stood
-        // invisible while the four roots drew, because the far corner of a
-        // 112km square builds last — the world then flipped all at once at
-        // the end, and the first sharp ground under the camera showed at
-        // the last dots of the grid.
-        val scratch = HashSet<Long>()
+        // Shared lists with rollback marks, not per-node scratch sets: this
+        // runs five times a second over a hundred internal nodes, and a set
+        // and a map born per child per node was steady garbage on the mesh
+        // thread. A failed child undoes its own additions; a square that can
+        // neither stand whole nor partial undoes its kept corners, since
+        // nothing may draw over the tile that stands for the whole square.
+        val outMark = out.size
+        val maskMark = maskKeys.size
         var mask = 0
         var whole = true
         for (cx in 0..1) {
             for (cy in 0..1) {
-                val childScratch = HashSet<Long>()
-                val childMasks = HashMap<Long, Int>()
+                val childOut = out.size
+                val childMask = maskKeys.size
                 if (cover(TerrainScene.tileKey(z + 1, x * 2 + cx, y * 2 + cy),
-                        cutSet, childScratch, childMasks)) {
-                    scratch.addAll(childScratch)
-                    masks.putAll(childMasks)
+                        cutSet, out, maskKeys, maskBits)) {
                     mask = mask or (1 shl (cy * 2 + cx))
                 } else {
                     whole = false
+                    trim(out, childOut)
+                    trim(maskKeys, childMask)
+                    trim(maskBits, childMask)
                 }
             }
         }
-        // Standing quarters draw as children; this tile draws the rest.
-        // Without a mesh of its own it cannot, and the square stays its
-        // parent's problem — the partial corners are dropped again, since
-        // nothing may draw over the tile that stands for the whole square.
-        if (!whole && mask != 0 && resident.containsKey(key)) {
-            out.addAll(scratch)
+        if (whole) return true
+        // Standing quarters draw as children; this tile draws the rest —
+        // the load's face was the whole-square wait, dressed corners
+        // standing invisible while a 112km root finished its far side.
+        if (mask != 0 && resident.containsKey(key)) {
             out.add(key)
-            masks[key] = mask
+            maskKeys.add(key)
+            maskBits.add(mask)
             return true
         }
-        if (whole) {
-            out.addAll(scratch)
-            return true
-        }
+        trim(out, outMark)
+        trim(maskKeys, maskMark)
+        trim(maskBits, maskMark)
         if (resident.containsKey(key)) {
             out.add(key)
             return true
