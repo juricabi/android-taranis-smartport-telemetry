@@ -1,6 +1,6 @@
 # Known and open, after 2.4.0
 
-Three residuals, accepted and recorded here with what was learnt, so the
+Two residuals, accepted and recorded here with what was learnt, so the
 next attempt starts from knowledge instead of theories. Then what is
 wanted and not built, and what has been done since.
 
@@ -19,24 +19,6 @@ catches up, usually in seconds.
   edge-force easing (opened transient cracks between agreeing
   neighbours) and a quarter-tile force ramp (turned the one-cell notch
   into a standing wedge).
-
-## 2D: the camera keeping up in visible steps when zoomed out
-
-Following a moving model at low zoom, the camera advances in one-second
-hops instead of an even walk (fix-rate cadence). Accepted for 2.4.0.
-
-- Five draw-side fixes were tried in one afternoon and all reverted
-  (steady raster hold, longer hold release, glide-home on resume, a
-  slower homecoming ease, walk-delay retuning) — none changed what the
-  user saw. Do not retry these blind.
-- Best unconfirmed lead: `rememberMotionFix` wipes its interpolation
-  history at gap > 1000ms — a 1Hz GPS link jitters exactly there — and
-  `walkDelayMs` caps at 250ms, which cannot bridge a 1s fix gap
-  ("a real fix on either side of every drawn frame" fails for links
-  slower than 4Hz).
-- A next attempt needs, before any code: a screen recording of the
-  jump, the link's actual fix rate, and camera-callback logging — the
-  1Hz cadence must be matched to a specific writer before changing one.
 
 ## Imagery: tone seams between sharpness steps
 
