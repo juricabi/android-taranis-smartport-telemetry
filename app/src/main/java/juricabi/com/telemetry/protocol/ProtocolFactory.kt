@@ -50,7 +50,6 @@ object ProtocolFactory {
         "Mavlink v1" -> "MAV v1"
         "Mavlink v2" -> "MAV v2"
         "MAVLink High Latency" -> "MAV HL"
-        "Link Test" -> "Link test"
         else -> reported
     }
 }

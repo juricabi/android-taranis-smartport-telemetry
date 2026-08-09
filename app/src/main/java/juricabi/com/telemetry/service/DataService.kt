@@ -171,6 +171,9 @@ class DataService : Service(), DataDecoder.Listener {
             wantedByLink = false
             satellites = 0
             hasGPSFix = false
+            // dies with the link it described, so a screen binding to a
+            // service with nothing connected is told nothing
+            protocolName = null
             return retired
         }
     }
@@ -684,6 +687,11 @@ class DataService : Service(), DataDecoder.Listener {
         this.dataListener = dataListener
         if (dataListener != null) {
             dataListener.onGPSState(satellites, hasGPSFix)
+            // and what the link turned out to speak. Detection says it once
+            // per connection and never again, so a screen built after that —
+            // a phone turned round mid-flight — had no way to learn it and
+            // showed nothing for the rest of the link.
+            protocolName?.let { dataListener.onProtocolDetected(it) }
         } else {
             if (!isConnected()) {
                 stopSelf()
@@ -804,7 +812,11 @@ class DataService : Service(), DataDecoder.Listener {
         logListener?.onDecoderRestart()
     }
 
+    /** What this connection speaks, for a screen that arrives after the news. */
+    @Volatile private var protocolName: String? = null
+
     override fun onProtocolDetected( protocolName: String) {
+        this.protocolName = protocolName
         dataListener?.onProtocolDetected(protocolName)
     }
 

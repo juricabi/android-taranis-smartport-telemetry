@@ -1681,18 +1681,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 }
 
                 override fun onProtocolDetected(protocolName: String) {
-                    runOnUiThread {
-                        // Said out loud only when the answer changes: the log
-                        // says one thing as it loads and the decoder may say a
-                        // longer one later, and a seek asks all of it again.
-                        if (protocolName != detectedProtocol) {
-                            Toast.makeText(context, "Protocol: $protocolName",
-                                Toast.LENGTH_SHORT).show()
-                        }
-                        // and into the row, which a replay left empty: it is
-                        // as much a part of the flight as the rest of the row
-                        this@MapsActivity.onProtocolDetected(protocolName)
-                    }
+                    // Straight to the one place that answers this, which puts
+                    // it in the row and says it out loud. Answering here as
+                    // well toasted every announcement twice.
+                    this@MapsActivity.onProtocolDetected(protocolName)
                 }
             })
         }
@@ -4821,6 +4813,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     override fun onProtocolDetected( protocolName: String) {
+        // Said out loud only when the answer changes: a log says one thing as
+        // it loads and its decoder may say a longer one later, and a seek
+        // asks the whole question again.
+        val changed = protocolName != detectedProtocol
         detectedProtocol = protocolName
         runOnUiThread {
             // what the link turned out to speak, in the row with the rest
@@ -4840,7 +4836,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     )
                 }
             }
-            Toast.makeText(this, "Protocol: $protocolName", Toast.LENGTH_SHORT).show()
+            if (changed) {
+                Toast.makeText(this, "Protocol: $protocolName", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
