@@ -1,7 +1,7 @@
 # Known and open, after 2.4.0
 
-Three residuals, accepted for 2.4.0 and recorded here with what was
-learnt, so the next attempt starts from knowledge instead of theories.
+Residuals, accepted and recorded here with what was learnt, so the next
+attempt starts from knowledge instead of theories.
 
 ## 3D: transient artifacts that clear on full load
 
@@ -37,6 +37,28 @@ hops instead of an even walk (fix-rate cadence). Accepted for 2.4.0.
   jump, the link's actual fix rate, and camera-callback logging — the
   1Hz cadence must be matched to a specific writer before changing one.
 
+## 3D: where the plain camera stands when a view is entered
+
+With neither following nor chase lit, the ground view arrives wherever
+the camera was last left — which after a chase is twenty-two degrees,
+low enough that a model can sit off the top of the screen or behind a
+hill. Reported 2026-08-09 as "3D normal cam too low".
+
+- Six changes were tried in one sitting and all reverted (frame each new
+  flight over a kept world; the opening angle and lean with it; standing
+  the camera up when a chase is dropped; the locate camera on arrival;
+  scoping that to the plain camera; one road out of a chase). Each fixed
+  what it aimed at and left the camera wrong somewhere else. The verdict
+  was "it was good enough" — do not retry these blind.
+- What is true and was learnt: three places let go of a chase and only
+  `setChasing(false)` knows how; `setFollowing(false)` and
+  `followingOff()` drop the flag directly; and a parked world is told
+  `setChasing(true)` but never `setChasing(false)`, so a world parked
+  while chasing comes back still chasing and still stooped.
+- If it is ever picked up again, that asymmetry is the honest starting
+  point, and it should be fixed on its own — without touching where the
+  camera is put on arriving, which is what made every attempt spread.
+
 ## Imagery: tone seams between sharpness steps
 
 Adjacent tiles briefly wear different sharpness levels, and the
@@ -71,6 +93,25 @@ The root ring and the elevation tile box walk eastward and wrap instead
 of counting between two column numbers — which used to select the whole
 globe and then refuse the work. Held up by unit tests that fail on the
 old arithmetic (`AntimeridianTest`), since nobody here can fly to Fiji.
+
+**The map stops turning to rainbow.** The custom native layer gave back
+the GL context it borrows instead of leaving its own program, buffers
+and pixel unpack alignment set — which corrupted every texture MapLibre
+uploaded afterwards, so zooming into fresh ground came up in coloured
+bands. Present in released 2.4.0, and visible to anyone with a model on
+screen.
+
+**The sky knows where to measure from.** Traffic warnings measure from
+the model while it is drawn and from the phone whenever it is not, and
+say which; a replay has no sky at all. The test is the same one the
+marker uses — a place, and a fix to believe it by — so a receiver
+reporting the place it remembers cannot move the measurement.
+
+**Smaller, from testing.** Lines clear themselves rather than hanging
+from a model that has gone; the height question keeps being asked after
+a flight stops, so a stopped flight cannot stay drawn under the hill it
+flew over; deleting the log being replayed no longer leaves the sky
+switched off; and ending a flight ends the reconnect loop with it.
 
 **What four audits found and fixed.** A parked world drew the dead
 flight, and handed back a closed replay's operator arrow; an adopted
