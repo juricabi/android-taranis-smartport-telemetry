@@ -155,6 +155,48 @@ class TerrainPager(
     /** Everything built, by key, in access order so eviction is LRU. */
     private val resident = LinkedHashMap<Long, Paged>(64, 0.75f, true)
 
+    /** The cover as last published to the renderer, for [drawnGroundAt]. */
+    @Volatile private var publishedCover: Set<Long>? = null
+
+    /**
+     * The height of the ground as currently drawn over a spot, or null while
+     * nothing drawn covers it. Read from the drawn tile's own vertex grid,
+     * because no level of the data agrees with the surface on screen: a
+     * coarse tile's triangles bridge whole valleys between its grid points,
+     * and an arrow stood on any data height sat inside the drawn
+     * mountainside. Absolute metres, like Elevation answers.
+     */
+    fun drawnGroundAt(lat: Double, lon: Double): Float? {
+        val drawn = publishedCover ?: return null
+        for (z in LEAF_ZOOM downTo ROOT_ZOOM) {
+            val tx = Elevation.tileX(lon, z)
+            val ty = Elevation.tileY(lat, z)
+            val key = TerrainScene.tileKey(z, tx, ty)
+            if (!drawn.contains(key)) continue
+            // one drawn tile covers any spot; missing here means a world
+            // mid-rebuild, and the caller falls back to the data
+            val mesh = synchronized(lock) { resident[key]?.mesh } ?: return null
+            val grid = TerrainScene.gridFor(z)
+            val west = TerrainScene.tileLon(tx, z)
+            val east = TerrainScene.tileLon(tx + 1, z)
+            val north = TerrainScene.tileLat(ty, z)
+            val south = TerrainScene.tileLat(ty + 1, z)
+            val most = (grid - 1).toDouble()
+            val fu = ((lon - west) / (east - west) * most).coerceIn(0.0, most)
+            val fv = ((lat - north) / (south - north) * most).coerceIn(0.0, most)
+            val c0 = Math.min(fu.toInt(), grid - 2)
+            val r0 = Math.min(fv.toInt(), grid - 2)
+            val du = (fu - c0).toFloat()
+            val dv = (fv - r0).toFloat()
+            fun y(r: Int, c: Int) = mesh.vertices[(r * grid + c) * 10 + 1]
+            val worldY = (y(r0, c0) * (1 - du) + y(r0, c0 + 1) * du) * (1 - dv) +
+                (y(r0 + 1, c0) * (1 - du) + y(r0 + 1, c0 + 1) * du) * dv
+            if (worldY.isNaN()) return null
+            return worldY + scene.originAltitude
+        }
+        return null
+    }
+
     /** Height spans learnt from built tiles, inherited by their children. */
     private val heightRange = HashMap<Long, FloatArray>()
 
@@ -400,6 +442,7 @@ class TerrainPager(
         }
         // the k this cut was selected under rides with it, so the morph
         // bands belong to the cut they guard, not to this frame's surface
+        publishedCover = newCover
         renderer.setDrawSet(newCover, k)
         wantTextures(cutSet, eyeX, eyeY, eyeZ, k)
 

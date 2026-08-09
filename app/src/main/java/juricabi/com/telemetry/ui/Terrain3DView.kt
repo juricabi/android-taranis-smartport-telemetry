@@ -1143,15 +1143,11 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         if (!terrainReady || lat.isNaN() || lon.isNaN()) return lastGround
         // The ground the eye sees, not the ground as it will be. The true
         // z15 height under the phone is warmed early for the datum, but the
-        // drawn mesh may still be a coarse surface bridging the whole
+        // drawn surface may still be a coarse mesh bridging the whole
         // valley far above it — an arrow stood on truth was buried inside
-        // the picture, a sliver of it poking through. Sampled at the drawn
-        // tile's own level, it rides the surface down as detail arrives.
-        val zDrawn = renderer.drawnZoomAt { z ->
-            TerrainScene.tileKey(z, Elevation.tileX(lon, z), Elevation.tileY(lat, z))
-        }
-        val level = Math.min(zDrawn, Elevation.TILE_ZOOM)
-        val ground = (if (zDrawn >= 0) Elevation.elevationAt(lat, lon, level) else null)
+        // the picture, a sliver of it poking through. Read from the drawn
+        // mesh itself, it rides the surface down as detail arrives.
+        val ground = pager.drawnGroundAt(lat, lon)
             ?: scene.groundAt(lat, lon) ?: lastGround
         if (ground.isNaN()) return lastGround
         arrow(
@@ -1184,9 +1180,8 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             val angle = 2.0 * Math.PI * step / CIRCLE_SEGMENTS
             val pointLat = lat + accuracy * Math.cos(angle) / scene.metresUp()
             val pointLon = lon + accuracy * Math.sin(angle) / metresPerDegreeLon
-            // the same drawn-level heights as the arrow, or the ring sinks
-            val h = (if (zDrawn >= 0)
-                Elevation.elevationAt(pointLat, pointLon, level) else null)
+            // the same drawn surface as the arrow, or the ring sinks
+            val h = pager.drawnGroundAt(pointLat, pointLon)
                 ?: scene.groundAt(pointLat, pointLon) ?: ground
             ring[i++] = scene.east(pointLon)
             ring[i++] = h - scene.originAltitude + 0.15f
