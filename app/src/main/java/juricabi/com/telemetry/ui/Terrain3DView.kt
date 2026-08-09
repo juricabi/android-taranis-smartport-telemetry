@@ -1500,6 +1500,15 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             renderer.chasingModel = false
             renderer.azimuthWanted = Float.NaN
             chasePoseApplied = false
+            // and back up to where the camera was standing before the chase
+            // stooped it. Riding behind a model is a low angle on purpose;
+            // left there when the chase is dropped, every later view of the
+            // flight was from the ground — including the one a switch back
+            // to this view arrives at, with the model then behind a hill.
+            if (!elevationBeforeChase.isNaN()) {
+                renderer.elevation = elevationBeforeChase
+                elevationBeforeChase = Float.NaN
+            }
             return
         }
         chaseYaw = 0f
@@ -1513,11 +1522,17 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         applyChaseBearing()
     }
 
+    /** Where the camera stood before a chase stooped it, to stand it back up. */
+    private var elevationBeforeChase = Float.NaN
+
     /** The over-its-shoulder pose: keeping up with it, from a low angle. */
     private fun applyChasePose() {
         val latest = LiveFlightPath.latest() ?: return
         panX = 0f
         panZ = 0f
+        // remembered once per chase, so a pose applied again over a new
+        // flight does not record the low angle as the one to go back to
+        if (elevationBeforeChase.isNaN()) elevationBeforeChase = renderer.elevation
         renderer.elevation = 22f
         renderer.distance = renderer.distance.coerceIn(80f, 400f)
         lookAt(latest.lat, latest.lon, latest.altitudeMsl)
