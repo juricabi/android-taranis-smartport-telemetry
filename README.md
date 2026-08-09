@@ -1,4 +1,4 @@
-# Android Telemetry Viewer 2.3.1
+# Android Telemetry Viewer 2.4.0
 
 Live and recorded RC telemetry on a smooth 2D map or real 3D terrain.
 
@@ -14,8 +14,9 @@ Bluetooth, BLE, USB serial and network connections.
 
 ## Current state
 
-Version 2.3.1 rebuilds the 3D ground as a camera-driven quadtree and fixes
-the 2D map's tile loading, on top of 2.2.1's low-bandwidth telemetry.
+Version 2.4.0 rebuilds the 3D ground as a camera-driven quadtree, fixes the
+2D map's tile loading, and makes the whole 3D pipeline memory-stable, on
+top of 2.2.1's low-bandwidth telemetry.
 
 - The 3D terrain is the design Google Earth and Cesium use: a quadtree of
   web-mercator tiles that splits wherever its error would show on screen.
@@ -40,6 +41,12 @@ the 2D map's tile loading, on top of 2.2.1's low-bandwidth telemetry.
 - The 2D map loads everywhere again: the location arrows' special native
   layer stopped raster tiles from drawing on some devices, and they are
   ordinary map symbols now — same look, same ring, no grey map.
+- Memory-stable by audit: meshes travel light once dressed, pictures decode
+  at the size actually asked, the stitching workers pace themselves, and
+  every queue and cache is bounded — the heap that lived at ninety percent
+  idles near a third. Level transitions morph onto the coarser line exactly
+  where a coarser neighbour can first stand, so the walls that used to mark
+  them are gone.
 - ArduPilot passthrough over CRSF/ExpressLRS and MAVLink High Latency carry
   full telemetry over plain ELRS or satellite/LoRa-class links.
 - Every protocol decoder, including the simulator's own byte streams, is
