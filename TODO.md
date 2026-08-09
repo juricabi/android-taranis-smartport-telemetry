@@ -49,16 +49,6 @@ sharpness.
   before showing an upgrade. Costs visible loading speed; decide with a
   side-by-side, not by taste.
 
-## The antimeridian wraps the root ring round the globe
-
-Longitude differences are taken raw, so a flight at Fiji either straddles
-180 and anchors the world off West Africa, or sits a degree short of it
-and makes the pager select and evict a globe-wide band of roots every
-pass. Pre-existing, unreachable from Europe, and the fix is a wrapping
-convention applied wherever a longitude difference is taken
-(`TerrainScene.east`/`lonAt`, `TerrainPager.roots`) rather than a special
-case bolted on — which is why it is not a one-liner and is not done.
-
 ## Done since 2.4.0
 
 **A new flight keeps its world (c887324, in 2.4.0).** Connect,
@@ -74,7 +64,15 @@ world's ground with nothing connected, the locate button offers the same
 ending rather than only refusing. Nothing is thrown away when nothing was
 recorded — asked of the service, which knows whether a file opened.
 
-**What three audits found and fixed.** A parked world drew the dead
+**Longitude crosses the 180th meridian.** One convention: every
+difference answers the short way round, an extent is counted on from the
+flight's own first point, and a real longitude is handed out wrapped.
+The root ring and the elevation tile box walk eastward and wrap instead
+of counting between two column numbers — which used to select the whole
+globe and then refuse the work. Held up by unit tests that fail on the
+old arithmetic (`AntimeridianTest`), since nobody here can fly to Fiji.
+
+**What four audits found and fixed.** A parked world drew the dead
 flight, and handed back a closed replay's operator arrow; an adopted
 world never picked up a flight that began while it was parked; a far
 replay opened over the standing world; closing a replay with no phone fix
