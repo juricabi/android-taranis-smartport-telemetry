@@ -70,7 +70,9 @@ object DebugLog {
             try {
                 val am = context.getSystemService(android.content.Context.ACTIVITY_SERVICE)
                     as android.app.ActivityManager
-                for (exit in am.getHistoricalProcessExitReasons(context.packageName, 0, 2)) {
+                // eight, not two: on a testing day every reinstall is itself an
+                // exit (reason 16), and two of those buried the crash record
+                for (exit in am.getHistoricalProcessExitReasons(context.packageName, 0, 8)) {
                     note("DebugLog", "previous exit: reason=${exit.reason} " +
                         "status=${exit.status} " +
                         "at=${synchronized(stamp) { stamp.format(Date(exit.timestamp)) }} " +
