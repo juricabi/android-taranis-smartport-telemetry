@@ -3380,6 +3380,17 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             replayWaitingForGround = true
         }
         view.onFollowingLost = { setFollowMode(false) }
+        // The world belongs to whatever is alive: a link, or a replay, or —
+        // when neither is — the person holding the phone. Standing outside a
+        // world a finished flight left behind, locate is asking for that
+        // handover, and the only button whose whole job is "show me where I
+        // am" should be able to do it.
+        view.onLocateBeyondWorld = {
+            if (isIdle()) {
+                askToEndTheFlight()
+                true
+            } else false
+        }
         view.onBearingChanged = { updateCompassHeading(it) }
         // the grid under the heading, for the whole 3D session — unless
         // its switch says no
@@ -3537,6 +3548,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             it.onBearingChanged = null
             it.onTrafficTapped = null
             it.onLoadingProgress = null
+            it.onLocateBeyondWorld = null
             mapHolder.removeView(it)
             parked3D = it
         }
@@ -4456,6 +4468,27 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             return
         }
         map?.flyTo(mine, LOCATE_ZOOM)
+    }
+
+    /**
+     * Offered rather than done: the same ending Disconnect performs, but
+     * reached through a button that means something else, so it is asked.
+     */
+    private fun askToEndTheFlight() {
+        showDialog(AlertDialog.Builder(this)
+            .setTitle("Beyond this flight's ground")
+            .setMessage("End the flight and build the world where you are? " +
+                "It stays in your recordings.")
+            .setPositiveButton("End flight") { _, _ ->
+                // Asked while nothing was connected, answered whenever: a
+                // reconnect lands without anyone tapping, and this would
+                // then throw away a live flight to build the world it is
+                // already re-anchoring.
+                if (!isIdle()) return@setPositiveButton
+                endTheFlight()
+            }
+            .setNegativeButton("Cancel", null)
+            .create())
     }
 
     private fun switchToConnectedState() {

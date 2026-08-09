@@ -123,6 +123,15 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     var onGroundReady: (() -> Unit)? = null
 
     /**
+     * Locate was asked for ground this world does not reach. The screen
+     * answers true when it has taken the question over — with nothing
+     * connected, the world belongs to nobody and it offers to build one
+     * here. A flight or a replay still owns it, and then it answers false
+     * and the words below stand.
+     */
+    var onLocateBeyondWorld: (() -> Boolean)? = null
+
+    /**
      * Whether a flight belongs on screen. Set when one is handed in at the
      * start, and when a fix arrives afterwards — so a finished flight left in
      * memory is not brought back the moment the ground finishes loading.
@@ -773,6 +782,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // status line: the replay writes its flight mode there every tick,
         // and the explanation was gone before it could be read.
         if (!inWorld(myLat, myLon)) {
+            if (onLocateBeyondWorld?.invoke() == true) return true
             android.widget.Toast.makeText(context,
                 "You are beyond this flight's ground",
                 android.widget.Toast.LENGTH_SHORT).show()
@@ -1539,6 +1549,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         onBearingChanged = null
         onTrafficTapped = null
         onLoadingProgress = null
+        onLocateBeyondWorld = null
         renderer.onPicturesLost = null
         pager.onFirstDressed = null
         pager.onWorldMoved = null
