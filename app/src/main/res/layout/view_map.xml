@@ -101,27 +101,6 @@
                 app:outlineColor="@android:color/black"
                 app:outlineSize="3dp" />
 
-        <!-- Stretched across the buttons column so the grid centres on it:
-             the tiles sit under the heading, at the top of the stack the
-             buttons live in. Below, because the column is empty up here and
-             the heading claims the corner itself. -->
-        <FrameLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_alignStart="@+id/buttons_box"
-                android:layout_alignLeft="@+id/buttons_box"
-                android:layout_alignEnd="@+id/buttons_box"
-                android:layout_alignRight="@+id/buttons_box"
-                android:layout_below="@+id/compass_heading"
-                android:layout_marginTop="6dp">
-
-            <juricabi.com.telemetry.ui.LoadingGrid
-                    android:id="@+id/loading_grid"
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:layout_gravity="center_horizontal"/>
-        </FrameLayout>
-
         <juricabi.com.telemetry.ui.TextViewOutline
                 android:id="@+id/compass_heading"
                 android:layout_width="wrap_content"
@@ -218,6 +197,21 @@
                     app:fabSize="mini"
                     tools:visibility="visible"
                     app:backgroundTint="@color/colorAccent" />
+
+            <!-- Last in a column_reverse stack = topmost: the grid rides
+                 above whichever button is highest, like a button itself,
+                 and can never land on one. Margins centre its 28dp on the
+                 40dp mini FABs below it. -->
+            <juricabi.com.telemetry.ui.LoadingGrid
+                    android:id="@+id/loading_grid"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:layout_marginLeft="14dp"
+                    android:layout_marginStart="14dp"
+                    android:layout_marginRight="14dp"
+                    android:layout_marginEnd="14dp"
+                    android:layout_marginTop="8dp"
+                    android:layout_marginBottom="4dp"/>
 
         </com.google.android.flexbox.FlexboxLayout>
 
