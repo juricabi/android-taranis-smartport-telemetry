@@ -42,6 +42,23 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     @Volatile private var progressTotal = -1
 
     /**
+     * Where the camera is looking and how closely, in the 2D map's terms —
+     * so leaving this view hands the map the same picture. Null before the
+     * ground has begun.
+     */
+    fun lookingAt(): Pair<juricabi.com.telemetry.maps.Position, Float>? {
+        if (!started) return null
+        val target = renderer.target
+        val lat = scene.latAt(target[2])
+        val lon = scene.lonAt(target[0])
+        if (lat.isNaN() || lon.isNaN()) return null
+        // a 2D zoom that frames about what this camera distance shows
+        val zoom = (21.5 - Math.log(renderer.distance.toDouble()) / Math.log(2.0))
+            .toFloat().coerceIn(4f, 18f)
+        return Pair(juricabi.com.telemetry.maps.Position(lat, lon), zoom)
+    }
+
+    /**
      * Say the current count again — a settled world stops volunteering it,
      * so a settings return or an adopt would otherwise wait for the next
      * change to apply the switch.

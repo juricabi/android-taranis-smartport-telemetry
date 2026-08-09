@@ -3520,6 +3520,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private fun park3DView() {
         releaseHeldReplay()
         loadingGrid.hide()
+        // One flight, two views: the map opens on what the ground view was
+        // looking at — which also answers a session begun in 3D, where
+        // there is no 2D frame to come back to.
+        terrain3D?.lookingAt()?.let { (centre, zoom) ->
+            remembered2DCentre = centre
+            remembered2DZoom = zoom
+        }
         terrain3D?.let {
             it.onPause()
             it.onGroundReady = null
