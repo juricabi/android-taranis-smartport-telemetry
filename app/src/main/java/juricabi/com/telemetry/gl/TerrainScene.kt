@@ -34,6 +34,15 @@ class TerrainScene {
         altitudeEpoch = AltitudeFrame.currentEpoch()
         altitudeResolved = false
         altitudeIsAboveLaunch = false
+        // The applied lift too, or the dead flight's answer kept lifting
+        // the new one: an above-launch flight settling 500m of lift left
+        // heightOf adding it to a sea-level successor until — or unless —
+        // the fresh reference resolved. The rebuild reset this by nuking
+        // the scene; the kept world must reset it by hand.
+        launchGroundElevation = 0f
+        // and ask the fresh question now, not on the old flight's timer
+        altitudeAskAt = 0L
+        altitudeWarmAt = 0L
         track = FloatArray(0)
         shadow = FloatArray(0)
     }
