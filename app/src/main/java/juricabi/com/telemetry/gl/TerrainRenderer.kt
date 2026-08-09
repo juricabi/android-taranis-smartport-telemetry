@@ -1678,6 +1678,23 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                     at = TerrainScene.parentOf(at)
                     depth++
                     if (set.contains(at)) {
+                        // A masked ancestor only counts if it actually draws
+                        // the quarter this neighbour lies in. Partial cover
+                        // put parents in the list whose near quarters belong
+                        // to their children — the ground beside this edge
+                        // was fine, and forcing onto the coarse line built a
+                        // wall where none stood: the cliff chains
+                        // photographed across the valley. A covered quarter
+                        // means the drawn ground there is finer than any
+                        // ancestor this walk passed, and the finer side
+                        // conforms to us, not us to it.
+                        val m = masks[at] ?: 0
+                        if (m != 0) {
+                            val shift = z - TerrainScene.zoomOf(at) - 1
+                            val bit = (((ny ushr shift) and 1) * 2) +
+                                ((nx ushr shift) and 1)
+                            if (m and (1 shl bit) != 0) break
+                        }
                         force[e + 1] = if (depth >= 2) 2f else 1f
                         break
                     }
