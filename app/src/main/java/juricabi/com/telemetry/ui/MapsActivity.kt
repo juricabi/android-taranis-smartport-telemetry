@@ -4250,8 +4250,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         replayButton.setImageDrawable(ContextCompat.getDrawable(this, R.drawable.ic_close))
         replayButton.setOnClickListener {
             lastConnectionType = CONNTYPE_NONE; //reset last connection type to skip reconnection
-            switchToIdleState()
+            // closeReplay first, by its own doctrine: everything the idle
+            // switch asks — is this still a replay? — must be answered
+            // truthfully by the time it is asked. The other way round,
+            // startFr24 was told yes and declined, and the sky stayed
+            // empty until the next pause.
             closeReplay()
+            switchToIdleState()
         }
         this.sensorTimeoutManager.disableTimeouts()
         this.tlmRate.setAlpha(0.5f);
