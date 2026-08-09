@@ -277,10 +277,6 @@ class TerrainRenderer : GLSurfaceView.Renderer {
     private var quadMasks: HashMap<Long, Int> = HashMap()
     private var drawSetWantedMasks: HashMap<Long, Int> = HashMap()
 
-    /** When the pending draw list arrived, so its wait can be measured. */
-    private var wantedSince = 0L
-    private var censusAt = 0L
-
     /**
      * The pixels-per-radian the pager selected this cut with. Applied in
      * the same locked step as the cut itself, so the morph bands always
@@ -307,9 +303,6 @@ class TerrainRenderer : GLSurfaceView.Renderer {
      */
     @Synchronized
     fun setDrawSet(keys: Set<Long>, masks: Map<Long, Int>, selectedK: Double) {
-        if (drawSetWanted == null) {
-            wantedSince = android.os.SystemClock.elapsedRealtime()
-        }
         drawSetWanted = HashSet(keys)
         drawSetWantedMasks = HashMap(masks)
         morphKWanted = selectedK
@@ -1756,15 +1749,6 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             GLES20.glDisableVertexAttribArray(aEdge)
         }
 
-        // What actually reached the eye this frame, once a second while it
-        // matters: the pager's ledger said the ground underfoot was dressed
-        // at three seconds while the screen smeared for twenty — every
-        // upstream stage is proven, so the truth has to be measured here.
-        var censusOwn = 0
-        var censusBorrowed = 0
-        var censusBare = 0
-        var censusDrawn = 0
-
         val fadeIn = ArrayList<Tile>()
         for (tile in snapshot.values) {
             // yesterdays age out here, on the GL thread, BEFORE the two
@@ -1806,27 +1790,9 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                 if (texId == 0) {
                     texId = bareTex
                     scale = 1f; offU = 0f; offV = 0f
-                    censusBare++
-                } else {
-                    censusBorrowed++
                 }
-            } else {
-                censusOwn++
             }
-            censusDrawn++
             drawOne(tile, texId, scale, offU, offV, masks[tile.key] ?: 0)
-        }
-        if (now - censusAt >= 1000) {
-            censusAt = now
-            val waitingSince = synchronized(this) {
-                if (drawSetWanted == null) 0L else now - wantedSince
-            }
-            if (censusBorrowed + censusBare > 0 || waitingSince > 500) {
-                juricabi.com.telemetry.utils.DebugLog.note("TerrainRenderer",
-                    "drew $censusDrawn: own=$censusOwn borrowed=$censusBorrowed " +
-                    "bare=$censusBare" +
-                    if (waitingSince > 0) " swapWaiting=${waitingSince}ms" else "")
-            }
         }
 
         if (fadeIn.isNotEmpty() || fadeOut.isNotEmpty()) {
