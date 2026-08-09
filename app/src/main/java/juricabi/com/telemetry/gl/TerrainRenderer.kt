@@ -1368,6 +1368,13 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                 tiles[mesh.key] = Tile(mesh.key, ids[0], ids[1], mesh.indices.size,
                     mesh.quadCount, texture,
                     mesh.minX, mesh.maxX, mesh.minY, mesh.maxY, mesh.minZ, mesh.maxZ)
+                // An offer is a keep. The keep list is the previous pass's
+                // snapshot, so a tile built since then was uploaded here and
+                // pruned within the frame — and nothing re-offers it. The
+                // next draw set then waited on a key that could never come,
+                // and the world applied only when building paused: sharp
+                // ground everywhere, shown all at once at the end.
+                keep?.add(mesh.key)
                 tilesDirty = true
             }
         }
