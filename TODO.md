@@ -49,11 +49,37 @@ sharpness.
   before showing an upgrade. Costs visible loading speed; decide with a
   side-by-side, not by taste.
 
-## Done since: a new flight keeps its world (c887324)
+## The antimeridian wraps the root ring round the globe
 
-Connect, replay-open and replay-close now re-open the per-flight
-questions over the standing ground instead of rebuilding, whenever
-their subject is within fifty kilometres of it; only a far subject
-re-anchors, and closing a far replay rebuilds at the phone. Retest the
-three altitude cases — replay, live, Betaflight above-launch — before
-trusting it fully.
+Longitude differences are taken raw, so a flight at Fiji either straddles
+180 and anchors the world off West Africa, or sits a degree short of it
+and makes the pager select and evict a globe-wide band of roots every
+pass. Pre-existing, unreachable from Europe, and the fix is a wrapping
+convention applied wherever a longitude difference is taken
+(`TerrainScene.east`/`lonAt`, `TerrainPager.roots`) rather than a special
+case bolted on — which is why it is not a one-liner and is not done.
+
+## Done since 2.4.0
+
+**A new flight keeps its world (c887324, in 2.4.0).** Connect,
+replay-open and replay-close re-open the per-flight questions over the
+standing ground instead of rebuilding, whenever their subject is within
+fifty kilometres of it. Retest the three altitude cases — replay, live,
+Betaflight above-launch — before trusting it fully.
+
+**A flight ends when the person says so.** Pressing Disconnect ends it
+and brings both views home; a link that drops keeps everything, because
+that is the one the model may be lying in a field after. Beyond the
+world's ground with nothing connected, the locate button offers the same
+ending rather than only refusing. Nothing is thrown away when nothing was
+recorded — asked of the service, which knows whether a file opened.
+
+**What three audits found and fixed.** A parked world drew the dead
+flight, and handed back a closed replay's operator arrow; an adopted
+world never picked up a flight that began while it was parked; a far
+replay opened over the standing world; closing a replay with no phone fix
+left a blank holder; chase kept steering a vanished model; late fixes
+resurrected an ended flight; the map lean and the traffic warnings
+outlived the flight they belonged to. And the world re-anchor is asked
+once per flight now, so a 200 km log no longer tears its world down every
+hundred and a seek back to the start no longer tears it down again.
