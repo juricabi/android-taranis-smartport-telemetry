@@ -662,6 +662,18 @@ class TerrainScene {
      * asks again — so heights above the launch were drawn as heights above the
      * sea and the model spent the flight inside the hill.
      */
+    /**
+     * Whether asking again could still change the answer, and whether it is
+     * due to be asked. For a flight that has stopped — a link that dropped,
+     * a replay standing still — nothing arrives to carry the question, so
+     * the view has to bring it on its own tick; this keeps that from
+     * copying the whole flight twice a second to be told "not yet".
+     */
+    fun altitudeWorthAsking(): Boolean {
+        if (altitudeResolved && altitudeIsAboveLaunch) return false
+        return android.os.SystemClock.elapsedRealtime() >= altitudeAskAt
+    }
+
     fun resolveAltitudeIfNeeded(points: List<TrackPoint>): Boolean {
         if (altitudeResolved && altitudeIsAboveLaunch) return false
         if (points.isEmpty()) return false

@@ -620,14 +620,26 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private fun pickUpNewPoints() {
         if (!terrainReady || !flightShown) return
         val version = LiveFlightPath.version
-        if (version == seenVersion) return
-        seenVersion = version
+        val fresh = version != seenVersion
+        // A flight that has stopped still has its height question open, and
+        // the answer wants ground that may not have loaded when it was first
+        // asked. The question used to ride in on the next batch of points —
+        // and a link that has dropped sends none, so an above-launch flight
+        // opened afterwards stayed drawn under the hill it had flown over.
+        if (!fresh && !scene.altitudeWorthAsking()) return
         val points = LiveFlightPath.snapshot()
-        if (points.size < 2) return
+        if (points.size < 2) {
+            seenVersion = version
+            return
+        }
 
         // Before the track is built from them: this settles what their heights
         // mean, and the track is laid out in that answer.
         val frameMoved = scene.resolveAltitudeIfNeeded(points)
+        // nothing new to draw and the answer did not move: leave the flight
+        // exactly as it stands rather than rebuilding it every tick
+        if (!fresh && !frameMoved) return
+        seenVersion = version
         scene.buildTrack(points)
         renderer.setTrack(scene.track, scene.shadow)
         // as the flight grows, so does how far back the camera may be pulled
