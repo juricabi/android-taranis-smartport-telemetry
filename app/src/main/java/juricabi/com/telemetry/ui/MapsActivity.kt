@@ -2974,6 +2974,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         crsfSystem = null
         // else the next link would redraw the old rate under its own table
         lastRfMode = null
+        // and the row would name the last link until the new one had said two
+        // valid frames — long enough to read, and wrong. A reconnect does not
+        // come through here, so a link coming back keeps the name it earned.
+        detectedProtocol = ""
+        protocolView.text = "-"
     }
 
     private fun connectToNetwork(host: String, port: Int, mode: Int,

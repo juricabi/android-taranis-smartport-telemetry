@@ -1,4 +1,4 @@
-# Android Telemetry Viewer 2.4.0
+# Android Telemetry Viewer 2.4.1
 
 Live and recorded RC telemetry on a smooth 2D map or real 3D terrain.
 
@@ -9,13 +9,14 @@ Bluetooth, BLE, USB serial and network connections.
 **Download:** [GitHub Releases](https://github.com/juricabi/android-taranis-smartport-telemetry/releases)
 
 <p align="center">
-  <img src="docs/replay-3d.jpg" width="360" alt="3D terrain flight view">
+  <img src="docs/flight-3d.jpg" width="360" alt="3D terrain flight view">
 </p>
 
 ## Current state
 
-Version 2.4.0: a camera-driven quadtree 3D ground, a fixed 2D map, and a
-memory-stable pipeline, on top of 2.2.1's low-bandwidth telemetry.
+Version 2.4.1: the 2.4.0 ground and map, with the flight ending when you
+say so, a map that no longer turns to rainbow, and a row that names the
+protocol the link speaks.
 
 - 3D terrain is a quadtree of web-mercator tiles — the Google Earth and
   Cesium design — metre-sharp under the model, coarse where it can afford
@@ -30,9 +31,17 @@ memory-stable pipeline, on top of 2.2.1's low-bandwidth telemetry.
   symbols now, whose old native layer stopped tiles on some devices.
 - Memory-stable by audit: every queue and cache bounded, the heap idles
   near a third of what it used to hold.
+- A flight ends when you say so: Disconnect clears it and brings both
+  views home, a link that drops keeps everything for walking to a downed
+  model, and nothing is thrown away when nothing was recorded.
+- The bottom row names the protocol the link speaks — FrSky, CRSF, GHST,
+  LTM, MAV v1, MAV v2, MAV HL, and CRSF+AP when an autopilot is talking
+  over the link. Off by default, in Sensor display settings.
 - ArduPilot passthrough over CRSF/ExpressLRS and MAVLink High Latency
   carry full telemetry over plain ELRS or satellite/LoRa-class links.
-- Every protocol decoder is covered by regression tests.
+- Every protocol decoder is covered by regression tests, longitude
+  included: the maths crosses the 180th meridian and is held up by tests
+  that fail on the old arithmetic.
 
 ## Supported telemetry
 
