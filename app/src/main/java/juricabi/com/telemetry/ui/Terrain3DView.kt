@@ -100,6 +100,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // the snap that drops the camera onto it
         appendedThrough = 0
         placedOnce = false
+        framedFlight = false
         hasAttitude = false
         modelHeadingKnown = false
         chasePoseApplied = false
@@ -500,6 +501,15 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private var placedOnce = false
 
     /**
+     * Whether this flight has been framed on its first appearance yet. Unlike
+     * [placedOnce] it does NOT reset on a rewind: a backward seek forgets the
+     * flight to redraw it, and keying the on-appear frame to placedOnce would
+     * yank a free camera back to the model on every leftward drag of the
+     * seekbar. Reset only when a genuinely new flight begins.
+     */
+    private var framedFlight = false
+
+    /**
      * Told when a fix lands, so the model moves with the one on the map rather
      * than up to a tick behind it.
      *
@@ -601,6 +611,18 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             Math.max(15f, scene.extent / 40f), modelPitch, modelRoll)
         if (following) {
             renderer.target = floatArrayOf(x + panX, y, z + panZ)
+            framedFlight = true
+        } else if (!framedFlight) {
+            // Frame the flight when it first appears even with no mode
+            // selected, the way the 2D map recenters on the first fix — so the
+            // view always arrives at the flight, live or replay, and only then
+            // hands over to free control. Gated on framedFlight, not
+            // placedOnce: a rewind forgets the flight to redraw it (resetting
+            // placedOnce), and keying this to that would yank a free camera
+            // back to the model on every leftward seek. framedFlight resets
+            // only when a new flight begins, so a rewind leaves the camera put.
+            renderer.target = floatArrayOf(x, y, z)
+            framedFlight = true
         }
         // The first time the model is put anywhere, the camera arrives at it
         // rather than easing to it from wherever it was aimed while the ground
@@ -1337,8 +1359,38 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
                     val focusY = focusYOf(event)
 
                     if (lastSpan > 0f && span > 0f) {
-                        renderer.distance = (renderer.distance * lastSpan / span)
-                            .coerceIn(60f, renderer.maxDistance)
+                        val f = lastSpan / span
+                        renderer.distance =
+                            (renderer.distance * f).coerceIn(60f, renderer.maxDistance)
+                        // Zooming in slides the focus DOWN THE VIEW RAY toward
+                        // the ground — forward as much as down, the way the
+                        // camera is looking — so a pinch moves toward what is
+                        // ahead rather than dropping to the ground beneath the
+                        // eye. The focus stays on the ray, so the view does not
+                        // tilt, and the eye follows because it is worked out
+                        // from the focus. Held off only while keeping up with a
+                        // live model (following or chasing aims the focus at the
+                        // plane); let go of it — chase or locate off, or the
+                        // flight gone — and it is on. Only the pinch moves it.
+                        if (f < 1f && (LiveFlightPath.latest() == null || !following)) {
+                            val t = renderer.target
+                            val g = renderer.groundUnderCamera?.invoke(t[0], t[2])
+                            if (g != null && t[1] > g) {
+                                val az = Math.toRadians(renderer.azimuth.toDouble())
+                                val el = Math.toRadians(renderer.elevation.toDouble())
+                                val uy = -Math.sin(el).toFloat()
+                                if (uy < -0.05f) {
+                                    // along the ray until this pinch's share of
+                                    // the height above ground is shed
+                                    val along = (t[1] - g) * (1f - f) / -uy
+                                    val ux = -(Math.cos(el) * Math.sin(az)).toFloat()
+                                    val uz = -(Math.cos(el) * Math.cos(az)).toFloat()
+                                    renderer.target = floatArrayOf(
+                                        t[0] + ux * along, t[1] + uy * along,
+                                        t[2] + uz * along)
+                                }
+                            }
+                        }
                     }
                     // a twist turns the world, the way it does on a map
                     var turn = angle - lastAngle
@@ -1414,7 +1466,19 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private fun panBy(dx: Float, dy: Float) {
         if (dx == 0f && dy == 0f) return
         val height = Math.max(1, resources.displayMetrics.heightPixels)
-        val metresPerPixel = renderer.distance * 0.93f / height
+        // Scaled by the distance to the GROUND under the focus, not to the
+        // focus: while a pinch is still sinking the focus down from a chased
+        // model the focus sits nearer than the ground, and a drag tuned to it
+        // crawls until the zoom finishes. On the ground the two are the same.
+        val ft = renderer.target
+        val g = renderer.groundUnderCamera?.invoke(ft[0], ft[2])
+        val reach = if (g == null) renderer.distance else {
+            val ex = renderer.eyeX - ft[0]
+            val ey = renderer.eyeY - g
+            val ez = renderer.eyeZ - ft[2]
+            Math.sqrt((ex * ex + ey * ey + ez * ez).toDouble()).toFloat()
+        }
+        val metresPerPixel = reach * 0.93f / height
         val az = Math.toRadians(renderer.azimuth.toDouble())
         val rightX = Math.cos(az).toFloat()
         val rightZ = -Math.sin(az).toFloat()

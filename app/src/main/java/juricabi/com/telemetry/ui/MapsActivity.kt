@@ -538,7 +538,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             mapType = MapLibreStyles.MAP_TYPE_DEFAULT
             preferenceManager.setMapType(mapType)
         }
-        followMode = savedInstanceState?.getBoolean("follow_mode", true) ?: true
+        followMode = savedInstanceState?.getBoolean("follow_mode")
+            ?: preferenceManager.getCameraFollow()
         detectedCells = savedInstanceState?.getInt("cells", 0) ?: 0
         cellsAnswered = savedInstanceState?.getBoolean("cells_answered", false) ?: false
         cellsAsked = savedInstanceState?.getBoolean("cells_asked", false) ?: false
@@ -571,9 +572,17 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         followButton = findViewById(R.id.follow_button)
         chaseButton = findViewById(R.id.chase_button)
         chaseButton.imageAlpha = 128
-        if (savedInstanceState?.getBoolean("chase_mode", false) == true) {
-            setChaseMode(true)
+        // The mode the person last chose, remembered across restarts: the
+        // Bundle wins on a rotation, the stored preference on a cold start.
+        // Chase engages through its own setter so the buttons and both views
+        // agree; follow is only a field until a flight arrives, so its button
+        // is lit by hand here to match what was remembered.
+        if (savedInstanceState?.getBoolean("chase_mode")
+                ?: preferenceManager.getCameraChase()) {
+            // remembered, not just tapped: engage it silently, no armed toast
+            setChaseMode(true, announce = false)
         }
+        followButton.imageAlpha = if (followMode && !chaseMode) 255 else 128
         mapTypeButton = findViewById(R.id.map_type_button)
         northUpButton = findViewById(R.id.north_up_button)
         compassHeading = findViewById(R.id.compass_heading)
@@ -1897,6 +1906,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     private fun connect() {
         lastConnectionType = CONNTYPE_NONE;
+        // Tapping connect is a deliberate act: it ends any reconnect the last
+        // drop had armed, so a retry cannot fire behind the chooser or race a
+        // manual connect. The flag itself, not only the type guard, so even a
+        // retry caught mid-attempt schedules no successor.
+        reconnectOnFailure = false
+        reconnectionStartTime = 0
         val showcaseView = MaterialShowcaseView.Builder(this)
             .renderOverNavigationBar()
             .setTarget(replayButton)
@@ -4399,6 +4414,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                             // reconnecting from a dead Activity re-binds the
                             // service to it, leaving the live screen deaf
                             if (isFinishing || isDestroyed) return@runOnUiThread
+                            // and a deliberate act in the five-second wait — a
+                            // manual connect, or opening a replay — clears this
+                            // and so calls the whole retry off before it fires
+                            if (!reconnectOnFailure) return@runOnUiThread
                             if (isNetwork) {
                                 reconnectToNetwork()
                             } else {
@@ -4413,7 +4432,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     private fun switchToReplayMode() {
         stopFr24(clear = true)
-        setFollowMode(true);
+        // A replay opens in whatever mode is selected — a flight's armed mode
+        // takes hold from its first point, the way a live link's does. Forcing
+        // follow here overrode a chosen chase, and it never told the 3D view,
+        // whose follow state then stood stale over a kept world. Re-sync the
+        // selected mode to the 3D view; the 2D map reads keepingUp() per fix
+        // and needs nothing more.
+        terrain3D?.setFollowing(keepingUp())
+        terrain3D?.setChasing(chaseMode)
+        // Opening a replay is a deliberate choice: it ends any reconnect the
+        // dropped link had armed, so the retry does not fire on top of it.
+        reconnectOnFailure = false
+        reconnectionStartTime = 0
         seekBar.setOnSeekBarChangeListener(null)
         seekBar.progress = 0
         menuButton.show()
@@ -4593,15 +4623,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             "Flight", "ended: world " + (if (near) "kept" else "rebuilt at the phone") +
                 ", standing=" + (if (standing == null) "none" else "yes"))
         startFlightIn3D(keepWorld = near)
-        // A rebuilt world opens at the phone already; a kept one is walked
-        // there — the one behind the map as much as the one on screen, or
-        // switching to 3D afterwards looked at the far end of the valley
-        // where the model had stopped. lookAt rather than the locate
-        // button's own road, which means "leave the model behind" and gives
-        // up following to say so: there is no model to leave, and the next
-        // flight is still owed it.
-        (terrain3D ?: parked3D)?.lookAt(mine.lat, mine.lon, null)
-        map?.flyTo(mine, LOCATE_ZOOM)
+        // The camera is left exactly where it stands. Disconnect used to fly
+        // both views home to the phone; that is the person's to do now — the
+        // cameras are theirs to control, and closing a replay already leaves
+        // them put. Both endings match, and nothing moves the view but a hand.
     }
 
     /**
@@ -5407,6 +5432,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // stop riding behind it.
         if (mode && chaseMode) setChaseMode(false)
         this.followButton.imageAlpha = if (followMode) 255 else 128
+        // remember it, so the next run opens in the mode last chosen
+        preferenceManager.setCameraFollow(followMode)
+        preferenceManager.setCameraChase(chaseMode)
     }
 
     /**
@@ -5415,13 +5443,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      *
      * It keeps up with the model itself, so plain tracking gives way to it.
      */
-    private fun setChaseMode(on: Boolean) {
+    private fun setChaseMode(on: Boolean, announce: Boolean = true) {
         if (chaseMode == on) return
         chaseMode = on
         chaseButton.imageAlpha = if (on) 255 else 128
-        if (on && !modelHeadingKnown) {
+        if (on && !modelHeadingKnown && announce) {
             // armed, not engaged: the mode stands and takes hold the moment
-            // a flight gives it a heading to ride behind
+            // a flight gives it a heading to ride behind — but only when the
+            // person just tapped it, not when it is restored on a cold start
             Toast.makeText(this,
                 "Chase rides behind the model - it engages when a flight is up",
                 Toast.LENGTH_SHORT).show()
@@ -5442,6 +5471,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         terrain3D?.setFollowing(keepingUp())
         terrain3D?.setChasing(on)
         if (on) applyHeadingUp()
+        // remember it, so the next run opens in the mode last chosen
+        preferenceManager.setCameraChase(chaseMode)
+        preferenceManager.setCameraFollow(followMode)
         // The angle is left where the chase left it, in both views: the
         // north-up button is the way back to north and it is one tap, and
         // swinging the map round unasked, at the moment somebody has asked for

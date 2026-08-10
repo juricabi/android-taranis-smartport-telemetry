@@ -28,6 +28,19 @@ class PreferenceManager(context: Context) {
         }
     }
 
+    /**
+     * Which camera mode to open in, remembered across restarts. Chase and
+     * follow are mutually exclusive; both off is the free camera. Follow is
+     * the standing default (a flight is worth keeping in view); chase is the
+     * one the person turns on, so it defaults off.
+     */
+    fun getCameraChase(): Boolean = sharedPreferences.getBoolean("chase_mode", false)
+    fun setCameraChase(on: Boolean) =
+        sharedPreferences.edit().putBoolean("chase_mode", on).apply()
+    fun getCameraFollow(): Boolean = sharedPreferences.getBoolean("follow_mode", true)
+    fun setCameraFollow(on: Boolean) =
+        sharedPreferences.edit().putBoolean("follow_mode", on).apply()
+
     companion object {
         val sensors = setOf(
             SensorSetting("Satellites", 1),

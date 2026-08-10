@@ -2316,9 +2316,14 @@ class TerrainRenderer : GLSurfaceView.Renderer {
         // Held at a size on screen rather than in metres — a model drawn to
         // scale is invisible from anywhere useful — but a good deal smaller
         // than it was, which made a quad look the size of a hangar.
-        // the same fraction of the distance the position arrow uses, so the two
-        // read as one family rather than two scales
-        val drawSize = Math.max(3f, distance * 0.02f)
+        // the same fraction of its own distance from the eye the position
+        // arrows use, so the two read as one family — a constant size on
+        // screen, not shrunk when the camera looks at something close by
+        val mx = shownX - eyeX
+        val my = shownY - eyeY
+        val mz = shownZ - eyeZ
+        val ownDist = Math.sqrt((mx * mx + my * my + mz * mz).toDouble()).toFloat()
+        val drawSize = Math.max(3f, ownDist * 0.02f)
         Matrix.scaleM(modelMatrix, 0, drawSize, drawSize, drawSize)
         Matrix.multiplyMM(modelMvp, 0, mvp, 0, modelMatrix, 0)
 
@@ -2392,11 +2397,20 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                 spot.heading, spot.headingTarget, 0.12f)
         }
 
-        // A fraction of the distance out, so it is the same size on screen
-        // however far the camera is — and a larger fraction than it reads as,
-        // because an arrow that is exactly to scale is a speck the moment the
-        // whole flight is in view, which is when it is most worth seeing.
-        val size = Math.max(2f, distance * 0.02f)
+        // A fraction of the arrow's OWN distance from the eye, so it is the
+        // same size on screen wherever it stands — the way the traffic planes
+        // are sized. The camera-to-target distance was a stand-in for that,
+        // and it holds while the arrow is near what the camera looks at; but
+        // the chase camera looks at the model close up while the operator's
+        // arrow is off across the field, and sized by that near distance it
+        // shrank to a speck. A larger fraction than it reads as, because an
+        // arrow exactly to scale is a speck the moment the whole flight is in
+        // view, which is when it is most worth seeing.
+        val ax = spot.x - eyeX
+        val ay = spot.y - eyeY
+        val az = spot.z - eyeZ
+        val own = Math.sqrt((ax * ax + ay * ay + az * az).toDouble()).toFloat()
+        val size = Math.max(2f, own * 0.02f)
         // Clearance in proportion, because the arrow lies flat: zoomed out it
         // is tens of metres across, and a fixed quarter of a metre left its
         // uphill half buried in any slope.
