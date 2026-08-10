@@ -15,8 +15,10 @@ Bluetooth, BLE, USB serial and network connections.
 ## Current state
 
 Version 2.4.1: the 2.4.0 ground and map, with the flight ending when you
-say so, a map that no longer turns to rainbow, and a row that names the
-protocol the link speaks.
+say so, a map that no longer turns to rainbow, a row that names the
+protocol the link speaks, the 3D ground no longer hanging a wall as it
+loads, and one camera that behaves the same across both views, live or
+replayed.
 
 - 3D terrain is a quadtree of web-mercator tiles — the Google Earth and
   Cesium design — metre-sharp under the model, coarse where it can afford
@@ -31,9 +33,10 @@ protocol the link speaks.
   symbols now, whose old native layer stopped tiles on some devices.
 - Memory-stable by audit: every queue and cache bounded, the heap idles
   near a third of what it used to hold.
-- A flight ends when you say so: Disconnect clears it and brings both
-  views home, a link that drops keeps everything for walking to a downed
-  model, and nothing is thrown away when nothing was recorded.
+- A flight ends when you say so: Disconnect clears it — a link that drops
+  keeps everything for walking to a downed model — and nothing is thrown
+  away when nothing was recorded. The camera stays where you left it; only
+  a flight far from where you stand rebuilds the 3D world back at you.
 - The bottom row names the protocol the link speaks — FrSky, CRSF, GHST,
   LTM, MAV v1, MAV v2, MAV HL, and CRSF+AP when an autopilot is talking
   over the link. Off by default, in Sensor display settings.
@@ -42,6 +45,14 @@ protocol the link speaks.
 - Every protocol decoder is covered by regression tests, longitude
   included: the maths crosses the 180th meridian and is held up by tests
   that fail on the old arithmetic.
+- The 3D ground no longer hangs a dark wall while it loads: that shelf was
+  a coarse tile's skirt, drawn down edges where the finer ground below had
+  already risen to meet it. Skirts now hang only where a crack can open.
+- One camera contract across both views, live or replayed: a flight is
+  framed the moment it appears in every mode, a replay opens in the mode
+  last chosen, the mode is remembered between runs, and with no mode
+  keeping up zoom reaches the ground and pan keeps pace. A dropped link's
+  reconnect lets go the moment you connect or open a replay.
 
 ## Supported telemetry
 
