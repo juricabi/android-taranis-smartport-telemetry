@@ -141,8 +141,23 @@ class MapLibreMapWrapper(
                 // the touch.
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN,
-                    MotionEvent.ACTION_POINTER_DOWN,
-                    MotionEvent.ACTION_MOVE -> handOnMap = true
+                    MotionEvent.ACTION_POINTER_DOWN -> handOnMap = true
+                    MotionEvent.ACTION_MOVE -> {
+                        handOnMap = true
+                        // A drag, pinch or twist moves the camera without going
+                        // through moveCameraNow, so its record of where it last
+                        // wrote the camera stops matching where the camera is.
+                        // Clear it, or a later programmatic recentre to that same
+                        // last-written place — chase turned on again after the
+                        // map was dragged off the model — reads as a no-op and is
+                        // skipped, and the map never comes back. Only on a real
+                        // move: a tap does not shift the camera, and forcing a
+                        // write for one would cancel the tiles in flight the
+                        // still-check exists to protect.
+                        wroteLat = Double.NaN
+                        wroteLon = Double.NaN
+                        wroteBearing = Float.NaN
+                    }
                     MotionEvent.ACTION_UP,
                     MotionEvent.ACTION_CANCEL -> handOnMap = false
                 }

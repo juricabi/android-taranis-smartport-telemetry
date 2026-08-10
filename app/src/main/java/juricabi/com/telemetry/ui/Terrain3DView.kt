@@ -306,10 +306,12 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             myLat = myLatitude
             myLon = myLongitude
             myAccuracy = accuracy
-            if (points.size >= 2) {
+            if (points.isNotEmpty()) {
                 flightShown = true
                 // which lays the track out, re-anchors it if it is far, and
-                // stands the model at its end — the tick's own road
+                // stands the model at its end — the tick's own road. One point
+                // is a replay paused at its first fix: no track to lay, but a
+                // model to stand, which pickUpNewPoints now does from a lone one.
                 pickUpNewPoints()
             }
             return
@@ -326,15 +328,26 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         // it until playback was started again.
         if (hasFlight) flightShown = true
         if (!hasFlight) {
-            if (fallbackLat.isNaN() || fallbackLon.isNaN()) {
+            // One point is not a track to lay out, but a replay paused at its
+            // very first fix still has a place to stand the world on and a model
+            // to show. Build on it and mark the flight shown, so switching into
+            // 3D over a paused start draws the model once the ground is up —
+            // rather than the empty screen it fell to when a replay, whose
+            // fallback origin is deliberately none, dropped through to nothing.
+            val lone = points.lastOrNull()
+            if (lone != null) {
+                scene.setOrigin(lone.lat, lone.lon)
+                flightShown = true
+            } else if (fallbackLat.isNaN() || fallbackLon.isNaN()) {
                 if (groundFollowsPhone) status.text = "No position yet"
                 // Not started, so nothing is loading and nothing will draw. The
                 // tick still runs: the first fix to arrive starts the ground.
                 started = false
                 watch()
                 return
+            } else {
+                scene.setOrigin(fallbackLat, fallbackLon)
             }
-            scene.setOrigin(fallbackLat, fallbackLon)
         }
 
         renderer.groundUnderCamera = { x, z ->
@@ -652,6 +665,16 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         val points = LiveFlightPath.snapshot()
         if (points.size < 2) {
             seenVersion = version
+            // One point is a replay opened — or left paused — at its very first
+            // fix: no line to draw from it, but the model belongs on the ground
+            // the moment the ground is up, not held back until playback moves off
+            // the start. This is the only road taken when ground finishes after
+            // the flight has stopped arriving, so without it a replay stopped at
+            // its start (autostart off) stood over bare terrain with nothing on
+            // it. Just the model: the line and curtain need two points to join,
+            // and leaving appendedThrough at 0 lets onNewPoint rebuild the whole
+            // flight the instant the second point lands, not a tick later.
+            if (points.isNotEmpty()) placeModel()
             return
         }
 

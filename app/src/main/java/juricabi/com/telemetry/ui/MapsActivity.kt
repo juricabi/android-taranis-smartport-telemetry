@@ -1644,9 +1644,24 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     lastGPS = Position(0.0, 0.0);
                     gotHeading = false;
                     modelHeadingKnown = false
-                    logPlayer?.let { it.seek(it.firstFixPosition()) }
+                    logPlayer?.let { player ->
+                        val firstFix = player.firstFixPosition()
+                        player.seek(firstFix)
 
-                    logPlayer?.seek(0);
+                        // Rewind to the very start only when playback will run
+                        // from there. Opened with autostart off, the replay
+                        // stays on its first fix — where the model stands —
+                        // rather than resting on a position 0 that can sit before
+                        // the first GPS fix and draw nothing until play is
+                        // pressed. The bar's thumb goes to the same place, so it
+                        // does not sit at 0 while the model is drawn further in
+                        // and then jump the moment play is pressed.
+                        if (preferenceManager.getPlaybackAutostart()) {
+                            player.seek(0)
+                        } else {
+                            seekBar.progress = firstFix
+                        }
+                    }
                 }
 
                 override fun onPlaybackPositionChange(prevPosition: Int, nextPosition: Int) {
@@ -5435,6 +5450,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // remember it, so the next run opens in the mode last chosen
         preferenceManager.setCameraFollow(followMode)
         preferenceManager.setCameraChase(chaseMode)
+        // Arrive at the model now rather than on the next fix. The 2D camera
+        // only rides along inside the marker's easing step, which a paused
+        // replay has let settle and stop, so without the kick following turned
+        // on over one sat where it was until play was pressed. The 3D view goes
+        // at once; this brings the map with it.
+        if (mode) keepSmoothing()
     }
 
     /**
@@ -5447,10 +5468,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         if (chaseMode == on) return
         chaseMode = on
         chaseButton.imageAlpha = if (on) 255 else 128
-        if (on && !modelHeadingKnown && announce) {
-            // armed, not engaged: the mode stands and takes hold the moment
-            // a flight gives it a heading to ride behind — but only when the
-            // person just tapped it, not when it is restored on a cold start
+        if (on && lastGPS.lat == 0.0 && lastGPS.lon == 0.0 && announce) {
+            // armed, not engaged — only when there is truly no flight to ride
+            // behind, the same test the follow button makes. A paused replay
+            // has a model and chase centres on it at once (the heading-up
+            // follows once a heading is known), so keying this to
+            // modelHeadingKnown fired "engages when a flight is up" even as the
+            // camera plainly engaged. announce still keeps it off the cold-start
+            // restore path.
             Toast.makeText(this,
                 "Chase rides behind the model - it engages when a flight is up",
                 Toast.LENGTH_SHORT).show()
@@ -5478,6 +5503,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // north-up button is the way back to north and it is one tap, and
         // swinging the map round unasked, at the moment somebody has asked for
         // something else, is a movement nobody wanted.
+        //
+        // Go to the model now, though, without waiting for it to move: the 2D
+        // camera only rides along inside the marker's easing step, which a
+        // paused replay has let settle and stop, so chase turned on over a
+        // stopped flight sat where it was until playback woke the step. The 3D
+        // view already arrives at once; this brings the map with it.
+        if (on) keepSmoothing()
     }
 
     /** How far the map has been dragged and turned away from the model. */
@@ -5770,6 +5802,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     private fun keepSmoothing() {
+        // Nothing to post to before the holder exists. onCreate restores a
+        // remembered chase mode — setChaseMode(true) — before it finds
+        // mapHolder, and the kick added there would touch this lateinit too
+        // early and crash the launch. There is no flight to arrive at that
+        // early anyway; the first fix kicks the loop the ordinary way.
+        if (!this::mapHolder.isInitialized) return
         if (smoothingMarker) return
         smoothingMarker = true
         mapHolder.postOnAnimation(markerStep)
