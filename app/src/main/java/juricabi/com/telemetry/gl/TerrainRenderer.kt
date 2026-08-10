@@ -1725,6 +1725,29 @@ class TerrainRenderer : GLSurfaceView.Renderer {
             }
         }
 
+        // A skirt belongs only on an edge that faces a COARSER drawn
+        // neighbour — the one place a crack the morph could not close can
+        // open. On an edge meeting an equal or finer neighbour the fine side
+        // has already risen to this tile's line, so the curtain hides
+        // nothing; and a coarse tile's tall dark skirt over the refined
+        // ground below it then stood as a wall that hung there the whole
+        // load. force[] is the same coarser-neighbour test the morph reads,
+        // filled by fillForce for the tile about to be drawn. The four skirt
+        // runs walk the rim north, east, south, west; force is indexed
+        // west 1, north 2, east 3, south 4.
+        fun drawSkirts(tile: Tile) {
+            val skirtStart = 4 * tile.quadCount
+            val total = tile.count - skirtStart
+            if (total <= 0) return
+            val edge = total / 4
+            for (s in 0 until 4) {
+                val f = when (s) { 0 -> force[2]; 1 -> force[3]; 2 -> force[4]; else -> force[1] }
+                if (f <= 0f) continue
+                GLES20.glDrawElements(GLES20.GL_TRIANGLES, edge,
+                    GLES20.GL_UNSIGNED_SHORT, (skirtStart + s * edge) * 2)
+            }
+        }
+
         // One tile, bound and drawn; the caller has chosen its picture and
         // its alpha. Everything per-tile lives here so the dissolve passes
         // below draw exactly what the opaque pass draws — above all the
@@ -1787,8 +1810,16 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                 GLES20.glUniform2f(uUvOff, 0f, 0f)
             }
             if ((mask == 0 && skirts) || tile.quadCount == 0) {
-                GLES20.glDrawElements(GLES20.GL_TRIANGLES, tile.count,
-                    GLES20.GL_UNSIGNED_SHORT, 0)
+                if (tile.quadCount > 0) {
+                    // the four quadrant runs are the surface; the skirts that
+                    // follow are drawn only where an edge needs one
+                    GLES20.glDrawElements(GLES20.GL_TRIANGLES, 4 * tile.quadCount,
+                        GLES20.GL_UNSIGNED_SHORT, 0)
+                    if (skirts) drawSkirts(tile)
+                } else {
+                    GLES20.glDrawElements(GLES20.GL_TRIANGLES, tile.count,
+                        GLES20.GL_UNSIGNED_SHORT, 0)
+                }
             } else {
                 // only the quarters no child covers; the offsets are in
                 // bytes, two per short index
@@ -1797,11 +1828,7 @@ class TerrainRenderer : GLSurfaceView.Renderer {
                     GLES20.glDrawElements(GLES20.GL_TRIANGLES, tile.quadCount,
                         GLES20.GL_UNSIGNED_SHORT, q * tile.quadCount * 2)
                 }
-                if (skirts) {
-                    val skirtStart = 4 * tile.quadCount
-                    GLES20.glDrawElements(GLES20.GL_TRIANGLES, tile.count - skirtStart,
-                        GLES20.GL_UNSIGNED_SHORT, skirtStart * 2)
-                }
+                if (skirts) drawSkirts(tile)
             }
 
             GLES20.glDisableVertexAttribArray(aPosition)
