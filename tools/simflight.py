@@ -331,10 +331,31 @@ def route_position(legs, total, s):
     return legs[-1][3]
 
 
+def local_ips():
+    """The addresses this PC might be reachable at, for the app to dial."""
+    ips = set()
+    try:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        probe.connect(("8.8.8.8", 80))
+        ips.add(probe.getsockname()[0])
+        probe.close()
+    except OSError:
+        pass
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ips.add(info[4][0])
+    except OSError:
+        pass
+    return sorted(i for i in ips if not i.startswith("127."))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", help="the phone (not needed with --dump)")
     parser.add_argument("--port", type=int, default=8888)
+    parser.add_argument("--tcp", action="store_true",
+                        help="serve over TCP (the app dials in as a TCP "
+                             "client) instead of sending UDP to --host")
     parser.add_argument("--lat", type=float)
     parser.add_argument("--lon", type=float)
     parser.add_argument("--route", help="fly a CSV of lat,lon,altitude points "
@@ -381,8 +402,13 @@ def main():
         if args.dump is not None:
             parser.error("--wait-enable needs a network to be asked on, "
                          "not --dump")
-    if args.dump is None and args.host is None and not args.wait_enable:
-        parser.error("--host is required unless --dump is given")
+    if args.tcp and args.wait_enable:
+        parser.error("--wait-enable is a UDP high-latency port; not with --tcp")
+    if args.tcp and args.dump is not None:
+        parser.error("--tcp serves a live socket; not with --dump")
+    if (args.dump is None and args.host is None
+            and not args.wait_enable and not args.tcp):
+        parser.error("--host is required unless --dump or --tcp is given")
 
     route = None
     route_cache = None
@@ -397,8 +423,27 @@ def main():
 
     dump = open(args.dump, "wb") if args.dump else None
     sock = None
+    server = None
+    conn = None
     target = None
-    if dump is None:
+    if dump is None and args.tcp:
+        # The app dials in (its "TBS Crossfire / Tracer (TCP)" preset is a
+        # TCP client), so the sim is the server it connects to. The flight
+        # clock starts once it is on the line.
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind(("", args.port))
+        server.listen(1)
+        print("TCP: waiting for the phone on port %d ..." % args.port)
+        print("     app: Connect -> Network -> 'TBS Crossfire / Tracer "
+              "(TCP)', host = this PC, port %d" % args.port)
+        for ip in local_ips():
+            print("     this PC looks like %s" % ip)
+        conn, who = server.accept()
+        conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        args.host = who[0]
+        print("phone connected from %s:%d" % who)
+    elif dump is None:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         if args.host is not None:
@@ -410,8 +455,24 @@ def main():
             sock.setblocking(False)
 
     def send(data):
+        nonlocal conn
         if dump is not None:
             dump.write(data)
+        elif args.tcp:
+            # a TCP peer can drop and dial back in; wait for it and go on
+            while True:
+                try:
+                    conn.sendall(data)
+                    return
+                except OSError:
+                    print("phone dropped; waiting for it to reconnect ...")
+                    try:
+                        conn.close()
+                    except OSError:
+                        pass
+                    conn, who = server.accept()
+                    conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                    print("phone reconnected from %s:%d" % who)
         else:
             sock.sendto(data, target)
 
