@@ -776,6 +776,7 @@ class TerrainScene {
         val heights = FloatArray(grid * grid)
         var any = false
         var rimMissing = false
+        var hadVoid = false
         var lowest = Float.MAX_VALUE
         var highest = -Float.MAX_VALUE
         // Down the pyramid until a level has heights. Terrarium is damaged
@@ -818,6 +819,7 @@ class TerrainScene {
             if (abandoned) return null
             any = false
             rimMissing = false
+            hadVoid = false
             lowest = Float.MAX_VALUE
             highest = -Float.MAX_VALUE
             for (row in 0 until grid) {
@@ -833,15 +835,18 @@ class TerrainScene {
                         any = true
                     } else {
                         heights[row * grid + col] = Float.NaN
-                        // Missing counts on the rim only while the data may
-                        // yet arrive. A rim that nulls over a HELD tile is
-                        // the dataset's own void — the mend loop rebuilt
-                        // such tiles every twenty seconds forever, throwing
-                        // a dressed picture away each time, for data that
-                        // was never coming.
-                        if ((row == 0 || col == 0 || row == grid - 1 || col == grid - 1) &&
-                            !Elevation.has(ez, Elevation.tileX(lon, ez),
-                                Elevation.tileY(lat, ez))) {
+                        val heldHere = Elevation.has(ez, Elevation.tileX(lon, ez),
+                            Elevation.tileY(lat, ez))
+                        // Loaded and still null is the dataset's own void — the
+                        // damaged terrarium stripe. Flag it; the pass below
+                        // fills it from the coarser whole level, so a rim into
+                        // it meets that ground rather than fillGaps' average.
+                        if (heldHere) {
+                            hadVoid = true
+                        // Missing over a tile not yet held is a neighbour still
+                        // loading — build now, come back once it lands. A rim
+                        // that nulls that way is the wait, not the void.
+                        } else if (row == 0 || col == 0 || row == grid - 1 || col == grid - 1) {
                             rimMissing = true
                         }
                     }
@@ -862,6 +867,40 @@ class TerrainScene {
             ez--
         }
         if (!any) return null
+        // The damaged terrarium stripe answers NO_DATA where whole ground
+        // stands a level or two beneath it. Fill any sample still void — a rim
+        // landing in a void neighbour, most of all — from that coarser whole
+        // level, so it meets the exact height the neighbour's own walked-down
+        // tile stands at, and the join has no cliff. Left to fillGaps below, a
+        // void rim took the tile's average and stood a wall. Only genuine
+        // voids: a sample whose tile never loaded stays NaN, for fillGaps and a
+        // retry once it arrives.
+        if (hadVoid) {
+            for (row in 0 until grid) {
+                val rowLat = northLat + (southLat - northLat) * row / (grid - 1)
+                for (col in 0 until grid) {
+                    if (!heights[row * grid + col].isNaN()) continue
+                    val colLon = westLon + (eastLon - westLon) * col / (grid - 1)
+                    if (!Elevation.has(ez, Elevation.tileX(colLon, ez),
+                            Elevation.tileY(rowLat, ez))) continue
+                    var fez = ez - 1
+                    while (fez >= 8) {
+                        Elevation.ensure(fez, Elevation.tileX(colLon, fez),
+                            Elevation.tileY(rowLat, fez))
+                        if (abandoned) return null
+                        val fh = Elevation.elevationAt(rowLat, colLon, fez)
+                        if (fh != null) {
+                            val rel = fh - originAltitude
+                            heights[row * grid + col] = rel
+                            if (rel < lowest) lowest = rel
+                            if (rel > highest) highest = rel
+                            break
+                        }
+                        fez--
+                    }
+                }
+            }
+        }
         // Every lattice and edge-agreement tile this build will wait on
         // below, in ONE wave through the pool: fetched block by block they
         // were four round-trip generations, and fresh ground built at a
