@@ -39,7 +39,7 @@ android {
         // none of that is owed while this is handed out as an APK rather than
         // through a store.
         targetSdk 28
-        versionCode 57
+        versionCode 58
         versionName "2.4.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         ndk {
