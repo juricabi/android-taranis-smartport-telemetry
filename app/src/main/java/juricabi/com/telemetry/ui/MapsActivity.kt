@@ -5517,8 +5517,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var mapLeanLon = 0.0
     private var mapLeanTurn = 0f
 
-    /** When the leaned-away camera was last retargeted; it glides between. */
-    private var leanCameraAt = 0L
 
     /**
      * Take up whatever the hand has just done as the new offset.
@@ -5692,29 +5690,17 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 } else {
                     Float.NaN
                 }
-                val leaned = mapLeanLat != 0.0 || mapLeanLon != 0.0
-                if (!leaned) {
-                    map.moveCameraNow(
-                        Position(where.lat, where.lon),
-                        orientation
-                    )
-                } else {
-                    // Leaned away to study other ground, the camera still
-                    // follows — but seldom and eased, not sixty instant
-                    // jumps a second. Each jump cancels the tiles in
-                    // flight, so the fresh ground under a lean completed
-                    // its fetches and had them discarded within the same
-                    // frame, forever: the map starved exactly where the
-                    // hand had asked to look. The model is off with the
-                    // flight; nothing here needs per-frame butter.
-                    val nowMs = android.os.SystemClock.elapsedRealtime()
-                    if (nowMs - leanCameraAt >= 500L) {
-                        leanCameraAt = nowMs
-                        map.moveCamera(
-                            Position(where.lat + mapLeanLat, where.lon + mapLeanLon)
-                        )
-                    }
-                }
+                // Leaned or centred, the same per-frame follow. moveCameraNow
+                // holds the raster still through a programmatic move and skips
+                // an unchanged write, so following from an offset tracks the
+                // model as smoothly as a centred chase without starving the
+                // ground the hand was dragged to. A lean used to catch up once
+                // every 500ms through the un-held moveCamera path — that was
+                // the half-second stutter while chase or locate held a reframe.
+                map.moveCameraNow(
+                    Position(where.lat + mapLeanLat, where.lon + mapLeanLon),
+                    orientation
+                )
             }
             // Model, flight head, home and heading become visible as one
             // immutable renderer snapshot. Without this boundary the GL
