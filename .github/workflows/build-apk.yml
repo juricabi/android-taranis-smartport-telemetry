@@ -45,6 +45,13 @@ jobs:
             printf 'storeFile=release.keystore\nstorePassword=android\nkeyAlias=androiddebugkey\nkeyPassword=android\n' > keystore.properties
           fi
 
+      # Before the APK is built, so a broken decoder, a wrong log offset or a
+      # reconnect contract that has drifted stops the build rather than shipping.
+      - name: Run unit tests
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:testDebugUnitTest --stacktrace
+
       - name: Build release APK
         run: |
           chmod +x gradlew

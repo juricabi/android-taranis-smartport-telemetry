@@ -313,7 +313,10 @@ class DataService : Service(), DataDecoder.Listener {
      * and the CSV beside it always share it. Returns whether this connection
      * appends to a log the last one left.
      */
-    private fun beginLogSession(newSession: Boolean): Boolean {
+    // internal rather than private only so the "one flight, one log" contract
+    // can be tested directly — see DataServiceLogSessionTest. Called nowhere
+    // but the connect() overloads.
+    internal fun beginLogSession(newSession: Boolean): Boolean {
         if (newSession) logName = null
         val append = logName != null
         if (!append) {

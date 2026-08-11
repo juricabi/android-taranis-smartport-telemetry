@@ -102,6 +102,15 @@ android {
             }
         }
     }
+
+    testOptions {
+        // Robolectric stands up an Android runtime on the JVM — no device,
+        // which is where this app is never tested anyway. It needs the merged
+        // manifest and resources on the unit-test classpath to do it.
+        unitTests {
+            includeAndroidResources = true
+        }
+    }
 }
 
 
@@ -135,5 +144,9 @@ dependencies {
     implementation 'org.maplibre.gl:android-sdk-opengl:13.4.1'
     implementation 'com.google.protobuf:protobuf-javalite:3.21.12'
     testImplementation 'junit:junit:4.13.2'
+    // Robolectric: an Android runtime on the JVM for the SharedPreferences,
+    // Environment and Service-backed logic that a plain JUnit test cannot reach.
+    testImplementation 'org.robolectric:robolectric:4.14.1'
+    testImplementation 'androidx.test:core:1.6.1'
 	implementation 'com.google.android:flexbox:2.0.1'
 }
