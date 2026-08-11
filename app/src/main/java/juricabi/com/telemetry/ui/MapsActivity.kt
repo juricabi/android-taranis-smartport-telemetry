@@ -498,8 +498,23 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             dataService?.let {
                 setPhoneWatch(phoneWatchWanted)
                 if (it.isConnected()) {
+                    // A rotation rebuilds this screen with an empty 2D track
+                    // while the flight lives on in the service. The 3D view
+                    // reseeds from the process-wide path; the map must too, or
+                    // the trail vanishes on turning the phone — one flight,
+                    // two views.
+                    if (publishedVisualTrack.isEmpty()) {
+                        publishedVisualTrack.addAll(
+                            juricabi.com.telemetry.gl.LiveFlightPath.snapshot()
+                                .map { p -> Position(p.lat, p.lon) })
+                    }
                     switchToConnectedState()
                     redrawFlightLine()
+                } else if (reconnectOnFailure) {
+                    // A rotation during the five-second reconnect wait dropped
+                    // the posted retry with the old activity; the target was
+                    // restored above, so pick the loop back up.
+                    tryReconnect()
                 }
             }
         }
@@ -544,6 +559,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         cellsAnswered = savedInstanceState?.getBoolean("cells_answered", false) ?: false
         cellsAsked = savedInstanceState?.getBoolean("cells_asked", false) ?: false
         replayFileString = savedInstanceState?.getString("replay_file_name")
+        // Restored so a link that drops after a rotation still knows what to
+        // reconnect to; a cold start has no bundle and keeps the idle defaults.
+        savedInstanceState?.let {
+            lastConnectionType = it.getInt("last_conn_type", CONNTYPE_NONE)
+            lastBluetoothDevice = it.getParcelable("last_bt_device")
+            lastNetworkHost = it.getString("last_net_host") ?: ""
+            lastNetworkPort = it.getInt("last_net_port", 0)
+            lastNetworkMode = it.getInt("last_net_mode", 0)
+            lastNetworkHighLatency = it.getBoolean("last_net_hl", false)
+            reconnectOnFailure = it.getBoolean("reconnect_on_failure", false)
+            reconnectionStartTime = it.getLong("reconnect_start", 0L)
+        }
         fullscreenWindow = preferenceManager.isFullscreenWindow()
 
         lastSelectedDataPooler = preferenceManager.getLastSelectedDataPooler()
@@ -778,7 +805,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 File(
                     Environment.getExternalStoragePublicDirectory("TelemetryLogs"),
                     replayFileString
-                )
+                ),
+                // A rotation carries the replay's place across the rebuild; a
+                // fresh open from the log list has no bundle and starts as ever.
+                savedInstanceState?.getInt("replay_position", -1) ?: -1,
+                savedInstanceState?.getBoolean("replay_playing", false) ?: false
             )
         } else {
             switchToIdleState()
@@ -1480,7 +1511,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
-    private fun startReplay(file: File?) {
+    private fun startReplay(file: File?, resumePosition: Int = -1, resumePlaying: Boolean = false) {
         // A hold belonging to the replay being closed. Left set, tearing down
         // the old 3D view below released it — onto a player just disposed.
         replayWaitingForGround = false
@@ -1646,20 +1677,34 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     modelHeadingKnown = false
                     logPlayer?.let { player ->
                         val firstFix = player.firstFixPosition()
-                        player.seek(firstFix)
-
-                        // Rewind to the very start only when playback will run
-                        // from there. Opened with autostart off, the replay
-                        // stays on its first fix — where the model stands —
-                        // rather than resting on a position 0 that can sit before
-                        // the first GPS fix and draw nothing until play is
-                        // pressed. The bar's thumb goes to the same place, so it
-                        // does not sit at 0 while the model is drawn further in
-                        // and then jump the moment play is pressed.
-                        if (preferenceManager.getPlaybackAutostart()) {
-                            player.seek(0)
+                        if (resumePosition > firstFix) {
+                            // A rotation caught the replay part-way in: land
+                            // exactly there. Whether it goes on playing is left
+                            // to getPlaybackAutostart below — the one place that
+                            // also holds playback until the 3D ground is ready,
+                            // so a resumed replay never starts over an empty
+                            // world.
+                            replayResumePlay = resumePlaying
+                            player.seek(resumePosition)
+                            seekBar.progress = resumePosition
                         } else {
-                            seekBar.progress = firstFix
+                            // A fresh open, or a rotation before the flight had
+                            // moved off its first fix (a resume caught mid-decode
+                            // still reads position 0). Open framed on the first
+                            // fix — where the model stands — never on a 0 that
+                            // can sit before the first GPS fix and draw nothing,
+                            // and follow the autostart preference. Rewind to the
+                            // very start only when playback will run from there;
+                            // otherwise the bar's thumb goes to the first fix so
+                            // it does not sit at 0 while the model is drawn
+                            // further in and then jump when play is pressed.
+                            replayResumePlay = null
+                            player.seek(firstFix)
+                            if (preferenceManager.getPlaybackAutostart()) {
+                                player.seek(0)
+                            } else {
+                                seekBar.progress = firstFix
+                            }
                         }
                     }
                 }
@@ -1691,7 +1736,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
                 override fun getPlaybackAutostart() : Boolean
                 {
-                    if (!preferenceManager.getPlaybackAutostart()) return false
+                    // The one place that decides whether a loaded replay starts.
+                    // On a rotation resume that is the play/pause the replay had;
+                    // on a fresh open it is the preference. Read once, then
+                    // cleared, so a later load falls back to the preference.
+                    val wantPlay = replayResumePlay ?: preferenceManager.getPlaybackAutostart()
+                    replayResumePlay = null
+                    if (!wantPlay) return false
                     val view = terrain3D
                     // Held only for ground already on its way. A replay-bound
                     // view waits for the flight's first fix before loading any
@@ -1887,6 +1938,23 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         outState?.putBoolean("cells_asked", cellsAsked)
         outState?.putBoolean("chase_mode", chaseMode)
         outState?.putString("replay_file_name", replayFileString)
+        // Where a replay had got to, and whether it was running, so a rotation
+        // lands back on the same moment instead of reloading the whole log to
+        // its start.
+        outState?.putInt("replay_position", logPlayer?.currentPosition ?: -1)
+        outState?.putBoolean("replay_playing", replayWasPlaying)
+        // What a dropped link needs to come back to lives only on this screen,
+        // and turning the phone round builds it again from nothing. Without
+        // these a link that drops after a rotation would never reconnect, and
+        // one already mid-retry when the phone turned would be forgotten.
+        outState?.putInt("last_conn_type", lastConnectionType)
+        outState?.putParcelable("last_bt_device", lastBluetoothDevice)
+        outState?.putString("last_net_host", lastNetworkHost)
+        outState?.putInt("last_net_port", lastNetworkPort)
+        outState?.putInt("last_net_mode", lastNetworkMode)
+        outState?.putBoolean("last_net_hl", lastNetworkHighLatency)
+        outState?.putBoolean("reconnect_on_failure", reconnectOnFailure)
+        outState?.putLong("reconnect_start", reconnectionStartTime)
         preferenceManager.setFullscreenWindow(fullscreenWindow)
     }
 
@@ -2090,12 +2158,30 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         startFr24()
     }
 
+    /**
+     * Whether a replay was running when the screen last paused, caught in
+     * onPause before the player is stopped — see the note there.
+     */
+    private var replayWasPlaying = false
+
+    /**
+     * The play/pause a rotation is resuming to, or null for a fresh open (which
+     * follows the autostart preference). Set as a loaded replay opens and read
+     * once by getPlaybackAutostart, the single place that starts playback.
+     */
+    private var replayResumePlay: Boolean? = null
+
     override fun onPause() {
         super.onPause()
         clock_text.removeCallbacks(clockTicker)
         terrain3D?.onPause()
         map?.onPause()
         this.sensorTimeoutManager.pause();
+        // Caught before the player is stopped on the next line: onPause always
+        // runs before onSaveInstanceState, so reading isPlaying() there would
+        // see this stop, and a replay that was running would come back paused
+        // after a rotation.
+        replayWasPlaying = this.logPlayer?.isPlaying() == true
         this.logPlayer?.stop();
         stopFr24(clear = false)
         updateFullscreenState()//check if user has brought system ui with swipe
@@ -2456,6 +2542,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         else {
             lastConnectionType = CONNTYPE_BT;
         }
+        // Recorded outside the let, beside the type it pairs with: a null
+        // service must never leave the type saying Bluetooth with no device to
+        // reconnect to — the reconnect's own `device != null` guard would then
+        // make that link silently non-reconnectable. The network params are
+        // kept outside their let for the same reason.
+        lastBluetoothDevice = device;
         reconnectionStartTime = 0;
         reconnectOnFailure = false;
 
@@ -2463,12 +2555,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         dataService?.let {
             connectButton.text = getString(R.string.connecting)
             connectButton.isEnabled = false
-            lastBluetoothDevice = device;
             it.connect(device, isBLE)
         }
     }
 
     private fun reconnectToBluetoothDevice() {
+        // A retry is scheduled five seconds out, long enough for someone — or a
+        // retry from an earlier drop — to have got there first. Without this it
+        // would tear down the live link and start again; the network reconnect
+        // guards the same way.
+        if (dataService?.isConnected() == true) {
+            return
+        }
         if (
             (lastBluetoothDevice != null) &&
             ( (lastConnectionType == CONNTYPE_BT) || (lastConnectionType == CONNTYPE_BLE))
@@ -2482,9 +2580,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             connectButton.text = getString(R.string.reconnecting)
             connectButton.isEnabled = false
             if ( lastConnectionType == CONNTYPE_BLE) {
-                it.connect(lastBluetoothDevice as BluetoothDevice, true)
+                it.connect(lastBluetoothDevice as BluetoothDevice, true, newSession = false)
                 } else if (lastConnectionType == CONNTYPE_BT) {
-                it.connect(lastBluetoothDevice as BluetoothDevice, false)
+                it.connect(lastBluetoothDevice as BluetoothDevice, false, newSession = false)
             }
         }
     }
@@ -2511,7 +2609,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 if (lastNetworkHighLatency) SensorTimeoutManager.HIGH_LATENCY_TIMEOUT_MS
                 else SensorTimeoutManager.DEFAULT_TIMEOUT_MS)
             it.connect(lastNetworkHost, lastNetworkPort, lastNetworkMode,
-                lastNetworkHighLatency)
+                lastNetworkHighLatency, newSession = false)
         }
     }
 
@@ -4440,8 +4538,17 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                             }
                         }
                     }
+                    return@runOnUiThread
                 }
             }
+
+            // Nothing more will be tried: the transport does not reconnect
+            // (USB, or a deliberate disconnect that set the type to none), the
+            // setting is off, or the window has run out. Clear the intent to
+            // retry rather than leave it armed for the next, unrelated link to
+            // inherit — the type guard was the only thing catching that before.
+            reconnectOnFailure = false
+            reconnectionStartTime = 0L
         }
     }
 
@@ -4819,11 +4926,16 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     override fun onDecoderRestart() {
-        // where a replay run to the end and started again comes through. The
-        // decoder will say again whether it has a fix.
+        // A fresh decoder reaches here two ways: a replay run to its end and
+        // started again, which wants the old flight cleared before it re-runs;
+        // and a live link (re)connecting. The live case needs no clear here — a
+        // deliberate connect already cleared it through clearCrsfSystem, and a
+        // reconnect must KEEP the flight a dropped link held for walking to a
+        // downed model. So only a replay forgets here; a link coming back no
+        // longer wipes the flight the instant it returns.
         runOnUiThread {
             hasGPSFix = false
-            forgetFlight()
+            if (isInReplayMode()) forgetFlight()
         }
     }
 
@@ -5085,6 +5197,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     override fun onConnected() {
         runOnUiThread {
             reconnectionStartTime = 0L;
+            // A link is up, so no reconnect is owed; it re-arms on the next
+            // drop. Cleared here so the flag is never left true while connected
+            // for the resume-on-rebuild path to misread.
+            reconnectOnFailure = false
             Toast.makeText(this, "Connected!", Toast.LENGTH_SHORT).show()
             switchToConnectedState()
             this.lastTraveledDistance = 0.0;

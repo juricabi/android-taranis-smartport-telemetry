@@ -248,28 +248,27 @@ class DataService : Service(), DataDecoder.Listener {
     }
 
     @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR2)
-    fun connect(device: BluetoothDevice, isBle: Boolean) {
+    fun connect(device: BluetoothDevice, isBle: Boolean, newSession: Boolean = true) {
         val listener = listenerForNewConnection()
         try {
-            val logFile = createLogFile()
+            // The classic RFCOMM socket is made before the log is opened: it is
+            // the one step here that throws, and opening the recording first
+            // left an empty .tlm and a leaked stream behind every failed
+            // connect. Once a poller exists it owns closing the log; nothing
+            // does in the gap before there is one.
+            val socket = if (!isBle)
+                device.createRfcommSocketToServiceRecord(
+                    UUID.fromString("00001101-0000-1000-8000-00805F9B34FB"))
+            else null
 
-            createLogger()
+            val append = beginLogSession(newSession)
+            val logFile = createLogFile(append)
+            createLogger(append)
 
             val poller = if (!isBle) {
-                val socket =
-                    device.createRfcommSocketToServiceRecord(UUID.fromString("00001101-0000-1000-8000-00805F9B34FB"))
-                BluetoothDataPoller(
-                        socket,
-                        listener,
-                        logFile
-                    )
+                BluetoothDataPoller(socket!!, listener, logFile)
             } else {
-                BluetoothLeDataPoller(
-                        this,
-                        device,
-                        listener,
-                        logFile
-                    )
+                BluetoothLeDataPoller(this, device, listener, logFile)
             }
             installPoller(listener, poller)
         } catch (e: IOException) {
@@ -305,38 +304,54 @@ class DataService : Service(), DataDecoder.Listener {
      */
     fun isRecording(): Boolean = recording != null
 
-    private fun createLogFile(): FileOutputStream? {
-        var fileOutputStream: FileOutputStream? = null
-        logName = null
-        // and no recording, until there is one: left pointing at the last
-        // flight's, every row of a CSV recorded without a log beside it carried
-        // the size the last recording happened to end at
+    /**
+     * Names this connection's log, or keeps the last name for a reconnect to
+     * continue. A fresh connect (newSession) starts a new session — a new name,
+     * new files; a reconnect keeps the name a drop left standing, so the
+     * recording and CSV re-open for append and one flight stays one log, not
+     * two. The name is chosen here whatever the logging settings, so the .tlm
+     * and the CSV beside it always share it. Returns whether this connection
+     * appends to a log the last one left.
+     */
+    private fun beginLogSession(newSession: Boolean): Boolean {
+        if (newSession) logName = null
+        val append = logName != null
+        if (!append) {
+            logName = SimpleDateFormat("yyyy-MM-dd HH-mm-ss").format(Date())
+        }
+        return append
+    }
+
+    private fun createLogFile(append: Boolean): FileOutputStream? {
+        // The old stream was closed where the link went; a new — or appended —
+        // one opens here.
         recording = null
-        if (preferenceManager.isLoggingEnabled()
-            && ContextCompat.checkSelfPermission(
+        val name = logName ?: return null
+        if (!preferenceManager.isLoggingEnabled()
+            || ContextCompat.checkSelfPermission(
                 this,
                 android.Manifest.permission.WRITE_EXTERNAL_STORAGE
-            ) == PackageManager.PERMISSION_GRANTED
+            ) != PackageManager.PERMISSION_GRANTED
         ) {
-            val name = SimpleDateFormat("yyyy-MM-dd HH-mm-ss").format(Date())
-            logName = name
-            try {
-                val dir = Environment.getExternalStoragePublicDirectory("TelemetryLogs")
-                dir.mkdirs()
-                val file = File(dir, "$name.tlm")
-                val counted = CountingLog(file)
-                recording = counted
-                fileOutputStream = counted
-            } catch (e: Exception) {
-                // Storage is optional. A full, missing, or revoked volume must
-                // not turn an otherwise healthy telemetry link into a failure.
-                recording = null
-                Toast.makeText(this, "Failed to open the telemetry log", Toast.LENGTH_LONG)
-                    .show()
-            }
+            return null
         }
-
-        return fileOutputStream
+        return try {
+            val dir = Environment.getExternalStoragePublicDirectory("TelemetryLogs")
+            dir.mkdirs()
+            val file = File(dir, "$name.tlm")
+            // Append only onto a file that already stands: a reconnect continues
+            // its recording, but a session whose first link opened none (the
+            // setting was off, then on) starts it here.
+            val counted = CountingLog(file, append && file.exists())
+            recording = counted
+            counted
+        } catch (e: Exception) {
+            // Storage is optional. A full, missing, or revoked volume must not
+            // turn an otherwise healthy telemetry link into a failure.
+            recording = null
+            Toast.makeText(this, "Failed to open the telemetry log", Toast.LENGTH_LONG).show()
+            null
+        }
     }
 
     /**
@@ -604,10 +619,12 @@ class DataService : Service(), DataDecoder.Listener {
         }
     }
 
-    fun connect(serialPort: UsbSerialPort, connection: UsbDeviceConnection) {
+    fun connect(serialPort: UsbSerialPort, connection: UsbDeviceConnection,
+                newSession: Boolean = true) {
         val listener = listenerForNewConnection()
-        val logFile = createLogFile()
-        createLogger()
+        val append = beginLogSession(newSession)
+        val logFile = createLogFile(append)
+        createLogger(append)
         val poller = UsbDataPoller(
             listener,
             serialPort,
@@ -626,15 +643,17 @@ class DataService : Service(), DataDecoder.Listener {
      * thread, because this runs on the UI thread and a socket call would throw
      * NetworkOnMainThreadException.
      */
-    fun connect(host: String, port: Int, mode: Int, highLatency: Boolean = false) {
+    fun connect(host: String, port: Int, mode: Int, highLatency: Boolean = false,
+                newSession: Boolean = true) {
         val listener = listenerForNewConnection()
 
         // A log that cannot be opened is worth saying so about, and worth
         // connecting anyway. It used to abandon the connection instead, which
         // left the button on "Connecting…" with nothing on its way to clear it,
         // because no poller was ever created to report a failure.
-        val logFile = createLogFile()
-        createLogger()
+        val append = beginLogSession(newSession)
+        val logFile = createLogFile(append)
+        createLogger(append)
 
         // Pinning to Wi-Fi and holding the multicast lock: without these a
         // transmitter's own access point, which has no internet, loses to
@@ -660,7 +679,7 @@ class DataService : Service(), DataDecoder.Listener {
         installPoller(listener, poller)
     }
 
-    private fun createLogger() {
+    private fun createLogger(append: Boolean) {
         // Always replaced, never left behind. A logger from a previous
         // connection has had its timer cancelled, and starting it again throws
         // "Timer already cancelled" the moment the next link comes up.
@@ -671,7 +690,7 @@ class DataService : Service(), DataDecoder.Listener {
             ) == PackageManager.PERMISSION_GRANTED
         ) {
             try {
-                OtxCsvLogger(logName) { recording?.bytesWritten ?: 0L }
+                OtxCsvLogger(logName, append) { recording?.bytesWritten ?: 0L }
             } catch (e: Exception) {
                 // CSV is a companion recording, never a prerequisite for the
                 // telemetry connection itself.

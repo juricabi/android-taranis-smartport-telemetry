@@ -15,10 +15,15 @@ import java.io.FileOutputStream
  * How many bytes had been written when a row was written is the thing that
  * lines them up, and it costs a counter.
  */
-class CountingLog(file: File) : FileOutputStream(file) {
+class CountingLog(file: File, append: Boolean = false) : FileOutputStream(file, append) {
 
+    /**
+     * On append the count carries on from what the file already holds, so the
+     * CSV's byte offsets stay true across a reconnect that continues the same
+     * recording rather than starting a second one beside it.
+     */
     @Volatile
-    var bytesWritten = 0L
+    var bytesWritten = if (append) file.length() else 0L
         private set
 
     override fun write(b: Int) {

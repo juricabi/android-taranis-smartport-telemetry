@@ -18,6 +18,7 @@ import java.util.*
  */
 class OtxCsvLogger(
     name: String? = null,
+    append: Boolean = false,
     private val bytesRecorded: () -> Long = { 0L }
 ) : DataDecoder.Listener {
 
@@ -104,8 +105,13 @@ class OtxCsvLogger(
         val dir = Environment.getExternalStoragePublicDirectory("TelemetryLogs")
         dir.mkdirs()
         val file = File(dir, "$stem.csv")
-        output = BestEffortCsvWriter(FileWriter(file))
-        if (!outputLine(header)) timer.cancel()
+        // Append continues the same CSV across a reconnect — its header is
+        // already there. Write one only when starting a file, or when append
+        // lands on one a first link never actually opened (the setting was off
+        // then on).
+        val writeHeader = !append || !file.exists() || file.length() == 0L
+        output = BestEffortCsvWriter(FileWriter(file, append))
+        if (writeHeader && !outputLine(header)) timer.cancel()
     }
 
     private var fuel: Int = 0

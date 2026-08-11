@@ -26,3 +26,6 @@ release.keystore
 # the 2D raster probe builds in place
 tools/mapprobe/build
 tools/mapprobe/app/build
+
+# python bytecode from running the flight sim
+tools/__pycache__/
