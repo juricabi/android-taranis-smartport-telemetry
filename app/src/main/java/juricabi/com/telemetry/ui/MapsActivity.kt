@@ -558,6 +558,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         detectedCells = savedInstanceState?.getInt("cells", 0) ?: 0
         cellsAnswered = savedInstanceState?.getBoolean("cells_answered", false) ?: false
         cellsAsked = savedInstanceState?.getBoolean("cells_asked", false) ?: false
+        detectedProtocol = savedInstanceState?.getString("detected_protocol") ?: ""
         replayFileString = savedInstanceState?.getString("replay_file_name")
         // Restored so a link that drops after a rotation still knows what to
         // reconnect to; a cold start has no bundle and keeps the idle defaults.
@@ -1936,6 +1937,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         outState?.putInt("cells", detectedCells)
         outState?.putBoolean("cells_answered", cellsAnswered)
         outState?.putBoolean("cells_asked", cellsAsked)
+        // and which protocol the link turned out to speak, so the rebuilt
+        // screen knows the re-announced name and does not toast it afresh on
+        // every turn of the phone.
+        outState?.putString("detected_protocol", detectedProtocol)
         outState?.putBoolean("chase_mode", chaseMode)
         outState?.putString("replay_file_name", replayFileString)
         // Where a replay had got to, and whether it was running, so a rotation
