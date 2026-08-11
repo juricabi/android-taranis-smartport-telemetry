@@ -84,28 +84,37 @@ class SensorTimeoutManager(protected val listener: SensorTimeoutManager.Listener
 
             this.mTimer?.scheduleAtFixedRate(object : TimerTask() {
                 override fun run() {
-                    for( i in 0..SENSOR_COUNT-1){
-                        if ( ( timeoutMS[i] < windowMS )){
-                            timeoutMS[i]+=TIMER_INTERVAL_MS;
-                            if ( timeoutMS[i] >= windowMS )
-                            {
-                                if ( !disabled )
-                                {
-                                    listener.onSensorTimeout(i)
-                                }
-                            }
-                        }
-                    }
-
-                    lastRateUpdate += TIMER_INTERVAL_MS;
-                    if ( lastRateUpdate >= RATE_UPDATE_INTERVAL_MS) {
-                        listener.onTelemetryRate( telemetrySize * 1000 / RATE_UPDATE_INTERVAL_MS)
-                        lastRateUpdate = 0;
-                        telemetrySize = 0;
-                    }
-
+                    tick()
                 }
             }, TIMER_INTERVAL_MS.toLong(), TIMER_INTERVAL_MS.toLong())
+        }
+    }
+
+    /**
+     * One 400ms beat: age every sensor towards the window, grey out the ones
+     * that reach it, and update the telemetry rate. internal, not private, so a
+     * test can drive the window deterministically instead of at wall-clock
+     * speed — the Timer above is the only other caller.
+     */
+    internal fun tick() {
+        for( i in 0..SENSOR_COUNT-1){
+            if ( ( timeoutMS[i] < windowMS )){
+                timeoutMS[i]+=TIMER_INTERVAL_MS;
+                if ( timeoutMS[i] >= windowMS )
+                {
+                    if ( !disabled )
+                    {
+                        listener.onSensorTimeout(i)
+                    }
+                }
+            }
+        }
+
+        lastRateUpdate += TIMER_INTERVAL_MS;
+        if ( lastRateUpdate >= RATE_UPDATE_INTERVAL_MS) {
+            listener.onTelemetryRate( telemetrySize * 1000 / RATE_UPDATE_INTERVAL_MS)
+            lastRateUpdate = 0;
+            telemetrySize = 0;
         }
     }
 

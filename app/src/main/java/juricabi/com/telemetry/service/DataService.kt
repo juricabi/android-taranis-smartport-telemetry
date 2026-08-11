@@ -325,7 +325,10 @@ class DataService : Service(), DataDecoder.Listener {
         return append
     }
 
-    private fun createLogFile(append: Boolean): FileOutputStream? {
+    // internal, like beginLogSession, only so the log-file gates (logging off,
+    // storage permission denied) and the append can be tested — see
+    // DataServiceLogFileTest. Called only by the connect() overloads.
+    internal fun createLogFile(append: Boolean): FileOutputStream? {
         // The old stream was closed where the link went; a new — or appended —
         // one opens here.
         recording = null
