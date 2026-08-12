@@ -1,6 +1,8 @@
 package juricabi.com.telemetry.logger
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -66,6 +68,25 @@ class CountingLogTest {
             // LogBytes column is only meaningful if this holds
             assertEquals(file.length(), log.bytesWritten)
         }
+    }
+
+    @Test
+    fun anEmptyRecordingDeletesItselfOnClose() {
+        // A link asked for but never heard from: opened, never written. It is
+        // dropped on close rather than left as a zero-byte file — which the log
+        // list hides (it shows only files with something in them), so "delete
+        // all" could never reach it and it would pile up.
+        val file = File(tmp.root, "empty.tlm")
+        CountingLog(file).use { assertEquals(0L, it.bytesWritten) }
+        assertFalse(file.exists())
+    }
+
+    @Test
+    fun aRecordingThatGotEvenOneByteSurvivesClose() {
+        val file = File(tmp.root, "one-byte.tlm")
+        CountingLog(file).use { it.write(0x7E) }
+        assertTrue(file.exists())
+        assertEquals(1L, file.length())
     }
 
     @Test

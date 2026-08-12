@@ -15,7 +15,7 @@ import java.io.FileOutputStream
  * How many bytes had been written when a row was written is the thing that
  * lines them up, and it costs a counter.
  */
-class CountingLog(file: File, append: Boolean = false) : FileOutputStream(file, append) {
+class CountingLog(private val file: File, append: Boolean = false) : FileOutputStream(file, append) {
 
     /**
      * On append the count carries on from what the file already holds, so the
@@ -39,5 +39,18 @@ class CountingLog(file: File, append: Boolean = false) : FileOutputStream(file, 
     override fun write(b: ByteArray, off: Int, len: Int) {
         super.write(b, off, len)
         bytesWritten += len
+    }
+
+    /**
+     * A link asked for but never heard from leaves this opened and never
+     * written — a zero-byte recording. The log list hides those (it shows only
+     * files with something in them), so "delete all" can never reach them and
+     * they pile up where only a file manager finds them. Drop it as it closes
+     * instead. A reconnect that meant to append opens a fresh one, having lost
+     * nothing, since there was nothing in it.
+     */
+    override fun close() {
+        super.close()
+        if (bytesWritten == 0L) file.delete()
     }
 }

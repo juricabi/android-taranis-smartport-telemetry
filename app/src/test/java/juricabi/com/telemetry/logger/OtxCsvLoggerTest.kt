@@ -2,6 +2,7 @@ package juricabi.com.telemetry.logger
 
 import android.os.Environment
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -21,9 +22,13 @@ class OtxCsvLoggerTest {
     private fun csv(name: String) = File(dir, "$name.csv")
     private fun headerCount(name: String) = csv(name).readLines().count { it.startsWith("Date,") }
 
-    /** Opens the log (writing the header, or not, in its init), then flushes and closes. */
+    /**
+     * Opens the log (writing the header, or not, in its init), then flushes and
+     * closes. A non-zero recorded-bytes stands in for a link that actually said
+     * something, so the log is kept rather than swept as an empty one.
+     */
     private fun openAndClose(name: String, append: Boolean) {
-        OtxCsvLogger(name, append).onDisconnected()
+        OtxCsvLogger(name, append, bytesRecorded = { 1L }).onDisconnected()
     }
 
     @Test
@@ -55,5 +60,17 @@ class OtxCsvLoggerTest {
         openAndClose(name, append = true)
         assertTrue(csv(name).exists())
         assertEquals(1, headerCount(name))
+    }
+
+    @Test
+    fun aLogWhoseLinkRecordedNothingIsSweptOnClose() {
+        // The .tlm beside it stayed at zero bytes — nothing came off the link,
+        // only the header and the timer's empty rows reached the CSV. It is
+        // dropped on close so it does not outlive the empty recording it
+        // belongs to, which the log list would hide from "delete all".
+        val name = "no-telemetry"
+        csv(name).delete()
+        OtxCsvLogger(name, append = false, bytesRecorded = { 0L }).onDisconnected()
+        assertFalse(csv(name).exists())
     }
 }

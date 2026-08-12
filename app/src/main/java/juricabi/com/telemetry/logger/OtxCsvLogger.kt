@@ -24,6 +24,7 @@ class OtxCsvLogger(
 
     private val timer = Timer()
     private val output: BestEffortCsvWriter
+    private val file: File
 
     private val header = listOf(
         "Date",
@@ -104,7 +105,7 @@ class OtxCsvLogger(
         val stem = name ?: SimpleDateFormat("yyyy-MM-dd HH-mm-ss").format(Date())
         val dir = Environment.getExternalStoragePublicDirectory("TelemetryLogs")
         dir.mkdirs()
-        val file = File(dir, "$stem.csv")
+        file = File(dir, "$stem.csv")
         // Append continues the same CSV across a reconnect — its header is
         // already there. Write one only when starting a file, or when append
         // lands on one a first link never actually opened (the setting was off
@@ -225,6 +226,12 @@ class OtxCsvLogger(
         timer.cancel()
         output.close()
         timer.purge()
+        // Nothing came off the link: only the header and the timer's own empty
+        // rows reached this. The recording beside it — a zero-byte .tlm the log
+        // list hides from "delete all" — is being dropped the same way, so drop
+        // this with it rather than leave a headers-only CSV standing for a
+        // flight that was never recorded. Matched by name, as a delete is.
+        if (bytesRecorded() == 0L) file.delete()
     }
 
     override fun onConnectionFailed() {
