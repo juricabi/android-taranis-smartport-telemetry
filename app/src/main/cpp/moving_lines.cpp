@@ -19,6 +19,11 @@ constexpr char kLogTag[] = "TelemetryMovingLines";
 // Must match MapLibreMovingLineLayer.SLOT_COUNT: a slot the Kotlin side
 // hands out and this side refuses is a line that silently never draws.
 constexpr int kLineCount = 4;
+// How many previously committed scenes to keep for the render to match against.
+// The GL thread can lag the UI thread that stages these by two frames or more,
+// and at flight speed each frame is several metres — keeping only the newest
+// and one previous dropped the model that far off the ground on fast stretches.
+constexpr std::size_t kSceneHistory = 4;
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kMaxMercatorLatitude = 85.0511287798066;
 
@@ -67,8 +72,11 @@ struct SharedState {
     std::mutex mutex;
     SceneState pending;
     SceneState published;
-    SceneState previous;
-    bool hasPrevious = false;
+    // A ring of the scenes committed before the newest, so the render can find
+    // whichever one it is actually showing however many frames behind it lags.
+    std::array<SceneState, kSceneHistory> history;
+    std::size_t historyCount = 0;
+    std::size_t historyHead = 0;
 };
 
 struct StateHandle {
@@ -378,12 +386,38 @@ public:
         SceneState snapshot;
         {
             std::lock_guard<std::mutex> lock(state->mutex);
-            snapshot = state->published;
-            if (state->hasPrevious && snapshot.camera.valid &&
-                state->previous.camera.valid &&
-                shouldUsePreviousScene(parameters, snapshot, state->previous)) {
-                snapshot = state->previous;
+            const SceneState* best = &state->published;
+            double bestDistance = state->published.camera.valid
+                ? cameraDistanceMetres(parameters, state->published.camera)
+                : std::numeric_limits<double>::max();
+            // The render camera jumps to one of the exact targets these scenes
+            // were staged with, so following always matches one within a metre
+            // or two. Take the closest; a model can turn while almost still, so
+            // break a positional tie on the bearing the render is showing.
+            for (std::size_t i = 0; i < state->historyCount; ++i) {
+                const SceneState& candidate = state->history[i];
+                if (!candidate.camera.valid) continue;
+                const double distance =
+                    cameraDistanceMetres(parameters, candidate.camera);
+                const bool closer =
+                    std::abs(distance - bestDistance) > 0.0001
+                        ? distance < bestDistance
+                        : bearingDistance(
+                              parameters.bearing, candidate.camera.bearing) <
+                          bearingDistance(
+                              parameters.bearing, best->camera.bearing);
+                if (closer) {
+                    best = &candidate;
+                    bestDistance = distance;
+                }
             }
+            // A hand-dragged or free camera matches none of these; drawing the
+            // closest stale scene would resurrect an old aircraft, so keep the
+            // newest instead.
+            if (bestDistance > 0.25 && state->published.camera.valid) {
+                best = &state->published;
+            }
+            snapshot = *best;
         }
 
         std::vector<LineVertex> lineVertices;
@@ -477,30 +511,6 @@ private:
         double difference = std::fmod(std::abs(left - right), 360.0);
         if (difference > 180.0) difference = 360.0 - difference;
         return difference;
-    }
-
-    static bool shouldUsePreviousScene(
-        const mbgl::style::CustomLayerRenderParameters& parameters,
-        const SceneState& current,
-        const SceneState& previous
-    ) {
-        const double currentPosition =
-            cameraDistanceMetres(parameters, current.camera);
-        const double previousPosition =
-            cameraDistanceMetres(parameters, previous.camera);
-
-        // jumpTo exposes one of these targets, not an interpolated camera. A
-        // small guard prevents a hand-dragged camera, which matches neither,
-        // from resurrecting an older aircraft scene.
-        if (std::min(currentPosition, previousPosition) > 0.25) return false;
-        if (std::abs(currentPosition - previousPosition) > 0.0001) {
-            return previousPosition < currentPosition;
-        }
-
-        // A model can turn while almost stationary. Then position cannot tell
-        // the two transforms apart, but the render parameter's bearing can.
-        return bearingDistance(parameters.bearing, previous.camera.bearing) <
-            bearingDistance(parameters.bearing, current.camera.bearing);
     }
 
     static bool worldPoint(
@@ -1025,8 +1035,13 @@ Java_juricabi_com_telemetry_maps_maplibre_MapLibreMovingLinesNative_commit(
     if (handle == nullptr) return;
     std::lock_guard<std::mutex> lock(handle->state->mutex);
     if (handle->state->published.generation != 0) {
-        handle->state->previous = handle->state->published;
-        handle->state->hasPrevious = true;
+        handle->state->history[handle->state->historyHead] =
+            handle->state->published;
+        handle->state->historyHead =
+            (handle->state->historyHead + 1) % kSceneHistory;
+        if (handle->state->historyCount < kSceneHistory) {
+            handle->state->historyCount++;
+        }
     }
     handle->state->pending.generation =
         handle->state->published.generation ==
