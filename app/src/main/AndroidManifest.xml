@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.BLUETOOTH"/>
@@ -9,6 +10,14 @@
          the app is away, which is most of a flight. Granted from the system's
          own settings, not from a dialog: the choice is "Allow all the time". -->
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
+    <!-- A development permission, never prompted for: Developer options →
+         Select mock location app lists only apps that ask for it, and being
+         picked there is the whole grant. Lets the decoded drone GPS be
+         republished as the phone's own position, for tracker apps to
+         broadcast. The lint rule wants this in a debug manifest, but the
+         feature is for the field, which flies the release build. -->
+    <uses-permission android:name="android.permission.ACCESS_MOCK_LOCATION"
+                     tools:ignore="MockLocation,ProtectedPermissions"/>
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <!-- A normal compass sensor may stop delivering samples after the screen

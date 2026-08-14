@@ -1,10 +1,12 @@
 package juricabi.com.telemetry.ui
 
 import android.app.Activity
+import android.app.AppOpsManager
 import android.content.*
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.Process
 import android.provider.Settings
 import android.os.Bundle
 import android.widget.Toast
@@ -65,6 +67,20 @@ class PrefsFragment : PreferenceFragmentCompat() {
                 val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
                 intent.data = Uri.parse("package:" + context!!.packageName)
                 startActivity(intent)
+            }
+            true
+        }
+
+        findPreference("mock_location_setup").setOnPreferenceClickListener {
+            // Wherever the phone keeps it, this is the screen "Select mock
+            // location app" lives on; being chosen there is the entire grant.
+            try {
+                startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
+            } catch (e: Exception) {
+                Toast.makeText(
+                    context, "This phone does not offer the Developer options screen",
+                    Toast.LENGTH_LONG
+                ).show()
             }
             true
         }
@@ -132,6 +148,7 @@ class PrefsFragment : PreferenceFragmentCompat() {
 
         updateSummary()
         showBackgroundLocationState()
+        showMockLocationState()
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -240,8 +257,9 @@ class PrefsFragment : PreferenceFragmentCompat() {
     override fun onResume() {
         super.onResume()
         // Read again on the way back from the system settings, which is where
-        // this sends people.
+        // both of these send people.
         showBackgroundLocationState()
+        showMockLocationState()
     }
 
     /**
@@ -265,10 +283,6 @@ class PrefsFragment : PreferenceFragmentCompat() {
                 ctx, "android.permission.ACCESS_BACKGROUND_LOCATION"
             ) == PackageManager.PERMISSION_GRANTED
         }
-        // Said in the colour it deserves, with a mark beside it while
-        // something is missing. A line that decides whether half of every
-        // replay can be drawn should not read like a note somebody left: in
-        // plain grey among a dozen other summaries, nobody looked at it twice.
         val warn = when {
             !fine -> 0xFFD32F2F.toInt()
             !always -> 0xFFF9A825.toInt()
@@ -286,6 +300,48 @@ class PrefsFragment : PreferenceFragmentCompat() {
                     "phone in a pocket records no operator position for that stretch. " +
                     "Tap, then Permissions, then Location, then Allow all the time."
         }
+        paintState(pref, ctx, warn, words)
+    }
+
+    /**
+     * Whether Android will accept this app's mock locations, which is chosen
+     * under Developer options — the one place the OS offers the choice.
+     */
+    private fun showMockLocationState() {
+        val pref = findPreference("mock_location_setup") ?: return
+        val ctx = context ?: return
+        val ops = ctx.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+        val chosen = ops.checkOpNoThrow(
+            AppOpsManager.OPSTR_MOCK_LOCATION, Process.myUid(), ctx.packageName
+        ) == AppOpsManager.MODE_ALLOWED
+        val devOptionsOn = Settings.Global.getInt(
+            ctx.contentResolver, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0
+        ) != 0
+        val warn = if (chosen) 0 else 0xFFD32F2F.toInt()
+        val words = when {
+            chosen ->
+                "Chosen as the mock location app. The drone's GPS is published " +
+                    "whenever telemetry is connected and the switch above is on."
+            devOptionsOn ->
+                "Not the chosen mock location app, so nothing is published. " +
+                    "Tap, then pick this app under Select mock location app."
+            else ->
+                "Needs Developer options: in the phone's Settings, About phone, " +
+                    "tap Build number seven times. Then tap here and pick this " +
+                    "app under Select mock location app."
+        }
+        paintState(pref, ctx, warn, words)
+    }
+
+    /**
+     * A state line said in the colour it deserves, with a mark beside it while
+     * something is missing. A line that decides whether a whole feature works
+     * should not read like a note somebody left: in plain grey among a dozen
+     * other summaries, nobody looked at it twice.
+     */
+    private fun paintState(
+        pref: androidx.preference.Preference, ctx: Context, warn: Int, words: String
+    ) {
         if (warn == 0) {
             pref.icon = null
             pref.isIconSpaceReserved = false

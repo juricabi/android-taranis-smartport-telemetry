@@ -12,6 +12,7 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.location.Criteria
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -56,13 +57,19 @@ class DataService : Service(), DataDecoder.Listener {
     private var lastAltitude: Float = 0.0f
     private var lastSpeed: Float = 0.0f
     private var lastHeading: Float = 0.0f
+    // NaN until a link says one: the mock fix carries an altitude only once
+    // the drone has reported its own, rather than a made-up sea level
+    private var lastGPSAltitude: Float = Float.NaN
     private lateinit var preferenceManager: PreferenceManager
-    private var notification: Notification? = null
     private var settingsPreferences: SharedPreferences? = null
 
     private val settingsChanged =
         SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == "background_compass") updatePhoneListening()
+            when (key) {
+                "background_compass" -> updatePhoneListening()
+                // flipped mid-flight it takes effect now, not on the next link
+                "mock_location_enabled" -> updateMockProvider()
+            }
         }
 
     /**
@@ -181,6 +188,7 @@ class DataService : Service(), DataDecoder.Listener {
     private fun listenerForNewConnection(): ConnectionListener {
         val retired = retireCurrentConnection()
         updatePhoneListening()
+        updateMockProvider()
         retired.logger?.onDisconnected()
         retired.poller?.disconnect()
         if (retired.poller != null || retired.logger != null) stopForeground(true)
@@ -220,10 +228,21 @@ class DataService : Service(), DataDecoder.Listener {
                 getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
         }
+    }
 
-
-        notification = NotificationCompat.Builder(this, "bt_channel")
-            .setContentText("Telemetry service is running. To stop - disconnect and close the app")
+    /**
+     * Built at each showing rather than once: while the drone's GPS is being
+     * republished as the phone's own, the one always-visible surface this app
+     * has — the tracker app is the one on screen — should say so.
+     */
+    private fun buildNotification(): Notification {
+        return NotificationCompat.Builder(this, "bt_channel")
+            .setContentText(
+                if (mockActive)
+                    "Drone GPS is being published as this phone's location"
+                else
+                    "Telemetry service is running. To stop - disconnect and close the app"
+            )
             .setContentTitle("Telemetry service is running")
             .setContentIntent(
                 PendingIntent.getActivity(
@@ -235,6 +254,12 @@ class DataService : Service(), DataDecoder.Listener {
             )
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .build()
+    }
+
+    private fun refreshNotification() {
+        if (!wantedByLink) return
+        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+            .notify(1, buildNotification())
     }
 
     override fun onStartCommand(intent: Intent, flags: Int, startId: Int): Int {
@@ -466,6 +491,13 @@ class DataService : Service(), DataDecoder.Listener {
 
     private val phoneLocationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
+            // Our own mock coming straight back: while the drone's GPS is
+            // being republished, the phone's GPS provider answers with the
+            // drone. Believed, it would draw the operator arrow on the model
+            // and write the drone into the CSV's operator columns. Dropped,
+            // the operator keeps the network provider's coarser answer for
+            // the duration.
+            if (mockActive && location.isFromMockProvider) return
             if (!worthBelieving(location)) return
             phoneFix = location
             if (!preferenceManager.isMyPositionLoggingEnabled()) {
@@ -625,6 +657,90 @@ class DataService : Service(), DataDecoder.Listener {
         }
     }
 
+    /**
+     * The listening above in reverse: the drone's GPS republished as the
+     * phone's own position, for a tracker app on this phone — Overland,
+     * PureTrack — to broadcast the drone instead of the phone.
+     *
+     * Opt-in, and plain AOSP: the fixes go to Android's test-provider API
+     * under the real GPS provider's name, which is the one name every tracker
+     * listens to, with or without Play services. The only grant is being
+     * picked under Developer options → Select mock location app — that is
+     * what addTestProvider checks.
+     *
+     * Live only by construction: a replay never reaches this service, and
+     * yesterday's flight must not become today's position. Volatile because
+     * the provider is installed and removed on the main thread while the
+     * fixes are published from the poller's.
+     */
+    @Volatile private var mockActive = false
+
+    private fun updateMockProvider() {
+        val wanted = wantedByLink && preferenceManager.isMockLocationEnabled()
+        if (wanted == mockActive) return
+        val lm = getSystemService(LOCATION_SERVICE) as LocationManager
+        if (wanted) {
+            try {
+                lm.addTestProvider(
+                    LocationManager.GPS_PROVIDER,
+                    false, true, false, false, true, true, true,
+                    Criteria.POWER_HIGH, Criteria.ACCURACY_FINE
+                )
+                lm.setTestProviderEnabled(LocationManager.GPS_PROVIDER, true)
+                mockActive = true
+            } catch (e: SecurityException) {
+                // Not the chosen mock location app. Said once, at the seam
+                // where it fails; the settings screen shows the same state
+                // and where to fix it.
+                Toast.makeText(
+                    this,
+                    "Drone GPS is not published: pick this app under " +
+                        "Developer options, Select mock location app",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        } else {
+            try {
+                lm.removeTestProvider(LocationManager.GPS_PROVIDER)
+            } catch (e: Exception) {
+                // the choice of mock app was revoked first and took the
+                // provider with it
+            }
+            mockActive = false
+        }
+        refreshNotification()
+    }
+
+    /** On the poller's thread, like every other decode callback. */
+    private fun publishMockFix(latitude: Double, longitude: Double) {
+        if (!mockActive) return
+        // the map's own bar for a believable position: a fix, and not 0,0,
+        // which is a receiver still warming up
+        if (!hasGPSFix || (latitude == 0.0 && longitude == 0.0)) return
+        val fix = Location(LocationManager.GPS_PROVIDER)
+        fix.latitude = latitude
+        fix.longitude = longitude
+        fix.time = System.currentTimeMillis()
+        fix.elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
+        // The link does not say how good the drone's fix is, and a Location
+        // without an accuracy is refused as incomplete. Five metres is an
+        // ordinary satellite answer, inside the filters tracker apps apply.
+        fix.accuracy = 5f
+        if (!lastGPSAltitude.isNaN()) fix.altitude = lastGPSAltitude.toDouble()
+        fix.speed = lastSpeed / 3.6f // decoders deliver km/h; Location wants m/s
+        fix.bearing = lastHeading
+        try {
+            (getSystemService(LOCATION_SERVICE) as LocationManager)
+                .setTestProviderLocation(LocationManager.GPS_PROVIDER, fix)
+        } catch (e: Exception) {
+            // Unselected as the mock app mid-flight. Every later fix would
+            // throw the same way, so stop claiming to publish rather than
+            // crash the poller's thread.
+            mockActive = false
+            refreshNotification()
+        }
+    }
+
     fun connect(serialPort: UsbSerialPort, connection: UsbDeviceConnection,
                 newSession: Boolean = true) {
         val listener = listenerForNewConnection()
@@ -735,6 +851,7 @@ class DataService : Service(), DataDecoder.Listener {
     override fun onDestroy() {
         super.onDestroy()
         val retired = retireCurrentConnection()
+        updateMockProvider()
         wantedByScreen = false
         phoneFixListener = null
         phoneHeadingListener = null
@@ -750,6 +867,7 @@ class DataService : Service(), DataDecoder.Listener {
     override fun onConnectionFailed() {
         val retired = retireCurrentConnection()
         updatePhoneListening()
+        updateMockProvider()
         dataListener?.onConnectionFailed()
         retired.logger?.onConnectionFailed()
         retired.poller?.disconnect()
@@ -766,15 +884,17 @@ class DataService : Service(), DataDecoder.Listener {
         // goes on hearing it while the screen is away.
         wantedByLink = true
         updatePhoneListening()
+        updateMockProvider()
         dataListener?.onConnected()
         logListener?.onConnected()
 
-        startForeground(1, notification)
+        startForeground(1, buildNotification())
     }
 
     override fun onGPSData(latitude: Double, longitude: Double) {
         lastLatitude = latitude
         lastLongitude = longitude
+        publishMockFix(latitude, longitude)
         dataListener?.onGPSData(latitude, longitude)
         logListener?.onGPSData(latitude, longitude)
     }
@@ -883,6 +1003,8 @@ class DataService : Service(), DataDecoder.Listener {
     override fun onDisconnected() {
         val retired = retireCurrentConnection()
         updatePhoneListening()
+        // the phone's real position comes back the moment the link ends
+        updateMockProvider()
         dataListener?.onDisconnected()
         retired.logger?.onDisconnected()
         retired.poller?.disconnect()
@@ -913,6 +1035,7 @@ class DataService : Service(), DataDecoder.Listener {
     }
 
     override fun onGPSAltitudeData(altitude: Float) {
+        lastGPSAltitude = altitude
         dataListener?.onGPSAltitudeData(altitude)
         logListener?.onGPSAltitudeData(altitude)
     }

@@ -384,6 +384,26 @@
 
     <PreferenceCategory
             android:layout="@layout/preference_category_title"
+            app:iconSpaceReserved="false" android:title="Mock location">
+
+        <SwitchPreference
+            app:iconSpaceReserved="false"
+                android:title="Drone GPS as phone location"
+                android:summary="While telemetry is connected, republish the drone's GPS as this phone's own position, so a tracker app on this phone — Overland, PureTrack — broadcasts the drone instead of the phone. The phone's real GPS is hidden behind the drone's for the duration and comes back when the link ends"
+                android:defaultValue="false"
+                android:key="mock_location_enabled"/>
+
+        <Preference
+            app:iconSpaceReserved="false"
+                android:key="mock_location_setup"
+                android:title="Mock location app"
+                android:summary="Checking..."
+                android:dependency="mock_location_enabled"/>
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
+            android:layout="@layout/preference_category_title"
             android:key="diagnostics"
             app:iconSpaceReserved="false" android:title="Diagnostics">
         <Preference

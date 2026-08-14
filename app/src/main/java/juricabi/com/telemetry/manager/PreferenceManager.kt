@@ -128,6 +128,11 @@ class PreferenceManager(context: Context) {
         return sharedPreferences.getBoolean("background_compass", true)
     }
 
+    /** Republish the drone's GPS as this phone's own position (mock location). */
+    fun isMockLocationEnabled(): Boolean {
+        return sharedPreferences.getBoolean("mock_location_enabled", false)
+    }
+
     fun isClockEnabled(): Boolean {
         return sharedPreferences.getBoolean("show_clock", true)
     }
