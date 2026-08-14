@@ -35,9 +35,10 @@ android {
         // Deliberately behind compileSdk. Compiling against 35 is what the
         // newer AndroidX libraries require; targeting it is a separate job —
         // scoped storage for the logs, foreground service types for the one
-        // that records with the screen away, the notification permission — and
-        // none of that is owed while this is handed out as an APK rather than
-        // through a store.
+        // that records with the screen away, the notification permission, and
+        // foregroundServiceType="camera" should video ever run from the
+        // service rather than the screen — and none of that is owed while
+        // this is handed out as an APK rather than through a store.
         targetSdk 28
         versionCode 62
         versionName "2.4.1"
@@ -132,7 +133,9 @@ protobuf {
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
-    implementation 'androidx.appcompat:appcompat:1.0.2'
+    // 1.6.1 because UVCAndroid below asks for it and Gradle would resolve to
+    // it anyway; pinned here so the build file says what is actually built.
+    implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.0.0'
     implementation 'androidx.preference:preference:1.0.0'
     implementation 'com.jaredrummler:colorpicker:1.1.0'
@@ -142,6 +145,14 @@ dependencies {
     // Drawn by the GPU, so a flight line costs the same however many points
     // are in it. It replaced osmdroid, which was archived in November 2024.
     implementation 'org.maplibre.gl:android-sdk-opengl:13.4.1'
+    // Video. UVCAndroid drives USB (UVC) receivers and goggles over OTG with
+    // prebuilt .so for the ABIs above — it replaced the 2014 serenegiant
+    // module chain this repo used to carry. Media3 speaks RTSP for network
+    // video; 1.8.x is the last line built against compileSdk 35, and 1.9+
+    // tracks Android 16 — do not bump it ahead of compileSdk.
+    implementation 'com.herohan:UVCAndroid:1.0.13'
+    implementation 'androidx.media3:media3-exoplayer:1.8.0'
+    implementation 'androidx.media3:media3-exoplayer-rtsp:1.8.0'
     implementation 'com.google.protobuf:protobuf-javalite:3.21.12'
     testImplementation 'junit:junit:4.13.2'
     // Robolectric: an Android runtime on the JVM for the SharedPreferences,

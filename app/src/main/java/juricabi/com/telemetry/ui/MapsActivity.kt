@@ -28,6 +28,7 @@ import android.text.SpannableString
 import android.text.method.LinkMovementMethod
 import android.text.style.StyleSpan
 import android.util.TypedValue
+import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -58,6 +59,9 @@ import juricabi.com.telemetry.maps.maplibre.MapLibreStyles
 import org.maplibre.android.MapLibre
 import juricabi.com.telemetry.utils.GeoUtils
 import juricabi.com.telemetry.utils.PlusCode
+import juricabi.com.telemetry.video.RtspSource
+import juricabi.com.telemetry.video.UsbUvcSource
+import juricabi.com.telemetry.video.VideoSource
 import juricabi.com.telemetry.protocol.decoder.DataDecoder
 import juricabi.com.telemetry.protocol.pollers.NetworkDataPoller
 import juricabi.com.telemetry.protocol.pollers.LogPlayer
@@ -316,6 +320,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private lateinit var northUpButton: FloatingActionButton
     private lateinit var myLocationButton: FloatingActionButton
     private lateinit var findQuadButton: FloatingActionButton
+    private lateinit var videoButton: FloatingActionButton
+    private lateinit var videoView: TextureView
     private lateinit var fullscreenButton: ImageView
     private lateinit var menuButton: FloatingActionButton
     private lateinit var settingsButton: ImageView
@@ -618,6 +624,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         clock_text = findViewById(R.id.clock_text)
         myLocationButton = findViewById(R.id.my_location_button)
         findQuadButton = findViewById(R.id.find_quad_button)
+        videoButton = findViewById(R.id.video_button)
+        videoButton.imageAlpha = 128
+        videoButton.setOnClickListener { toggleVideo() }
+        videoView = findViewById(R.id.video_view)
+        videoWanted = savedInstanceState?.getBoolean("video_wanted") ?: false
         settingsButton = findViewById(R.id.settings_button)
         replayButton = findViewById(R.id.replay_button)
         seekBar = findViewById(R.id.seekbar)
@@ -1942,6 +1953,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // every turn of the phone.
         outState?.putString("detected_protocol", detectedProtocol)
         outState?.putBoolean("chase_mode", chaseMode)
+        outState?.putBoolean("video_wanted", videoWanted)
         outState?.putString("replay_file_name", replayFileString)
         // Where a replay had got to, and whether it was running, so a rotation
         // lands back on the same moment instead of reloading the whole log to
@@ -2161,6 +2173,79 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         showOperator()
         setPhoneWatch(true)
         startFr24()
+        updateVideoControls()
+        if (videoWanted && videoSource == null) {
+            // built fresh from the settings just left, so a changed source or
+            // address takes effect on the way back
+            videoSource = buildVideoSource()
+            if (videoSource == null) hideVideo() else videoSource?.start(videoView)
+        }
+    }
+
+    /**
+     * The live picture: over the map, under the readouts. The button lives
+     * only while a source is chosen in the settings, so it can never be a
+     * control that does nothing; the wish to watch survives pauses and
+     * rotations, while the camera or the stream itself is released with the
+     * screen and started again with it.
+     */
+    private var videoSource: VideoSource? = null
+    private var videoWanted = false
+
+    private fun updateVideoControls() {
+        val configured = preferenceManager.getVideoSource() != "off"
+        videoButton.visibility = if (configured) View.VISIBLE else View.GONE
+        if (!configured && videoWanted) hideVideo()
+    }
+
+    private fun toggleVideo() {
+        if (videoWanted) hideVideo() else showVideo()
+    }
+
+    /** The configured source, or null having said why there is nothing to start. */
+    private fun buildVideoSource(): VideoSource? {
+        return when (preferenceManager.getVideoSource()) {
+            "usb" -> UsbUvcSource(this, ::videoTrouble)
+            "rtsp" -> {
+                val url = preferenceManager.getVideoRtspUrl()
+                if (url.isBlank()) {
+                    Toast.makeText(
+                        this, "No RTSP address set — enter one under Settings, Video",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    null
+                } else {
+                    RtspSource(this, url, ::videoTrouble)
+                }
+            }
+            else -> null
+        }
+    }
+
+    private fun showVideo() {
+        val source = buildVideoSource() ?: return
+        videoWanted = true
+        videoSource = source
+        videoView.visibility = View.VISIBLE
+        videoButton.imageAlpha = 255
+        source.start(videoView)
+    }
+
+    private fun hideVideo() {
+        videoWanted = false
+        videoSource?.stop()
+        videoSource = null
+        videoView.visibility = View.GONE
+        videoButton.imageAlpha = 128
+    }
+
+    /** Sources report from their own threads; the map is put back on ours. */
+    private fun videoTrouble(what: String) {
+        runOnUiThread {
+            if (!videoWanted) return@runOnUiThread
+            Toast.makeText(this, "Video: $what", Toast.LENGTH_LONG).show()
+            hideVideo()
+        }
     }
 
     /**
@@ -2193,6 +2278,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // The service keeps both location and compass for a connected flight;
         // this only removes callbacks to a screen that is no longer drawing.
         setPhoneWatch(false)
+        // the camera or the stream goes with the screen; videoWanted stays,
+        // and onResume starts it again
+        videoSource?.stop()
+        videoSource = null
     }
 
     override fun onStop() {

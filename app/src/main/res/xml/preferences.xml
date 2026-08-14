@@ -384,6 +384,28 @@
 
     <PreferenceCategory
             android:layout="@layout/preference_category_title"
+            app:iconSpaceReserved="false" android:title="Video">
+
+        <ListPreference
+            app:iconSpaceReserved="false"
+                android:title="Video source"
+                android:summary="A live picture in place of the map, under the telemetry readouts: a USB (UVC) receiver or goggles over OTG, or an RTSP network stream. With a source chosen, a video button appears on the map to switch between picture and map\n%s"
+                android:entries="@array/VideoSources"
+                android:entryValues="@array/VideoSourceValues"
+                android:defaultValue="off"
+                android:key="video_source"/>
+
+        <EditTextPreference
+            app:iconSpaceReserved="false"
+                android:title="RTSP stream address"
+                android:summary="Where the network stream lives, e.g. rtsp://192.168.1.10:554/stream0 — OpenIPC, OpenHD and most WiFi VRX boxes publish one"
+                android:defaultValue=""
+                android:key="video_rtsp_url"/>
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
+            android:layout="@layout/preference_category_title"
             app:iconSpaceReserved="false" android:title="Mock location">
 
         <SwitchPreference

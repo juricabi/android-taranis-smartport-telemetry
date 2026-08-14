@@ -114,6 +114,17 @@
         <item>60</item>
     </string-array>
 
+    <string-array name="VideoSources">
+        <item>Off</item>
+        <item>USB camera (UVC)</item>
+        <item>Network stream (RTSP)</item>
+    </string-array>
+    <string-array name="VideoSourceValues">
+        <item>off</item>
+        <item>usb</item>
+        <item>rtsp</item>
+    </string-array>
+
     <string-array name="ModelTypes">
         <item>Quad</item>
         <item>Plane or wing</item>

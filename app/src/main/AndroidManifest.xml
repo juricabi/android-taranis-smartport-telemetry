@@ -36,9 +36,27 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
 
+    <!-- The UVC video library asks for far more than this app uses of it:
+         all-files management, audio recording, the phone's own camera. None
+         of that is wanted for drawing a USB receiver's picture — a UVC device
+         is reached through USB host permission, not the camera service — so
+         none of it is inherited. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:node="remove"/>
+    <uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove"/>
+    <uses-permission android:name="android.permission.CAMERA" tools:node="remove"/>
+
     <uses-feature
             android:name="android.hardware.bluetooth_le"
             android:required="false"/>
+    <!-- The video library marks USB host required, which would bar phones
+         without OTG from installing an app that is first a telemetry viewer.
+         A phone with no USB host still has the Bluetooth and network links,
+         and RTSP video. tools:replace, because the merger ORs "required" and
+         the library's true would quietly win otherwise. -->
+    <uses-feature
+            android:name="android.hardware.usb.host"
+            android:required="false"
+            tools:replace="android:required"/>
 
     <!-- largeHeap: the 3D ground streams full-screen imagery — the mosaics
          mid-assembly and the upload queue legitimately hold north of a
@@ -77,9 +95,13 @@
 			<intent-filter>
 				<action android:name="android.hardware.usb.action.USB_DEVICE_DETACHED" />
 			</intent-filter>
+			<!-- Named for what it filters, not just "device_filter": the UVC
+			     video library ships a res/xml/device_filter of its own, and
+			     an app file by the same name would override it — the camera
+			     watcher would then be reading this serial filter. -->
 			<meta-data
 				android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
-				android:resource="@xml/device_filter" />
+				android:resource="@xml/usb_serial_device_filter" />
 
         </activity>
         <activity

@@ -29,3 +29,6 @@ tools/mapprobe/app/build
 
 # python bytecode from running the flight sim
 tools/__pycache__/
+
+# Kotlin 2.x drops per-build session metadata at the repo root
+.kotlin/

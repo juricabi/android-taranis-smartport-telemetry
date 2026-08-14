@@ -140,6 +140,22 @@ measured from whatever there is to be near, and the warning says which:
 3. For a network stream, select the matching preset and port.
 4. Use the map-type button for 2D or 3D; use tracking or chase as required.
 
+### Live video
+
+Pick a source under **Settings → Video** — a USB (UVC) receiver or goggles
+plugged in over OTG, or an RTSP network stream — and a video button appears
+on the map. It swaps the ground under the readouts between map and picture;
+every sensor, the horizon and the buttons keep working over the video.
+
+### Drone GPS as phone location
+
+**Settings → Mock location** republishes the decoded drone GPS as this
+phone's own position while telemetry is connected, so a tracker app on the
+phone (Overland, PureTrack) broadcasts the drone instead of the phone. The
+app must be picked once under Developer options → Select mock location app;
+the settings row walks through it and the service notification says when the
+drone's position is live.
+
 ### Simulator
 
 `tools/simflight.py` sends a realistic CRSF flight over UDP:
@@ -227,8 +243,9 @@ first. Ghost telemetry mirror uses **115200 baud**.
 - `targetSdk 28` is intentional for this sideloaded APK. A Play Store release
   needs a separate scoped-storage, notification and foreground-service migration.
 - Map caching is opportunistic; there is no offline-area downloader yet.
-- Legacy UVC camera modules remain in the repository for reference but are not
-  included by `settings.gradle` and are not part of the current app.
+- Live video (Settings → Video) is a USB UVC receiver or goggles over OTG, or
+  an RTSP network stream at roughly half-a-second ground-station latency; it
+  is not a sub-150 ms FPV feed.
 - Real transport reconnection still needs verification with the corresponding
   physical radio/module; the simulator tests the network and decoder path.
 
