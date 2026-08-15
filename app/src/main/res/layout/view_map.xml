@@ -45,14 +45,19 @@
 
             <!-- The picture's own controls live on the picture, not among
                  the map's buttons: sound, fill and turn only mean anything
-                 while the half is up, and the half hides them with itself. -->
+                 while the half is up, and the half hides them with itself.
+                 Mid-height on the right edge, because every corner is taken:
+                 horizon top-left, clock top-centre, compass top-right, the
+                 button column climbing the right edge, the seek bar and
+                 status text along the bottom. The middle of the edge is the
+                 one strip both orientations leave clear. -->
             <LinearLayout
                     android:id="@+id/video_controls"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_gravity="top|end"
+                    android:layout_gravity="end|center_vertical"
                     android:layout_margin="4dp"
-                    android:orientation="horizontal">
+                    android:orientation="vertical">
 
                 <ImageButton
                         android:id="@+id/video_sound_button"
