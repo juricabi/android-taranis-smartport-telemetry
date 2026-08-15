@@ -76,7 +76,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: telemetry-ghst-apk
+          name: telemetry-apk
           path: telemetry-*.apk
           if-no-files-found: warn
 
