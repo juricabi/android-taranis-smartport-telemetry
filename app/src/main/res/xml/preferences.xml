@@ -398,7 +398,7 @@
         <EditTextPreference
             app:iconSpaceReserved="false"
                 android:title="Stream address"
-                android:summary="The address says what the stream is: rtsp://192.168.1.10:554/stream0 for RTSP — OpenIPC, OpenHD and most WiFi VRX boxes publish one — or http://192.168.1.20:8080/video for an MJPEG feed such as an ESP32-CAM, mjpg-streamer or the IP Webcam app"
+                android:summary="@string/video_stream_url_hint"
                 android:defaultValue=""
                 android:key="video_stream_url"/>
 

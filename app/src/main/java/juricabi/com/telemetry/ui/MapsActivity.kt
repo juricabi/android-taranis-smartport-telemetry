@@ -323,6 +323,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private lateinit var findQuadButton: FloatingActionButton
     private lateinit var videoButton: FloatingActionButton
     private lateinit var videoView: TextureView
+    private lateinit var flightPane: LinearLayout
     private lateinit var fullscreenButton: ImageView
     private lateinit var menuButton: FloatingActionButton
     private lateinit var settingsButton: ImageView
@@ -629,6 +630,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         videoButton.imageAlpha = 128
         videoButton.setOnClickListener { toggleVideo() }
         videoView = findViewById(R.id.video_view)
+        flightPane = findViewById(R.id.flight_pane)
         videoWanted = savedInstanceState?.getBoolean("video_wanted") ?: false
         settingsButton = findViewById(R.id.settings_button)
         replayButton = findViewById(R.id.replay_button)
@@ -2175,12 +2177,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         setPhoneWatch(true)
         startFr24()
         updateVideoControls()
-        if (videoWanted && videoSource == null) {
-            // built fresh from the settings just left, so a changed source or
-            // address takes effect on the way back
-            videoSource = buildVideoSource()
-            if (videoSource == null) hideVideo() else videoSource?.start(videoView)
-        }
+        // built fresh from the settings just left, so a changed source or
+        // address takes effect on the way back
+        if (videoWanted && videoSource == null) startVideo()
     }
 
     /**
@@ -2231,9 +2230,37 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     private fun showVideo() {
-        val source = buildVideoSource() ?: return
         videoWanted = true
+        startVideo()
+    }
+
+    /**
+     * Half each, along the axis the screen has more of: the picture left of
+     * the map held landscape, above it held upright. A rotation rebuilds the
+     * screen, so this is decided fresh each time video starts.
+     */
+    private fun arrangeFlightPane() {
+        val landscape =
+            resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        flightPane.orientation =
+            if (landscape) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+        for (half in listOf<View>(videoView, mapHolder)) {
+            half.layoutParams = LinearLayout.LayoutParams(
+                if (landscape) 0 else LinearLayout.LayoutParams.MATCH_PARENT,
+                if (landscape) LinearLayout.LayoutParams.MATCH_PARENT else 0,
+                1f
+            )
+        }
+    }
+
+    private fun startVideo() {
+        val source = buildVideoSource()
+        if (source == null) {
+            hideVideo()
+            return
+        }
         videoSource = source
+        arrangeFlightPane()
         videoView.visibility = View.VISIBLE
         videoButton.imageAlpha = 255
         source.start(videoView)

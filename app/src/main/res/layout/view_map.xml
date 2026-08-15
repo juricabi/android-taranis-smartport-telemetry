@@ -4,19 +4,32 @@
         xmlns:tools="http://schemas.android.com/tools"
         android:layout_width="match_parent" android:layout_height="match_parent">
 
-    <FrameLayout
-            android:id="@+id/map_holder"
+    <!-- The ground, split when the live picture is on: video beside the map —
+         left of it in landscape, above it in portrait — never over it, so the
+         flight stays watchable next to what the camera sees. The axes and
+         weights are arranged in code when video shows; with the picture GONE
+         the map is the only weighted child and keeps the whole pane. The
+         readouts and buttons overlay both halves alike. -->
+    <LinearLayout
+            android:id="@+id/flight_pane"
+            android:orientation="vertical"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"/>
+            android:layout_height="match_parent">
 
-    <!-- The live picture, when one is switched on: over the map, under every
-         readout and button, so the OSD keeps flying whichever ground is
-         showing. GONE until the video button says otherwise. -->
-    <TextureView
-            android:id="@+id/video_view"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:visibility="gone"/>
+        <TextureView
+                android:id="@+id/video_view"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:visibility="gone"/>
+
+        <FrameLayout
+                android:id="@+id/map_holder"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"/>
+
+    </LinearLayout>
 
     <RelativeLayout
             android:layout_width="match_parent"

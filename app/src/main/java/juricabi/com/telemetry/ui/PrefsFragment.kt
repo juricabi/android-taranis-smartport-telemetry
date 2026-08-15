@@ -371,5 +371,15 @@ class PrefsFragment : PreferenceFragmentCompat() {
             preferenceManager.sharedPreferences.getString("report_voltage", "Battery") == "Battery"
         // preference 1.0.0 has the old, non generic findPreference
         findPreference("battery_cells")?.isEnabled = reportsPack
+        // The typed address, readable where it was typed; the how-to text
+        // only while there is nothing yet. Greyed under the sources that do
+        // not use it, rather than hidden — what was typed is kept, and comes
+        // back with the source.
+        val streamUrl = prefManager.getVideoStreamUrl()
+        findPreference("video_stream_url")?.let {
+            it.summary =
+                if (streamUrl.isBlank()) getString(R.string.video_stream_url_hint) else streamUrl
+            it.isEnabled = prefManager.getVideoSource() == "network"
+        }
     }
 }
