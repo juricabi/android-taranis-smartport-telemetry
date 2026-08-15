@@ -2357,10 +2357,23 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val match = LinearLayout.LayoutParams.MATCH_PARENT
         // coerced here too, so a split saved under looser old bounds obeys
         val share = preferenceManager.getVideoSplit(landscape).coerceIn(0.3f, 0.5f)
-        val grab = (12 * resources.displayMetrics.density).toInt()
-        videoDivider.layoutParams = LinearLayout.LayoutParams(
+        // The grab band costs no screen: its margins pull it back exactly
+        // its own thickness, so the halves meet edge to edge and the band
+        // floats over the seam, half on each. Raised so it draws — and is
+        // touched — above both.
+        val grab = (20 * resources.displayMetrics.density).toInt()
+        val divider = LinearLayout.LayoutParams(
             if (landscape) grab else match, if (landscape) match else grab
         )
+        if (landscape) {
+            divider.leftMargin = -grab / 2
+            divider.rightMargin = -grab / 2
+        } else {
+            divider.topMargin = -grab / 2
+            divider.bottomMargin = -grab / 2
+        }
+        videoDivider.layoutParams = divider
+        videoDivider.elevation = 2 * resources.displayMetrics.density
         for ((half, weight) in listOf(videoHalf to share, mapPane to 1f - share)) {
             half.layoutParams = LinearLayout.LayoutParams(
                 if (landscape) 0 else match, if (landscape) match else 0, weight
