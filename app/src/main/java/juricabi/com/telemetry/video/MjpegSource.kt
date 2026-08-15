@@ -74,8 +74,6 @@ class MjpegSource(
     // error page is HTTP 200 too, and "ended" for a stream that never began
     // sent the field re-tapping at a wrong path
     @Volatile private var answer: String? = null
-    private var thread: Thread? = null
-    private var drawThread: Thread? = null
     @Volatile private var connection: HttpURLConnection? = null
     @Volatile private var view: TextureView? = null
 
@@ -104,7 +102,7 @@ class MjpegSource(
         this.view = view
         view.addOnLayoutChangeListener(refitOnLayout)
         running = true
-        thread = Thread({
+        Thread({
             try {
                 stream()
                 if (running) events.onTrouble(
@@ -117,8 +115,8 @@ class MjpegSource(
                 // works, so only a failure while still wanted is trouble
                 if (running) events.onTrouble("$said — ${e.message ?: "stream failed"}")
             }
-        }, "mjpeg-video").also { it.start() }
-        drawThread = Thread({
+        }, "mjpeg-video").start()
+        Thread({
             try {
                 while (running) {
                     val frame = latest.poll(
@@ -129,7 +127,7 @@ class MjpegSource(
             } catch (e: InterruptedException) {
                 // stopping; nothing left to draw
             }
-        }, "mjpeg-draw").also { it.start() }
+        }, "mjpeg-draw").start()
     }
 
     private fun stream() {
@@ -232,8 +230,6 @@ class MjpegSource(
         running = false
         connection?.disconnect() // unblocks a read waiting on the network
         connection = null
-        thread = null
-        drawThread = null
         view?.removeOnLayoutChangeListener(refitOnLayout)
         view = null
     }

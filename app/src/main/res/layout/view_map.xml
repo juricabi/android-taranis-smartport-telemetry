@@ -52,7 +52,6 @@
                  both halves read the same way. Inside the half, they fold
                  away with it. -->
             <LinearLayout
-                    android:id="@+id/video_controls"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_gravity="bottom|end"

@@ -91,15 +91,6 @@ class PreferenceManager(context: Context) {
         return sharedPreferences.getBoolean("csv_logging_enabled", true)
     }
 
-    fun isLoggingSet(): Boolean {
-        return sharedPreferences.contains("logging_enabled")
-    }
-
-    fun setLoggingEnabled(enabled: Boolean) {
-        sharedPreferences.edit().putBoolean("logging_enabled", enabled)
-            .apply()
-    }
-
     fun getLiveArrowColor(): Int {
         return sharedPreferences.getInt("pos_arrow_color", defaultPosArrowColor)
     }
