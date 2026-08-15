@@ -5,9 +5,11 @@ import android.graphics.SurfaceTexture
 import android.hardware.usb.UsbDevice
 import android.view.Surface
 import android.view.TextureView
+import com.herohan.uvcapp.CameraException
 import com.herohan.uvcapp.CameraHelper
 import com.herohan.uvcapp.ICameraHelper
 import com.serenegiant.utils.UVCUtils
+import juricabi.com.telemetry.utils.DebugLog
 
 /**
  * A USB (UVC) camera over OTG: an analog receiver dongle — ROTG02 and kin —
@@ -45,8 +47,13 @@ class UsbUvcSource(
         view?.fitPicture(size.width, size.height)
     }
 
+    private fun said(device: UsbDevice): String =
+        "${device.productName ?: device.deviceName} " +
+            "%04x:%04x".format(device.vendorId, device.productId)
+
     private val stateCallback = object : ICameraHelper.StateCallback {
         override fun onAttach(device: UsbDevice) {
+            DebugLog.note("Video", "uvc attach ${said(device)}")
             // the first camera wins; one arriving while another is open waits
             // for the next start
             val h = helper ?: return
@@ -54,28 +61,59 @@ class UsbUvcSource(
         }
 
         override fun onDeviceOpen(device: UsbDevice, isFirstOpen: Boolean) {
+            DebugLog.note("Video", "uvc device open ${said(device)} first=$isFirstOpen")
             helper?.openCamera()
         }
 
         override fun onCameraOpen(device: UsbDevice) {
+            val sizes = try {
+                helper?.supportedSizeList?.joinToString { "${it.width}x${it.height}" }
+            } catch (e: Exception) {
+                "? (${e.message})"
+            }
+            DebugLog.note(
+                "Video", "uvc camera open ${said(device)}, " +
+                    "preview=${helper?.previewSize}, supports=$sizes"
+            )
             helper?.startPreview()
             fitToCamera()
             attachSurfaceIfReady()
         }
 
         override fun onCameraClose(device: UsbDevice) {
+            DebugLog.note("Video", "uvc camera close ${said(device)}")
             surface?.let { helper?.removeSurface(it) }
+            // the half folds away until frames flow again — a replugged
+            // camera re-earns it through the next first frame
+            live = false
+            events.onIdle()
         }
 
-        override fun onDeviceClose(device: UsbDevice) {}
-        override fun onDetach(device: UsbDevice) {}
+        override fun onDeviceClose(device: UsbDevice) {
+            DebugLog.note("Video", "uvc device close ${said(device)}")
+        }
+
+        override fun onDetach(device: UsbDevice) {
+            DebugLog.note("Video", "uvc detach ${said(device)}")
+        }
 
         override fun onCancel(device: UsbDevice) {
+            DebugLog.note("Video", "uvc permission refused for ${said(device)}")
             events.onTrouble("USB permission was refused")
+        }
+
+        override fun onError(device: UsbDevice, e: CameraException) {
+            // The library's own answer is a toast reading "unknown error";
+            // written down and folded away properly instead.
+            DebugLog.note(
+                "Video", "uvc error ${said(device)} code=${e.code}: ${e.message}"
+            )
+            events.onTrouble("the camera failed to open (${e.message ?: "code " + e.code})")
         }
     }
 
     override fun start(view: TextureView) {
+        DebugLog.note("Video", "uvc start")
         this.view = view
         view.addOnLayoutChangeListener(refit)
         view.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
@@ -122,6 +160,7 @@ class UsbUvcSource(
     }
 
     override fun stop() {
+        DebugLog.note("Video", "uvc stop")
         view?.surfaceTextureListener = null
         view?.removeOnLayoutChangeListener(refit)
         view = null

@@ -10,6 +10,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import juricabi.com.telemetry.utils.DebugLog
 
 /**
  * Scans a stream for whole JPEGs — the start mark FFD8 to the end mark FFD9 —
@@ -70,6 +71,7 @@ class MjpegSource(
     }
 
     override fun start(view: TextureView) {
+        DebugLog.note("Video", "mjpeg start")
         this.view = view
         view.addOnLayoutChangeListener(refit)
         running = true
@@ -96,6 +98,9 @@ class MjpegSource(
         }
         conn.connectTimeout = 5000
         conn.readTimeout = 10000
+        DebugLog.note(
+            "Video", "mjpeg HTTP ${conn.responseCode}, type ${conn.contentType}"
+        )
         if (conn.responseCode != HttpURLConnection.HTTP_OK) {
             throw IOException("HTTP " + conn.responseCode)
         }
@@ -126,6 +131,7 @@ class MjpegSource(
         }
         if (!live) {
             live = true
+            DebugLog.note("Video", "mjpeg first frame ${bitmap.width}x${bitmap.height}")
             events.onLive()
         }
     }

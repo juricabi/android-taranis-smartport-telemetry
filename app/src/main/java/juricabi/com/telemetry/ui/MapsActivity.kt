@@ -2218,6 +2218,15 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             }
         }
 
+        override fun onIdle() {
+            runOnUiThread {
+                if (videoWanted && videoShowingLive) {
+                    videoShowingLive = false
+                    arrangeFlightPane()
+                }
+            }
+        }
+
         override fun onTrouble(what: String) {
             runOnUiThread {
                 if (!videoWanted) return@runOnUiThread

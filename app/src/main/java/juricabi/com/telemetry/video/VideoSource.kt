@@ -23,6 +23,13 @@ interface VideoSource {
          */
         fun onLive()
 
+        /**
+         * The picture stopped but may return — a camera unplugged mid-watch.
+         * The screen folds the half away and keeps waiting; onLive earns it
+         * back. Unlike onTrouble, this does not give the watching up.
+         */
+        fun onIdle() {}
+
         /** The source is dead; the screen should fold the picture away. */
         fun onTrouble(what: String)
 

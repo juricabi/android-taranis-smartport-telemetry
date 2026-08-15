@@ -63,11 +63,28 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk "telemetry-$VER.apk"
           ls -la telemetry-*.apk
 
+      # The debug build installs beside the release (its id ends .debug) and
+      # is the one that writes the diagnostics "Copy debug info" copies — a
+      # field problem gets reproduced on it and the notes sent back. Kept in
+      # its own directory so the release-publish glob below never ships it.
+      - name: Build debug APK
+        run: |
+          ./gradlew :app:assembleDebug --stacktrace
+          mkdir -p debug-apk
+          cp app/build/outputs/apk/debug/app-debug.apk debug-apk/telemetry-debug.apk
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: telemetry-ghst-apk
           path: telemetry-*.apk
+          if-no-files-found: warn
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: telemetry-debug-apk
+          path: debug-apk/telemetry-debug.apk
           if-no-files-found: warn
 
       - name: Publish release
