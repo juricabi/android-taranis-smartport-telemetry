@@ -21,8 +21,10 @@ import com.serenegiant.utils.UVCUtils
  */
 class UsbUvcSource(
     context: Context,
-    private val onTrouble: (String) -> Unit
+    private val events: VideoSource.Events
 ) : VideoSource {
+
+    private var live = false
 
     init {
         // The library digs its application context out by reflection unless
@@ -69,7 +71,7 @@ class UsbUvcSource(
         override fun onDetach(device: UsbDevice) {}
 
         override fun onCancel(device: UsbDevice) {
-            onTrouble("USB permission was refused")
+            events.onTrouble("USB permission was refused")
         }
     }
 
@@ -90,7 +92,13 @@ class UsbUvcSource(
                 return true
             }
 
-            override fun onSurfaceTextureUpdated(t: SurfaceTexture) {}
+            override fun onSurfaceTextureUpdated(t: SurfaceTexture) {
+                // fires per delivered frame; the first one is the picture
+                if (!live) {
+                    live = true
+                    events.onLive()
+                }
+            }
         }
         val helper = CameraHelper()
         this.helper = helper

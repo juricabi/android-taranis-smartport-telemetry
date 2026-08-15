@@ -2205,6 +2205,41 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private var videoAudioOn = false
 
+    /** Whether the picture has earned its half — a first frame has shown. */
+    private var videoShowingLive = false
+
+    private val videoEvents = object : VideoSource.Events {
+        override fun onLive() {
+            runOnUiThread {
+                if (videoWanted && !videoShowingLive) {
+                    videoShowingLive = true
+                    arrangeFlightPane()
+                }
+            }
+        }
+
+        override fun onTrouble(what: String) {
+            runOnUiThread {
+                if (!videoWanted) return@runOnUiThread
+                Toast.makeText(this@MapsActivity, "Video: $what", Toast.LENGTH_LONG).show()
+                hideVideo()
+            }
+        }
+
+        override fun onAudioLost() {
+            runOnUiThread {
+                if (!videoWanted) return@runOnUiThread
+                videoAudioOn = false
+                videoSoundButton.imageAlpha = 128
+                Toast.makeText(
+                    this@MapsActivity,
+                    "This stream's sound never arrived — playing the picture alone",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
     private fun updateVideoControls() {
         val configured = preferenceManager.getVideoSource() != "off"
         videoButton.visibility = if (configured) View.VISIBLE else View.GONE
@@ -2223,16 +2258,16 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private fun buildVideoSource(): VideoSource? {
         return when (preferenceManager.getVideoSource()) {
-            "usb" -> UsbUvcSource(this, ::videoTrouble)
+            "usb" -> UsbUvcSource(this, videoEvents)
             "network" -> {
                 val url = preferenceManager.getVideoStreamUrl()
                 val trouble = when {
                     url.isBlank() -> "No stream address set — enter one under Settings, Video"
                     url.startsWith("rtsp://", ignoreCase = true) ->
-                        return RtspSource(this, url, ::videoTrouble, ::videoAudioLost)
+                        return RtspSource(this, url, videoEvents)
                     url.startsWith("http://", ignoreCase = true) ||
                         url.startsWith("https://", ignoreCase = true) ->
-                        return MjpegSource(url, ::videoTrouble)
+                        return MjpegSource(url, videoEvents)
                     else -> "The stream address must start rtsp:// (RTSP) or http:// (MJPEG)"
                 }
                 Toast.makeText(this, trouble, Toast.LENGTH_LONG).show()
@@ -2251,19 +2286,25 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * Half each, along the axis the screen has more of: the picture left of
      * the map held landscape, above it held upright. A rotation rebuilds the
      * screen, so this is decided fresh each time video starts.
+     *
+     * Until the first real frame the picture's share is a hairline: laid out,
+     * so the decoders have a surface to aim at, but taking nothing from the
+     * map — split sooner, a refused connection put an empty black half over
+     * the flight for as long as the retries took.
      */
     private fun arrangeFlightPane() {
         val landscape =
             resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         flightPane.orientation =
             if (landscape) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
-        for (half in listOf<View>(videoView, mapHolder)) {
-            half.layoutParams = LinearLayout.LayoutParams(
-                if (landscape) 0 else LinearLayout.LayoutParams.MATCH_PARENT,
-                if (landscape) LinearLayout.LayoutParams.MATCH_PARENT else 0,
-                1f
-            )
+        val match = LinearLayout.LayoutParams.MATCH_PARENT
+        videoView.layoutParams = if (videoShowingLive) {
+            LinearLayout.LayoutParams(if (landscape) 0 else match, if (landscape) match else 0, 1f)
+        } else {
+            LinearLayout.LayoutParams(if (landscape) 1 else match, if (landscape) match else 1, 0f)
         }
+        mapHolder.layoutParams =
+            LinearLayout.LayoutParams(if (landscape) 0 else match, if (landscape) match else 0, 1f)
     }
 
     private fun startVideo() {
@@ -2273,6 +2314,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             return
         }
         videoSource = source
+        videoShowingLive = false
         arrangeFlightPane()
         videoView.visibility = View.VISIBLE
         videoButton.imageAlpha = 255
@@ -2290,19 +2332,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         videoSource?.setAudio(videoAudioOn)
     }
 
-    /** The stream's audio never came; the source dropped it to keep the picture. */
-    private fun videoAudioLost() {
-        runOnUiThread {
-            if (!videoWanted) return@runOnUiThread
-            videoAudioOn = false
-            videoSoundButton.imageAlpha = 128
-            Toast.makeText(
-                this, "This stream's sound never arrived — playing the picture alone",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-    }
-
     private fun hideVideo() {
         videoWanted = false
         videoSource?.stop()
@@ -2310,15 +2339,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         videoView.visibility = View.GONE
         videoButton.imageAlpha = 128
         videoSoundButton.visibility = View.GONE
-    }
-
-    /** Sources report from their own threads; the map is put back on ours. */
-    private fun videoTrouble(what: String) {
-        runOnUiThread {
-            if (!videoWanted) return@runOnUiThread
-            Toast.makeText(this, "Video: $what", Toast.LENGTH_LONG).show()
-            hideVideo()
-        }
     }
 
     /**

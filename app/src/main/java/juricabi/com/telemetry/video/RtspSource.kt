@@ -37,8 +37,7 @@ import androidx.media3.exoplayer.rtsp.RtspMediaSource
 class RtspSource(
     private val context: Context,
     private val url: String,
-    private val onTrouble: (String) -> Unit,
-    private val onAudioLost: () -> Unit
+    private val events: VideoSource.Events
 ) : VideoSource {
 
     private var player: ExoPlayer? = null
@@ -90,9 +89,9 @@ class RtspSource(
             // The picture wins; the screen is told so its button agrees.
             audioOn = false
             applyAudio(p)
-            onAudioLost()
+            events.onAudioLost()
         } else if (++recoveries > 3) {
-            onTrouble(why)
+            events.onTrouble(why)
             return
         }
         p.stop()
@@ -118,6 +117,10 @@ class RtspSource(
         player.addListener(object : Player.Listener {
             override fun onVideoSizeChanged(videoSize: VideoSize) {
                 view.fitPicture(videoSize.width, videoSize.height)
+            }
+
+            override fun onRenderedFirstFrame() {
+                events.onLive()
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {

@@ -13,6 +13,23 @@ import android.view.TextureView
  * never take the telemetry down with it.
  */
 interface VideoSource {
+
+    /** What a source tells the screen, from whatever thread it lives on. */
+    interface Events {
+        /**
+         * The first real frame is showing. The screen gives the picture its
+         * half only now — split earlier, a refused connection put an empty
+         * black half over the flight for as long as the retries took.
+         */
+        fun onLive()
+
+        /** The source is dead; the screen should fold the picture away. */
+        fun onTrouble(what: String)
+
+        /** Sound was dropped to keep the picture; the button should agree. */
+        fun onAudioLost() {}
+    }
+
     fun start(view: TextureView)
     fun stop()
 

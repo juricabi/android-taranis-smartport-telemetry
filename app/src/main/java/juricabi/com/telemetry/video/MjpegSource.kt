@@ -52,8 +52,10 @@ internal fun scanMjpegFrames(input: InputStream, onFrame: (ByteArray) -> Boolean
  */
 class MjpegSource(
     private val url: String,
-    private val onTrouble: (String) -> Unit
+    private val events: VideoSource.Events
 ) : VideoSource {
+
+    private var live = false
 
     @Volatile private var running = false
     private var thread: Thread? = null
@@ -74,11 +76,11 @@ class MjpegSource(
         thread = Thread({
             try {
                 stream()
-                if (running) onTrouble("the stream ended")
+                if (running) events.onTrouble("the stream ended")
             } catch (e: Exception) {
                 // closing the connection under a blocked read is how stop()
                 // works, so only a failure while still wanted is trouble
-                if (running) onTrouble(e.message ?: "stream failed")
+                if (running) events.onTrouble(e.message ?: "stream failed")
             }
         }, "mjpeg-video").also { it.start() }
     }
@@ -121,6 +123,10 @@ class MjpegSource(
         } finally {
             view.unlockCanvasAndPost(canvas)
             bitmap.recycle()
+        }
+        if (!live) {
+            live = true
+            events.onLive()
         }
     }
 
