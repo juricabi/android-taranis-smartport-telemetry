@@ -203,18 +203,6 @@ class PreferenceManager(context: Context) {
         sharedPreferences.edit().putInt("video_rotation", degrees).apply()
     }
 
-    /**
-     * The one stream address that proved lossy over UDP. Keyed by the address
-     * itself, so changing the address forgets the lesson with it.
-     */
-    fun getVideoTcpUrl(): String {
-        return sharedPreferences.getString("video_tcp_url", "") ?: ""
-    }
-
-    fun setVideoTcpUrl(url: String) {
-        sharedPreferences.edit().putString("video_tcp_url", url).apply()
-    }
-
     fun isClockEnabled(): Boolean {
         return sharedPreferences.getBoolean("show_clock", true)
     }
