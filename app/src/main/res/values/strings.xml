@@ -2,7 +2,7 @@
     <string name="app_name">Telemetry viewer</string>
     <!-- shown under "Stream address" only until one is typed; after that the
          address itself is the summary -->
-    <string name="video_stream_url_hint">The address says what the stream is: rtsp://192.168.1.10:554/stream0 for RTSP — OpenIPC, OpenHD and most WiFi VRX boxes publish one — or http://192.168.1.20:8080/video for an MJPEG feed such as an ESP32-CAM, mjpg-streamer or the IP Webcam app</string>
+    <string name="video_stream_url_hint">The address says what the stream is: rtsp://192.168.1.10:554/stream0 for RTSP (H.264 or H.265) — IP cameras, the IP Webcam app, and Orqa FPV.Connect at rtsp://192.168.1.1:5004/orqabroadcast on the goggles\' own WiFi; http://192.168.1.20:8080/video for an MJPEG feed such as an ESP32-CAM, mjpg-streamer or IP Webcam; udp://5600 to listen for a stream pushed at this phone — OpenIPC, wfb-ng and other QGroundControl-style senders</string>
     <string name="title_activity_maps">Map</string>
     <string name="connecting">Connecting…</string>
     <string name="reconnecting">Reconnecting…</string>

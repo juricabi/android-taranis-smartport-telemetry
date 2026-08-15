@@ -143,24 +143,61 @@ measured from whatever there is to be near, and the warning says which:
 ### Live video
 
 Pick a source under **Settings → Video** — a USB (UVC) receiver or goggles
-plugged in over OTG, or a network stream — and a video button appears on the
-map. It splits the pane in half — picture beside the map, left of it in
-landscape and above it in portrait — and every sensor, the horizon and the
-buttons keep working. A network address starting `rtsp://` is played as RTSP
-(OpenIPC, OpenHD, WiFi VRX boxes); one starting `http://` is read as MJPEG
-(ESP32-CAM, mjpg-streamer, the IP Webcam app). RTSP starts as picture alone
-so it is on screen at once; the speaker button joins the stream's sound, and
-a stream whose advertised audio never arrives drops back to picture by
-itself.
+plugged in over OTG, or a network stream — and a video button appears in the
+top bar. It splits the pane in half — picture beside the map, left of it in
+landscape and above it in portrait — the flight overlays keep to the map's
+half, and the picture carries its own sound, fill and quarter-turn buttons.
+The network address says what the stream is:
+
+- **`rtsp://…`** — RTSP, H.264 or H.265 through the phone's hardware
+  decoder. IP cameras, mediamtx/go2rtc relays, the IP Webcam app's RTSP
+  mode. **Orqa FPV.Connect** broadcasts here too: join the goggles' own
+  WiFi and enter `rtsp://192.168.1.1:5004/orqabroadcast`. The stream
+  starts over UDP and locks itself to TCP per address once the link
+  proves lossy.
+- **`http://…`** — MJPEG, the compatible end: ESP32-CAM, mjpg-streamer,
+  the IP Webcam app's `/video` path.
+- **`udp://5600`** — a raw pushed stream: RTP with H.264 or H.265 aimed
+  at this phone's address, the way **OpenIPC / wfb-ng** ground stations
+  and other QGroundControl-style senders work. There is nothing to dial —
+  the app listens on the port, reads the codec off the stream itself and
+  renders every frame the moment it decodes, with no buffer in the way.
+  Point the sender at the phone's IP, port 5600 (or whichever port the
+  address names).
+- **USB (UVC)** — analog OTG receivers (ROTG02 and kin), DJI, Walksnail
+  and Orqa goggles in their webcam modes, action cameras as webcams —
+  including UVC 1.5 devices such as the DJI Osmo Action series, which
+  stock Android UVC libraries refuse.
+
+The picture wears its own controls on its top-right: the speaker where the
+stream could carry sound, **fill** to crop the picture over the whole half
+instead of letterboxing it, and a **quarter-turn** per tap for a camera
+mounted sideways — fill and turn are remembered across sessions. The flight
+overlays — horizon, clock, compass, the button column, the seek bar — keep
+to the map's half and scale with it, so nothing ever stands over the
+picture.
+
+The reliability work sits where field flying found the holes: an RTSP
+address that proves lossy over UDP is remembered and joined over TCP from
+then on; a stalled or starved stream rejoins itself; a picture drifting
+behind the camera's clock jumps back to the live edge; MJPEG decodes only
+as many pixels as the pane can show and reuses its frame memory, so the
+collector never fights the decoder; and every source starts on a fresh
+surface, so switching between MJPEG and RTSP mid-session cannot poison the
+hardware decoder. RTSP starts as picture alone so it is on screen at once;
+the speaker button joins the stream's sound, and a stream whose advertised
+audio never arrives drops back to picture by itself.
 
 ### Drone GPS as phone location
 
 **Settings → Mock location** republishes the decoded drone GPS as this
 phone's own position while telemetry is connected, so a tracker app on the
-phone (Overland, PureTrack) broadcasts the drone instead of the phone. The
-app must be picked once under Developer options → Select mock location app;
+phone (Overland, PureTrack) broadcasts the drone instead of the phone —
+position, altitude and speed, at the rate the link delivers them. The app
+must be picked once under Developer options → Select mock location app;
 the settings row walks through it and the service notification says when the
-drone's position is live.
+drone's position is live. The phone's own GPS is back the moment telemetry
+disconnects or the switch is turned off.
 
 ### Simulator
 

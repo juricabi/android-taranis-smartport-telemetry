@@ -61,6 +61,7 @@ import juricabi.com.telemetry.utils.GeoUtils
 import juricabi.com.telemetry.utils.PlusCode
 import juricabi.com.telemetry.video.MjpegSource
 import juricabi.com.telemetry.video.RtspSource
+import juricabi.com.telemetry.video.UdpSource
 import juricabi.com.telemetry.video.UsbUvcSource
 import juricabi.com.telemetry.video.VideoSource
 import juricabi.com.telemetry.protocol.decoder.DataDecoder
@@ -2313,7 +2314,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     url.startsWith("http://", ignoreCase = true) ||
                         url.startsWith("https://", ignoreCase = true) ->
                         return MjpegSource(url, events)
-                    else -> "The stream address must start rtsp:// (RTSP) or http:// (MJPEG)"
+                    url.startsWith("udp://", ignoreCase = true) -> {
+                        // a pushed stream has no address to dial, only the
+                        // port here to listen on — udp://5600 and
+                        // udp://0.0.0.0:5600 both name it
+                        val port = url.substring(6).trim('/')
+                            .substringAfterLast(':').toIntOrNull()
+                        if (port != null && port in 1..65535)
+                            return UdpSource(port, events)
+                        "udp:// needs the port the stream is pushed to, like udp://5600"
+                    }
+                    else -> "The stream address must start rtsp:// (RTSP), " +
+                        "http:// (MJPEG) or udp:// (a pushed RTP stream)"
                 }
                 Toast.makeText(this, trouble, Toast.LENGTH_LONG).show()
                 null
