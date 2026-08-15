@@ -185,6 +185,17 @@
                     app:backgroundTint="@color/colorAccent" />
 
             <com.google.android.material.floatingactionbutton.FloatingActionButton
+                    android:id="@+id/video_sound_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_margin="8dp"
+                    android:src="@drawable/ic_sound"
+                    android:visibility="gone"
+                    app:fabSize="mini"
+                    tools:visibility="visible"
+                    app:backgroundTint="@color/colorAccent" />
+
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
                     android:id="@+id/follow_button"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"

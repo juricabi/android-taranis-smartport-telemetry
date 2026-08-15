@@ -25,27 +25,48 @@ import androidx.media3.exoplayer.rtsp.RtspMediaSource
  * third of a second, which lands around half a second glass to glass. Truly
  * low-latency FPV would need raw RTP into a MediaCodec, and is not attempted.
  *
- * Audio plays when the stream truly carries it — a drone camera's mic is
- * part of the feed. But cameras routinely advertise an audio track they
- * never feed, and a player told to wait for one holds the first frame
- * forever: one picture, then stone. So a stream that cannot start at all is
- * retried once without its audio before anything is counted a failure. A
- * live link also drops: stalls and errors are answered by rejoining the
- * stream, and only three failures in a row give up.
+ * The picture starts alone and starts at once. Playback waits for every
+ * selected track, and cameras routinely advertise an audio track they never
+ * feed — selected, it holds the first frame forever: one picture, then
+ * stone. Sound is therefore joined only when asked for (the speaker button),
+ * and if the stream cannot start with it, it is dropped again and said so —
+ * the picture always wins. Stalls and errors rejoin the live stream, running
+ * forgives, and only three failures in a row drop back to the map.
  */
 @OptIn(UnstableApi::class)
 class RtspSource(
     private val context: Context,
     private val url: String,
-    private val onTrouble: (String) -> Unit
+    private val onTrouble: (String) -> Unit,
+    private val onAudioLost: () -> Unit
 ) : VideoSource {
 
     private var player: ExoPlayer? = null
     private var view: TextureView? = null
     private var recoveries = 0
-    private var everPlayed = false
-    private var audioDropped = false
+    private var audioOn = false
+    private var playedSinceChange = false
     private val handler = Handler(Looper.getMainLooper())
+
+    override val hasAudio get() = true
+
+    override fun setAudio(on: Boolean) {
+        if (audioOn == on) return
+        audioOn = on
+        val p = player ?: return // before start: remembered for it
+        applyAudio(p)
+        playedSinceChange = false
+        recoveries = 0
+        p.stop()
+        p.prepare()
+    }
+
+    private fun applyAudio(p: ExoPlayer) {
+        p.trackSelectionParameters = p.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, !audioOn)
+            .build()
+    }
 
     // refits the letterbox when showing or the fullscreen toggle resizes the pane
     private val refit = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
@@ -53,6 +74,9 @@ class RtspSource(
         view?.fitPicture(size.width, size.height)
     }
 
+    // Past the player's own UDP-to-TCP fallback, which runs at eight
+    // seconds — a rejoin before that would start a fresh UDP session and
+    // keep a TCP-only camera from ever being reached.
     private val stalled = Runnable {
         if (player?.playbackState == Player.STATE_BUFFERING) rejoin("the stream stalled")
     }
@@ -60,14 +84,13 @@ class RtspSource(
     /** A live stream has no history to pick up; the recovery is a fresh session. */
     private fun rejoin(why: String) {
         val p = player ?: return
-        if (!everPlayed && !audioDropped) {
-            // Never started: the likeliest trap is an advertised audio track
-            // nothing feeds. One free try without it, before failures count.
-            audioDropped = true
-            p.trackSelectionParameters = p.trackSelectionParameters
-                .buildUpon()
-                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true)
-                .build()
+        if (!playedSinceChange && audioOn) {
+            // It cannot start with the sound it was just asked for — the
+            // likeliest trap is an advertised audio track nothing feeds.
+            // The picture wins; the screen is told so its button agrees.
+            audioOn = false
+            applyAudio(p)
+            onAudioLost()
         } else if (++recoveries > 3) {
             onTrouble(why)
             return
@@ -87,6 +110,7 @@ class RtspSource(
             )
             .build()
         this.player = player
+        applyAudio(player)
         player.setVideoTextureView(view)
         player.setMediaSource(
             RtspMediaSource.Factory().createMediaSource(MediaItem.fromUri(url))
@@ -101,10 +125,10 @@ class RtspSource(
                 when (playbackState) {
                     // running is what forgives earlier recoveries
                     Player.STATE_READY -> {
-                        everPlayed = true
+                        playedSinceChange = true
                         recoveries = 0
                     }
-                    Player.STATE_BUFFERING -> handler.postDelayed(stalled, 8000)
+                    Player.STATE_BUFFERING -> handler.postDelayed(stalled, 12000)
                     else -> {}
                 }
             }

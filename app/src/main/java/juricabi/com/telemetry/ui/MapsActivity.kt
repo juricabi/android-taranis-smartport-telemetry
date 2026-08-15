@@ -322,6 +322,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private lateinit var myLocationButton: FloatingActionButton
     private lateinit var findQuadButton: FloatingActionButton
     private lateinit var videoButton: FloatingActionButton
+    private lateinit var videoSoundButton: FloatingActionButton
     private lateinit var videoView: TextureView
     private lateinit var flightPane: LinearLayout
     private lateinit var fullscreenButton: ImageView
@@ -629,9 +630,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         videoButton = findViewById(R.id.video_button)
         videoButton.imageAlpha = 128
         videoButton.setOnClickListener { toggleVideo() }
+        videoSoundButton = findViewById(R.id.video_sound_button)
+        videoSoundButton.imageAlpha = 128
+        videoSoundButton.setOnClickListener { toggleVideoSound() }
         videoView = findViewById(R.id.video_view)
         flightPane = findViewById(R.id.flight_pane)
         videoWanted = savedInstanceState?.getBoolean("video_wanted") ?: false
+        videoAudioOn = savedInstanceState?.getBoolean("video_audio") ?: false
         settingsButton = findViewById(R.id.settings_button)
         replayButton = findViewById(R.id.replay_button)
         seekBar = findViewById(R.id.seekbar)
@@ -1957,6 +1962,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         outState?.putString("detected_protocol", detectedProtocol)
         outState?.putBoolean("chase_mode", chaseMode)
         outState?.putBoolean("video_wanted", videoWanted)
+        outState?.putBoolean("video_audio", videoAudioOn)
         outState?.putString("replay_file_name", replayFileString)
         // Where a replay had got to, and whether it was running, so a rotation
         // lands back on the same moment instead of reloading the whole log to
@@ -2192,6 +2198,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var videoSource: VideoSource? = null
     private var videoWanted = false
 
+    /**
+     * The stream's sound, for the sources that could carry any. Off until its
+     * button is tapped, so the picture starts at once instead of waiting on
+     * an audio track — the wish survives rotations but not the app.
+     */
+    private var videoAudioOn = false
+
     private fun updateVideoControls() {
         val configured = preferenceManager.getVideoSource() != "off"
         videoButton.visibility = if (configured) View.VISIBLE else View.GONE
@@ -2216,7 +2229,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 val trouble = when {
                     url.isBlank() -> "No stream address set — enter one under Settings, Video"
                     url.startsWith("rtsp://", ignoreCase = true) ->
-                        return RtspSource(this, url, ::videoTrouble)
+                        return RtspSource(this, url, ::videoTrouble, ::videoAudioLost)
                     url.startsWith("http://", ignoreCase = true) ||
                         url.startsWith("https://", ignoreCase = true) ->
                         return MjpegSource(url, ::videoTrouble)
@@ -2263,7 +2276,31 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         arrangeFlightPane()
         videoView.visibility = View.VISIBLE
         videoButton.imageAlpha = 255
+        // the speaker only where there could be sound; remembered before
+        // start so the choice needs no second session
+        videoSoundButton.visibility = if (source.hasAudio) View.VISIBLE else View.GONE
+        videoSoundButton.imageAlpha = if (videoAudioOn) 255 else 128
+        if (videoAudioOn) source.setAudio(true)
         source.start(videoView)
+    }
+
+    private fun toggleVideoSound() {
+        videoAudioOn = !videoAudioOn
+        videoSoundButton.imageAlpha = if (videoAudioOn) 255 else 128
+        videoSource?.setAudio(videoAudioOn)
+    }
+
+    /** The stream's audio never came; the source dropped it to keep the picture. */
+    private fun videoAudioLost() {
+        runOnUiThread {
+            if (!videoWanted) return@runOnUiThread
+            videoAudioOn = false
+            videoSoundButton.imageAlpha = 128
+            Toast.makeText(
+                this, "This stream's sound never arrived — playing the picture alone",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     private fun hideVideo() {
@@ -2272,6 +2309,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         videoSource = null
         videoView.visibility = View.GONE
         videoButton.imageAlpha = 128
+        videoSoundButton.visibility = View.GONE
     }
 
     /** Sources report from their own threads; the map is put back on ours. */

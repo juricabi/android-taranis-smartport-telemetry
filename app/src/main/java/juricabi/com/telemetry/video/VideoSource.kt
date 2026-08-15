@@ -15,6 +15,12 @@ import android.view.TextureView
 interface VideoSource {
     fun start(view: TextureView)
     fun stop()
+
+    /** Whether this source could play the stream's sound at all. */
+    val hasAudio: Boolean get() = false
+
+    /** The stream's sound, on or off. A no-op unless hasAudio. */
+    fun setAudio(on: Boolean) {}
 }
 
 /**

@@ -144,11 +144,14 @@ measured from whatever there is to be near, and the warning says which:
 
 Pick a source under **Settings → Video** — a USB (UVC) receiver or goggles
 plugged in over OTG, or a network stream — and a video button appears on the
-map. It swaps the ground under the readouts between map and picture; every
-sensor, the horizon and the buttons keep working over the video. A network
-address starting `rtsp://` is played as RTSP (OpenIPC, OpenHD, WiFi VRX
-boxes); one starting `http://` is read as MJPEG (ESP32-CAM, mjpg-streamer,
-the IP Webcam app).
+map. It splits the pane in half — picture beside the map, left of it in
+landscape and above it in portrait — and every sensor, the horizon and the
+buttons keep working. A network address starting `rtsp://` is played as RTSP
+(OpenIPC, OpenHD, WiFi VRX boxes); one starting `http://` is read as MJPEG
+(ESP32-CAM, mjpg-streamer, the IP Webcam app). RTSP starts as picture alone
+so it is on screen at once; the speaker button joins the stream's sound, and
+a stream whose advertised audio never arrives drops back to picture by
+itself.
 
 ### Drone GPS as phone location
 
