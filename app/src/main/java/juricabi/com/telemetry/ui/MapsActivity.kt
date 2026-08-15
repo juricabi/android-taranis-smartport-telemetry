@@ -132,6 +132,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         private const val REQUEST_LOCATION_PERMISSION: Int = 1
         private const val REQUEST_WRITE_PERMISSION: Int = 2
         private const val REQUEST_READ_PERMISSION: Int = 3
+        private const val REQUEST_CAMERA_PERMISSION: Int = 4
         private const val ACTION_USB_DEVICE = "action_usb_device"
         private val MAP_TYPE_ITEMS = arrayOf(
             "OpenStreetMap (can be cached)",
@@ -2321,6 +2322,22 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     private fun startVideo() {
+        // Android hands a camera-class USB device only to a holder of the
+        // camera permission; without it the USB ask is refused instantly and
+        // silently, which the field read as a "no" that could never be taken
+        // back. Asked here, where the wish to watch was just expressed —
+        // granting resumes below, refusing folds the half away and says why.
+        if (preferenceManager.getVideoSource() == "usb" &&
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(android.Manifest.permission.CAMERA),
+                REQUEST_CAMERA_PERMISSION
+            )
+            return
+        }
         val source = buildVideoSource()
         if (source == null) {
             hideVideo()
@@ -3428,6 +3445,21 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     this.showDialog(
                         AlertDialog.Builder(this)
                             .setMessage("Write permission is required in order to log telemetry data. Disable logging or grant permission to continue")
+                            .setPositiveButton("OK", null)
+                            .create()
+                    )
+                }
+            } else if (requestCode == REQUEST_CAMERA_PERMISSION) {
+                if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    if (videoWanted && videoSource == null) startVideo()
+                } else {
+                    hideVideo()
+                    this.showDialog(
+                        AlertDialog.Builder(this)
+                            .setMessage(
+                                "Camera permission is needed for a USB camera — " +
+                                    "Android refuses the USB device without it"
+                            )
                             .setPositiveButton("OK", null)
                             .create()
                     )

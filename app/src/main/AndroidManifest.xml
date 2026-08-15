@@ -37,13 +37,16 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
 
     <!-- The UVC video library asks for far more than this app uses of it:
-         all-files management, audio recording, the phone's own camera. None
-         of that is wanted for drawing a USB receiver's picture — a UVC device
-         is reached through USB host permission, not the camera service — so
-         none of it is inherited. -->
+         all-files management, audio recording. Neither is wanted for drawing
+         a USB receiver's picture, so neither is inherited. -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:node="remove"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove"/>
-    <uses-permission android:name="android.permission.CAMERA" tools:node="remove"/>
+    <!-- Camera is not about the phone's own camera here: since Android 10
+         the system hands a camera-class USB device only to a holder of this
+         permission, and without it refuses the USB ask instantly, showing
+         nothing. Stripping it read in the field as "refused, and it never
+         asks again", surviving replugs and reinstalls alike. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
 
     <uses-feature
             android:name="android.hardware.bluetooth_le"
