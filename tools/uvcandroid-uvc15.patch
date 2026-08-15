@@ -1,0 +1,68 @@
+Rebuild of com.herohan:UVCAndroid 1.0.13 from shiyinghan/UVCAndroid @ fcdae5f,
+with UVC 1.5 accepted — the one-line reason a DJI Osmo Action's webcam mode
+failed every open with "code=1". Apply this diff to the clone, then:
+  ./gradlew :libuvccamera:assembleRelease
+and the AAR lands in libuvccamera/build/outputs/aar/.
+
+diff --git a/gradle.properties b/gradle.properties
+index 768c057..b0dfedd 100644
+--- a/gradle.properties
++++ b/gradle.properties
+@@ -12,7 +12,7 @@
+ # Default value: -Xmx10248m -XX:MaxPermSize=256m
+ android.enableJetifier=true
+ android.useAndroidX=true
+-org.gradle.jvmargs=-Xmx2048m -XX:MaxPermSize=512m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8
++org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+ 
+ # When configured, Gradle will run in incubating parallel mode.
+ # This option should only be used with decoupled projects. More details, visit
+diff --git a/libuvccamera/build.gradle b/libuvccamera/build.gradle
+index 2f46a53..818d8f4 100644
+--- a/libuvccamera/build.gradle
++++ b/libuvccamera/build.gradle
+@@ -29,6 +29,7 @@ plugins {
+ android {
+     namespace 'com.serenegiant.uvccamera'
+     compileSdkVersion versionCompiler
++    ndkVersion '28.2.13676358'
+ 
+     compileOptions {
+         sourceCompatibility javaSourceCompatibility
+@@ -40,7 +41,7 @@ android {
+         targetSdkVersion versionTarget
+ 
+         ndk {
+-            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
++            abiFilters 'armeabi-v7a', 'arm64-v8a'
+         }
+     }
+ 
+diff --git a/libuvccamera/src/main/jni/libuvc/src/device.c b/libuvccamera/src/main/jni/libuvc/src/device.c
+index de73b78..68cde4b 100644
+--- a/libuvccamera/src/main/jni/libuvc/src/device.c
++++ b/libuvccamera/src/main/jni/libuvc/src/device.c
+@@ -1139,6 +1139,11 @@ uvc_error_t uvc_parse_vc_header(uvc_device_t *dev,
+     break;
+   case 0x0110:
+     break;
++  case 0x0150:
++    /* UVC 1.5 - DJI and other modern webcam modes report this; stream.c
++       already speaks the 48-byte 1.5 probe/commit. Same patch as saki4510t,
++       AndroidUSBCamera and BELABOX's libuvch264src carry. */
++    break;
+   default:
+     UVC_EXIT(UVC_ERROR_NOT_SUPPORTED);
+     return UVC_ERROR_NOT_SUPPORTED;
+@@ -1305,7 +1310,10 @@ uvc_error_t uvc_parse_vc(
+     ret = uvc_parse_vc_extension_unit(dev, info, block, block_size);
+     break;
+   default:
+-    ret = UVC_ERROR_INVALID_DEVICE;
++    /* An unknown VideoControl unit (e.g. a UVC 1.5 Encoding Unit) is
++       skipped, as the Linux kernel driver does, instead of failing the
++       whole camera for a descriptor nothing here needs. */
++    ret = UVC_SUCCESS;
+   }
+ 
+   UVC_EXIT(ret);

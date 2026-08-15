@@ -150,12 +150,18 @@ dependencies {
     // Drawn by the GPU, so a flight line costs the same however many points
     // are in it. It replaced osmdroid, which was archived in November 2024.
     implementation 'org.maplibre.gl:android-sdk-opengl:13.4.1'
-    // Video. UVCAndroid drives USB (UVC) receivers and goggles over OTG with
-    // prebuilt .so for the ABIs above — it replaced the 2014 serenegiant
-    // module chain this repo used to carry. Media3 speaks RTSP for network
-    // video; 1.8.x is the last line built against compileSdk 35, and 1.9+
-    // tracks Android 16 — do not bump it ahead of compileSdk.
-    implementation 'com.herohan:UVCAndroid:1.0.13'
+    // Video. UVCAndroid drives USB (UVC) receivers and goggles over OTG —
+    // it replaced the 2014 serenegiant module chain this repo used to carry.
+    // Ours is the published 1.0.13 rebuilt with UVC 1.5 accepted, without
+    // which a modern camera's webcam mode (DJI's among them) fails every
+    // open as "code=1 unknown error"; tools/uvcandroid-uvc15.patch holds
+    // the diff and the rebuild line. A local AAR carries no dependency
+    // list of its own, so the library's one runtime need the rest of this
+    // file does not already provide is stated below it. Media3 speaks RTSP
+    // for network video; 1.8.x is the last line built against compileSdk
+    // 35, and 1.9+ tracks Android 16 — do not bump it ahead of compileSdk.
+    implementation files('libs/UVCAndroid-1.0.13-uvc15.aar')
+    implementation 'androidx.legacy:legacy-support-v4:1.0.0'
     implementation 'androidx.media3:media3-exoplayer:1.8.0'
     implementation 'androidx.media3:media3-exoplayer-rtsp:1.8.0'
     implementation 'com.google.protobuf:protobuf-javalite:3.21.12'

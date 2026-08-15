@@ -73,14 +73,20 @@ class UsbUvcSource(
 
     private val stateCallback = object : ICameraHelper.StateCallback {
         override fun onAttach(device: UsbDevice) {
-            // the interface classes say whether this identity carries video
-            // at all (class 14) — a multi-mode camera announces several
-            // identities and only one of them is the webcam. "Unknown error"
-            // from an open is decided by this line in the log.
             val interfaces = (0 until device.interfaceCount).joinToString {
                 device.getInterface(it).run { "$interfaceClass/$interfaceSubclass" }
             }
             DebugLog.note("Video", "uvc attach ${said(device)} interfaces=[$interfaces]")
+            // Only an identity that carries a video interface (class 14) is a
+            // camera. A mode-switching camera announces transitional USB
+            // identities with none, and courting those burned the field in
+            // permission dialogs for devices that could never show a picture.
+            if ((0 until device.interfaceCount).none {
+                    device.getInterface(it).interfaceClass == 14
+                }) {
+                DebugLog.note("Video", "uvc ${said(device)} carries no video interface, ignored")
+                return
+            }
             // the first camera wins; one arriving while another is open waits
             // for the next start
             val h = helper ?: return
