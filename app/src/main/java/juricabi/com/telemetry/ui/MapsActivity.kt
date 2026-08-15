@@ -2404,7 +2404,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 if (landscape) 0 else match, if (landscape) match else 0, weight
             )
         }
-        if (event.actionMasked == MotionEvent.ACTION_UP) {
+        // a drag the system cancels still moved the split; save that too,
+        // or the next layout snaps it back to a place the finger left
+        if (event.actionMasked == MotionEvent.ACTION_UP ||
+            event.actionMasked == MotionEvent.ACTION_CANCEL
+        ) {
             preferenceManager.setVideoSplit(landscape, share)
             videoDivider.performClick()
         }

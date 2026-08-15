@@ -123,6 +123,10 @@ class RtspSource(
     private var lastRendered = 0
     private var frozenRejoins = 0
 
+    // wall clock minus playback position when this READY run began; 0 while
+    // there is no run to measure against
+    private var liveBase = 0L
+
     private val starving = object : Runnable {
         override fun run() {
             val p = player ?: return
@@ -130,14 +134,18 @@ class RtspSource(
                 // Latency creep: every stall leaves the picture a little
                 // further behind the camera, and an RTSP session never
                 // announces a live edge for the player to chase on its own.
-                // A backlog past the whole configured buffer is drift, not
-                // buffering — jump it. Bounded above too: the field showed a
-                // seconds-old stream reporting hours of "buffer" — a broken
-                // clock, not a backlog, and a one-second buffer cannot hold
-                // more than seconds; seeking on the lie stuttered the picture.
-                val behind = p.totalBufferedDuration
-                if (behind in 1001..30_000) {
-                    DebugLog.note("Video", "rtsp ${behind}ms behind the camera, catching up")
+                // Drift is measured against the wall clock — the playback
+                // position falls behind real time by exactly the sum of the
+                // stalls — because the player's own totalBufferedDuration
+                // lied outright in the field: hours of "buffer" on a stream
+                // seconds old. More than a second and a half adrift is not
+                // buffering — jump to live.
+                val lag = System.currentTimeMillis() - p.currentPosition
+                if (liveBase == 0L) {
+                    liveBase = lag
+                } else if (lag - liveBase > 1500) {
+                    DebugLog.note("Video", "rtsp ${lag - liveBase}ms behind the camera, catching up")
+                    liveBase = 0L
                     p.seekToDefaultPosition()
                 }
                 val rendered = p.videoDecoderCounters?.renderedOutputBufferCount ?: -1
@@ -259,6 +267,9 @@ class RtspSource(
             override fun onPlaybackStateChanged(playbackState: Int) {
                 DebugLog.note("Video", "rtsp state $playbackState (1 idle 2 buffering 3 ready 4 ended)")
                 handler.removeCallbacks(stalled)
+                // whatever run was being measured is over; the next READY
+                // tick starts a fresh baseline
+                if (playbackState != Player.STATE_READY) liveBase = 0L
                 when (playbackState) {
                     // running is what forgives earlier recoveries
                     Player.STATE_READY -> {
