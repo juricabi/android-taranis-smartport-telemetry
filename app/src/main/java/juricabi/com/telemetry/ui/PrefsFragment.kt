@@ -317,7 +317,11 @@ class PrefsFragment : PreferenceFragmentCompat() {
         val devOptionsOn = Settings.Global.getInt(
             ctx.contentResolver, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0
         ) != 0
-        val warn = if (chosen) 0 else 0xFFD32F2F.toInt()
+        // Amber, not red — the same amber the location row wears for its
+        // halfway state. Nothing is broken while this is unset; the feature
+        // is simply waiting to be allowed, and red is kept for things that
+        // cost a recording.
+        val warn = if (chosen) 0 else 0xFFF9A825.toInt()
         val words = when {
             chosen ->
                 "Chosen as the mock location app. The drone's GPS is published " +
