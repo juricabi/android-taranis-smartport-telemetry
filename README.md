@@ -149,12 +149,14 @@ landscape and above it in portrait — the flight overlays keep to the map's
 half, and the picture carries its own sound, fill and quarter-turn buttons.
 The network address says what the stream is:
 
-- **`rtsp://…`** — RTSP, H.264 or H.265 through the phone's hardware
-  decoder. IP cameras, mediamtx/go2rtc relays, the IP Webcam app's RTSP
-  mode. **Orqa FPV.Connect** broadcasts here too: join the goggles' own
-  WiFi and enter `rtsp://192.168.1.1:5004/orqabroadcast`. The stream
-  starts over UDP and locks itself to TCP per address once the link
-  proves lossy.
+- **`rtsp://…`** — RTSP, H.264 through the phone's hardware decoder.
+  IP cameras, mediamtx/go2rtc relays, the IP Webcam app's RTSP mode.
+  **Orqa FPV.Connect** broadcasts here too: join the goggles' own WiFi
+  and enter `rtsp://192.168.1.1:5004/orqabroadcast`. The stream rides
+  TCP from the first frame, so it starts clean on a lossy link. H.265
+  over RTSP does not play — the player library's H.265 RTP reader is
+  unfinished upstream — send H.265 as a raw `udp://` push instead,
+  where it works.
 - **`http://…`** — MJPEG, the compatible end: ESP32-CAM, mjpg-streamer,
   the IP Webcam app's `/video` path.
 - **`udp://5600`** — a raw pushed stream: RTP with H.264 or H.265 aimed
