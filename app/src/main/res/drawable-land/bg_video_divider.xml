@@ -1,0 +1,14 @@
+<!-- The same grip as the portrait pill, stood upright: held landscape the
+     seam runs top to bottom, and the lying pill overflowed the 20dp band
+     and clipped its rounded ends square. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:width="6dp"
+        android:height="28dp"
+        android:gravity="center">
+        <shape android:shape="rectangle">
+            <corners android:radius="3dp"/>
+            <solid android:color="#99FFFFFF"/>
+        </shape>
+    </item>
+</layer-list>
