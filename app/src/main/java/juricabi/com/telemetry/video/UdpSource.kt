@@ -228,10 +228,12 @@ class UdpSource(
         view.addOnLayoutChangeListener(refitOnLayout)
         view.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
             override fun onSurfaceTextureAvailable(t: android.graphics.SurfaceTexture, w: Int, h: Int) {
+                DebugLog.note("Video", "udp surface up ${w}x$h")
                 surface = Surface(t)
             }
             override fun onSurfaceTextureSizeChanged(t: android.graphics.SurfaceTexture, w: Int, h: Int) {}
             override fun onSurfaceTextureDestroyed(t: android.graphics.SurfaceTexture): Boolean {
+                DebugLog.note("Video", "udp surface gone")
                 surface?.release()
                 surface = null
                 return true
@@ -449,7 +451,8 @@ class UdpSource(
             DebugLog.note(
                 "Video",
                 "udp ${codec.name} decoder up: ${decoder.name}" +
-                    if (lowLatency) ", low-latency" else ""
+                    (if (lowLatency) ", low-latency" else "") +
+                    ", surface valid=${surface?.isValid}"
             )
         } catch (e: Exception) {
             // a released codec is not scarce; an unreleased one starves the
@@ -460,6 +463,8 @@ class UdpSource(
             return
         }
         val info = MediaCodec.BufferInfo()
+        var fed = 0
+        var drained = 0
         // the 32-bit RTP clock extended to 64: it starts anywhere and can
         // wrap mid-session, and time running backward upsets some decoders
         var lastRawTicks = -1L
@@ -483,6 +488,7 @@ class UdpSource(
                     // 90 kHz ticks to microseconds; frames render on arrival, so
                     // only monotony matters, not the epoch
                     decoder.queueInputBuffer(at, 0, bytes.size, ticks * 100 / 9, 0)
+                    fed++
                 }
                 // Drained every pass, fed or not: a frame finishes decoding
                 // milliseconds after its input goes in, long before the next
@@ -510,6 +516,7 @@ class UdpSource(
                     }
                     if (out < 0) break
                     decoder.releaseOutputBuffer(out, true)
+                    drained++
                     if (!live) {
                         live = true
                         DebugLog.note("Video", "udp first frame rendered")
@@ -520,7 +527,15 @@ class UdpSource(
         } catch (e: Exception) {
             // stop() closing things under the loop is the usual way here
             if (running) {
-                DebugLog.note("Video", "udp decode error: ${worded(e)}")
+                // the throwing call and the counts are the whole diagnosis:
+                // a field decoder died with no output and a message only its
+                // vendor understood
+                val trace = android.util.Log.getStackTraceString(e)
+                    .lineSequence().take(7).joinToString(" | ")
+                DebugLog.note(
+                    "Video",
+                    "udp decode error, fed=$fed drained=$drained: ${worded(e)} | $trace"
+                )
                 events.onTrouble("decoding failed — ${e.message}")
             }
         } finally {
