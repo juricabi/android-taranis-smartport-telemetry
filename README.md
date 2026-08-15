@@ -171,6 +171,22 @@ The network address says what the stream is:
   including UVC 1.5 devices such as the DJI Osmo Action series, which
   stock Android UVC libraries refuse.
 
+Every path above is field-tested. To try the `udp://` path with no
+hardware at all, ffmpeg can play the sender — from a PC on the same WiFi,
+or from Termux on the phone itself with `127.0.0.1`:
+
+```sh
+ffmpeg -re -f lavfi -i testsrc=size=1280x720:rate=30 -pix_fmt yuv420p \
+    -c:v libx264 -preset ultrafast -tune zerolatency \
+    -x264opts keyint=30:repeat-headers=1 -f rtp rtp://<phone>:5600
+```
+
+For H.265 swap in `-c:v libx265` with
+`-x265-params keyint=30:repeat-headers=1`. The `-pix_fmt yuv420p` is not
+decoration: left out, ffmpeg encodes the RGB test pattern as 4:4:4, which
+no phone hardware decodes — the app refuses such a stream by name rather
+than failing on a bare error code.
+
 The picture wears its own controls on its top-right: the speaker where the
 stream could carry sound, **fill** to crop the picture over the whole half
 instead of letterboxing it, and a **quarter-turn** per tap for a camera
@@ -179,9 +195,11 @@ overlays — horizon, clock, compass, the button column, the seek bar — keep
 to the map's half and scale with it, so nothing ever stands over the
 picture.
 
-The reliability work sits where field flying found the holes: an RTSP
-address that proves lossy over UDP is remembered and joined over TCP from
-then on; a stalled or starved stream rejoins itself; a picture drifting
+The reliability work sits where field flying found the holes: RTSP rides
+TCP from the first frame, because a UDP first contact smeared the opening
+second of every new address; an unreachable network stream keeps its pane
+and retries every two seconds instead of folding; a stalled or starved
+stream rejoins itself; a picture drifting
 behind the camera's clock jumps back to the live edge; MJPEG decodes only
 as many pixels as the pane can show and reuses its frame memory, so the
 collector never fights the decoder; and every source starts on a fresh
