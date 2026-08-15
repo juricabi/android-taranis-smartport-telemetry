@@ -99,6 +99,11 @@ object DebugLog {
             val line = try { pending.take() } catch (e: InterruptedException) { return@Thread }
             val f = file ?: continue
             try {
+                // The folder may only exist since a moment ago: on a first
+                // install the init-time mkdirs runs before the storage grant,
+                // and without this the whole first session — the session a
+                // field problem gets reproduced in — logged nothing.
+                f.parentFile?.let { if (!it.isDirectory) it.mkdirs() }
                 if (f.length() > MOST_BYTES) {
                     // the newest half stays; the whole point of this file is
                     // to fit on a clipboard

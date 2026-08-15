@@ -47,6 +47,11 @@
          nothing. Stripping it read in the field as "refused, and it never
          asks again", surviving replugs and reinstalls alike. -->
     <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- ...and CAMERA alone would imply the phone's own camera is required;
+         it is not — the permission serves USB cameras only -->
+    <uses-feature
+            android:name="android.hardware.camera"
+            android:required="false"/>
 
     <uses-feature
             android:name="android.hardware.bluetooth_le"
@@ -92,11 +97,11 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
 
+			<!-- Attach only: detach is delivered to runtime-registered
+			     receivers, never through an activity filter — a DETACHED
+			     entry here did nothing but offer a way to launch. -->
 			<intent-filter>
 				<action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
-			</intent-filter>
-			<intent-filter>
-				<action android:name="android.hardware.usb.action.USB_DEVICE_DETACHED" />
 			</intent-filter>
 			<!-- Named for what it filters, not just "device_filter": the UVC
 			     video library ships a res/xml/device_filter of its own, and

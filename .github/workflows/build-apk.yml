@@ -20,6 +20,7 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
+          cache: 'gradle'
 
       - name: Restore signing keystore
         env:
@@ -37,6 +38,12 @@ jobs:
           keyPassword=$KEY_PASSWORD
           PROPS
           else
+            # A tag publishes a release; one signed with a throwaway key
+            # would carry the real name and install over nothing.
+            if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+              echo "Refusing to publish a tag without signing secrets"
+              exit 1
+            fi
             echo "No signing secret set, generating a throwaway key"
             keytool -genkeypair -v -keystore app/release.keystore \
               -storepass android -keypass android -alias androiddebugkey \
