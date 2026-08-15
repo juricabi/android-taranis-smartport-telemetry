@@ -24,9 +24,10 @@ import juricabi.com.telemetry.utils.DebugLog
  * spoken over RTSP.
  *
  * ExoPlayer left to its defaults buffers seconds of stream for smoothness's
- * sake. This is a pilot's view, not a film: the buffers are pinned to about a
- * third of a second, which lands around half a second glass to glass. Truly
- * low-latency FPV would need raw RTP into a MediaCodec, and is not attempted.
+ * sake. This is a pilot's view, not a film: the buffers are pinned to 150ms,
+ * which lands around a third of a second glass to glass. Lower still means
+ * raw RTP into a MediaCodec with no buffer at all — that exists, as the
+ * udp:// source — this stays the smooth road.
  *
  * The picture starts alone and starts at once. Playback waits for every
  * selected track, and cameras routinely advertise an audio track they never
@@ -129,13 +130,13 @@ class RtspSource(
                 // Latency creep: every stall leaves the picture a little
                 // further behind the camera, and an RTSP session never
                 // announces a live edge for the player to chase on its own.
-                // A backlog past double the configured buffer is drift, not
+                // A backlog past the whole configured buffer is drift, not
                 // buffering — jump it. Bounded above too: the field showed a
                 // seconds-old stream reporting hours of "buffer" — a broken
                 // clock, not a backlog, and a one-second buffer cannot hold
                 // more than seconds; seeking on the lie stuttered the picture.
                 val behind = p.totalBufferedDuration
-                if (behind in 2001..30_000) {
+                if (behind in 1001..30_000) {
                     DebugLog.note("Video", "rtsp ${behind}ms behind the camera, catching up")
                     p.seekToDefaultPosition()
                 }
@@ -212,7 +213,12 @@ class RtspSource(
         val player = ExoPlayer.Builder(context)
             .setLoadControl(
                 DefaultLoadControl.Builder()
-                    .setBufferDurationsMs(300, 1000, 300, 300)
+                    // Start on 150ms — a pilot's compromise: half the
+                    // standing latency, still enough to soak one jitter
+                    // spike. After a rebuffer the link has proven it stalls,
+                    // and restarting on the same thin cushion thrashed; that
+                    // case alone waits for 300ms.
+                    .setBufferDurationsMs(150, 1000, 150, 300)
                     // start on time held, not bytes held — for a live
                     // picture the clock is the constraint that matters
                     .setPrioritizeTimeOverSizeThresholds(true)
