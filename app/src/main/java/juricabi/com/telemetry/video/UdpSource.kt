@@ -180,6 +180,30 @@ internal fun nalType(codec: RtpCodec, nal: ByteArray): Int = when (codec) {
 }
 
 /**
+ * A phone's hardware decodes 4:2:0, 8-bit. A desktop encoder asked for
+ * nothing in particular happily produces 4:4:4 or outright RGB — software
+ * players eat it, and every phone decoder dies on the first frame with a
+ * number for a message. The profile sits in the SPS's first bytes, so the
+ * stream is refused by name instead: a field evening went to a Qualcomm
+ * decoder's 0x80000000 before ffprobe named the test stream High 4:4:4.
+ */
+internal fun hostileProfile(codec: RtpCodec, sps: ByteArray): String? = when (codec) {
+    // profile_idc is the byte after the one-byte NAL header
+    RtpCodec.H264 -> when (sps.getOrNull(1)?.toInt()?.and(0xFF)) {
+        244, 144, 44 -> "High 4:4:4"
+        122 -> "High 4:2:2"
+        110 -> "High 10"
+        else -> null
+    }
+    // general_profile_idc, low five bits of the byte after the two-byte
+    // NAL header and the sub-layer byte; Main is 1, Main 10 is 2
+    RtpCodec.H265 -> when (val idc = sps.getOrNull(3)?.toInt()?.and(0x1F)) {
+        null, 1, 2, 3 -> null
+        else -> "profile $idc (a range extension)"
+    }
+}
+
+/**
  * A raw pushed stream: RTP datagrams carrying H.264 or H.265 straight at a
  * port on this phone — the OpenIPC / wfb-ng ground stations and
  * QGroundControl-style senders, which have no server to dial and begin
@@ -385,6 +409,15 @@ class UdpSource(
                     (codec == RtpCodec.H264 && csd.size >= 2 ||
                         codec == RtpCodec.H265 && csd.size >= 3)
                 ) {
+                    val sps = if (codec == RtpCodec.H264) csd[7] else csd[33]
+                    val hostile = sps?.let { hostileProfile(codec!!, it) }
+                    if (hostile != null) {
+                        events.onTrouble(
+                            "the stream is ${codec!!.name} $hostile — phones " +
+                                "decode 4:2:0 8-bit; give ffmpeg -pix_fmt yuv420p"
+                        )
+                        return
+                    }
                     // sorted by NAL type: SPS before PPS, VPS-SPS-PPS —
                     // whatever order the stream repeated them in
                     val d = Thread({ decode(codec!!, csd.toSortedMap().values.toList()) }, "udp-decode")

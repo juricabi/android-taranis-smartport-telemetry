@@ -76,6 +76,11 @@ class UdpBenchTest {
         }
         finishAu()
         out.close()
-        println("codec=$codec csd=${csd.keys} aus=$aus droppedBeforeKey=$dropped biggestAu=$biggest nalTypes=$nalTypes")
+        val sps = if (codec == RtpCodec.H264) csd[7] else csd[33]
+        val hostile = codec?.let { c -> sps?.let { hostileProfile(c, it) } }
+        println(
+            "codec=$codec csd=${csd.keys} aus=$aus droppedBeforeKey=$dropped " +
+                "biggestAu=$biggest hostileProfile=$hostile nalTypes=$nalTypes"
+        )
     }
 }
