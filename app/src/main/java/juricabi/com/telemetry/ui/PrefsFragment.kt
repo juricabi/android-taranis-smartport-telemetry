@@ -178,6 +178,63 @@ class PrefsFragment : PreferenceFragmentCompat() {
         showMockLocationState()
     }
 
+    /**
+     * The stream address gets its own dialog: the field as always, and under
+     * it the last five addresses entered — a flying day moves between the
+     * bench camera, the goggles and the ground station, and each move cost
+     * retyping the whole address. Tapping a remembered one applies it at once.
+     */
+    override fun onDisplayPreferenceDialog(preference: androidx.preference.Preference) {
+        if (preference.key != "video_stream_url") {
+            super.onDisplayPreferenceDialog(preference)
+            return
+        }
+        val ctx = context ?: return
+        val pref = preference as androidx.preference.EditTextPreference
+        val content = layoutInflater.inflate(R.layout.dialog_stream_address, null)
+        val input = content.findViewById<android.widget.EditText>(R.id.stream_address_input)
+        input.setText(prefManager.getVideoStreamUrl())
+        input.setSelection(input.text.length)
+        val history = prefManager.getVideoUrlHistory()
+        if (history.isEmpty()) {
+            // no header over nothing
+            content.findViewById<android.widget.TextView>(R.id.stream_address_recents_title)
+                .visibility = android.view.View.GONE
+        }
+        val dialog = AlertDialog.Builder(ctx)
+            .setTitle(pref.title)
+            .setView(content)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                commitStreamAddress(pref, input.text.toString())
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        val rows = content.findViewById<android.widget.LinearLayout>(R.id.stream_address_recents)
+        val ripple = android.util.TypedValue()
+        ctx.theme.resolveAttribute(android.R.attr.selectableItemBackground, ripple, true)
+        val pad = (12 * resources.displayMetrics.density).toInt()
+        for (url in history) {
+            val row = android.widget.TextView(ctx)
+            row.text = url
+            row.textSize = 16f
+            row.setPadding(0, pad, 0, pad)
+            row.setBackgroundResource(ripple.resourceId)
+            row.setOnClickListener {
+                commitStreamAddress(pref, url)
+                dialog.dismiss()
+            }
+            rows.addView(row)
+        }
+        dialog.show()
+    }
+
+    private fun commitStreamAddress(pref: androidx.preference.EditTextPreference, url: String) {
+        val typed = url.trim()
+        // through the preference, so the change listener repaints the summary
+        pref.text = typed
+        if (typed.isNotBlank()) prefManager.rememberVideoUrl(typed)
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQUEST_IMPORT_FLIGHT_PLAN && resultCode == Activity.RESULT_OK) {

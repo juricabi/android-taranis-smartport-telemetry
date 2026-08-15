@@ -152,6 +152,22 @@ class PreferenceManager(context: Context) {
         return sharedPreferences.getString("video_stream_url", "") ?: ""
     }
 
+    /**
+     * The last few stream addresses entered, newest first — a flying day
+     * moves between the bench camera, the goggles and the ground station,
+     * and each move cost retyping the whole address. Newline-separated in
+     * one preference; a URL cannot carry a newline.
+     */
+    fun getVideoUrlHistory(): List<String> {
+        return (sharedPreferences.getString("video_url_history", "") ?: "")
+            .split('\n').filter { it.isNotBlank() }
+    }
+
+    fun rememberVideoUrl(url: String) {
+        val kept = (listOf(url) + getVideoUrlHistory().filter { it != url }).take(5)
+        sharedPreferences.edit().putString("video_url_history", kept.joinToString("\n")).apply()
+    }
+
     /** Fill the video half with the picture, cropping the overflow, instead of letterboxing. */
     fun isVideoFillEnabled(): Boolean {
         return sharedPreferences.getBoolean("video_fill", false)
