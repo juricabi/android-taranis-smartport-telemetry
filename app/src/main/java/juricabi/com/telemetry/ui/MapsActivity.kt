@@ -2250,7 +2250,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * pane standing. Cancelled wherever the pane closes or the screen goes.
      */
     private val videoRetry = Runnable {
-        if (videoWanted && videoSource == null) startVideo()
+        if (videoWanted && videoSource == null) startVideo(retrying = true)
     }
 
     private fun newVideoEvents(): VideoSource.Events {
@@ -2443,7 +2443,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         return true
     }
 
-    private fun startVideo() {
+    private fun startVideo(retrying: Boolean = false) {
         // One canvas draw ties a surface to the CPU for good — MJPEG paints
         // every frame that way — and a decoder can never attach to it after:
         // MJPEG then RTSP on the same texture failed every decoder init until
@@ -2490,9 +2490,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             return
         }
         videoSource = source
-        // the card says what is being waited for, and the first real frame
-        // replaces it
-        videoWaiting.text = if (preferenceManager.getVideoSource() == "usb")
+        // The card says what is being waited for, and the first real frame
+        // replaces it. A retry keeps the trouble message standing instead:
+        // flipping to "Connecting…" for the split second a refused
+        // connection takes made the card flicker every two seconds.
+        if (!retrying) videoWaiting.text = if (preferenceManager.getVideoSource() == "usb")
             "Waiting for the USB camera…" else "Connecting to the stream…"
         videoWaiting.visibility = View.VISIBLE
         arrangeFlightPane()
