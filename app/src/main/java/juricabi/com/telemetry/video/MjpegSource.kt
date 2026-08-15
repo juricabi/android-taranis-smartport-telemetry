@@ -58,6 +58,11 @@ class MjpegSource(
 
     private var live = false
 
+    // the whole address as tried, credentials kept out, for the trouble
+    // toast — an error's own words name the host at best, and a typo in
+    // the path never shows itself otherwise
+    private val said = url.replace(Regex("//[^/@]+@"), "//<auth>@")
+
     @Volatile private var running = false
     private var thread: Thread? = null
     @Volatile private var connection: HttpURLConnection? = null
@@ -78,11 +83,11 @@ class MjpegSource(
         thread = Thread({
             try {
                 stream()
-                if (running) events.onTrouble("the stream ended")
+                if (running) events.onTrouble("$said ended")
             } catch (e: Exception) {
                 // closing the connection under a blocked read is how stop()
                 // works, so only a failure while still wanted is trouble
-                if (running) events.onTrouble(e.message ?: "stream failed")
+                if (running) events.onTrouble("$said — ${e.message ?: "stream failed"}")
             }
         }, "mjpeg-video").also { it.start() }
     }

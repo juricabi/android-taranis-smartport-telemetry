@@ -118,7 +118,7 @@ class RtspSource(
                     gained == 0 -> {
                         DebugLog.note("Video", "rtsp starved: rendered stuck at $rendered")
                         if (++frozenRejoins > 3) {
-                            events.onTrouble("the stream stopped sending pictures")
+                            events.onTrouble("$said stopped sending pictures")
                             return
                         }
                         // silent UDP loss starves the decoder without ever
@@ -160,7 +160,9 @@ class RtspSource(
             DebugLog.note("Video", "rtsp dropped audio to start at all")
             events.onAudioLost()
         } else if (++recoveries > 3) {
-            events.onTrouble(why)
+            // the whole address as tried, so a typo in the path shows in the
+            // toast — an error's own words name the host at best
+            events.onTrouble("$said — $why")
             return
         }
         p.stop()
