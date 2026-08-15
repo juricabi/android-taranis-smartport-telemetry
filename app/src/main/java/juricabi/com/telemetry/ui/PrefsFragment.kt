@@ -24,6 +24,7 @@ class PrefsFragment : PreferenceFragmentCompat() {
     companion object {
         private const val REQUEST_IMPORT_FLIGHT_PLAN = 100
         private const val REQUEST_LOCATION = 101
+        private const val REQUEST_STORAGE = 102
     }
 
     private lateinit var prefManager: PreferenceManager
@@ -90,16 +91,42 @@ class PrefsFragment : PreferenceFragmentCompat() {
         // ever be "no data" is a control that does nothing.
         if (juricabi.com.telemetry.BuildConfig.DEBUG) {
             findPreference("copy_debug_info").setOnPreferenceClickListener {
-                context?.let {
-                    val notes = DebugLog.copyText()
-                    if (notes.isNullOrEmpty()) {
-                        Toast.makeText(it, "No log data available yet", Toast.LENGTH_SHORT).show()
+                context?.let { ctx ->
+                    // The log lives on shared storage, and a fresh debug
+                    // install has no leave to touch it until this is granted.
+                    // Asked here because on an install used only for testing,
+                    // this row is the first thing that needs it — and "no
+                    // data yet" was a lie when the truth was "not allowed".
+                    if (ContextCompat.checkSelfPermission(
+                            ctx, android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+                        ) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        Toast.makeText(
+                            ctx, "Allow storage so the notes can be written, then " +
+                                "reproduce the problem and copy again",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        requestPermissions(
+                            arrayOf(android.Manifest.permission.WRITE_EXTERNAL_STORAGE),
+                            REQUEST_STORAGE
+                        )
                         return@let
                     }
-                    val clipboardManager =
-                        it.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboardManager.setPrimaryClip(ClipData.newPlainText(null, notes))
-                    Toast.makeText(it, "Debug data has been copied", Toast.LENGTH_SHORT).show()
+                    // The diagnostics control must never be the thing that
+                    // dies: whatever goes wrong becomes the note instead.
+                    try {
+                        val notes = DebugLog.copyText()
+                        if (notes.isNullOrEmpty()) {
+                            Toast.makeText(ctx, "No log data available yet", Toast.LENGTH_SHORT).show()
+                            return@let
+                        }
+                        val clipboardManager =
+                            ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboardManager.setPrimaryClip(ClipData.newPlainText(null, notes))
+                        Toast.makeText(ctx, "Debug data has been copied", Toast.LENGTH_SHORT).show()
+                    } catch (e: Throwable) {
+                        Toast.makeText(ctx, "Copy failed: $e", Toast.LENGTH_LONG).show()
+                    }
                 }
                 return@setOnPreferenceClickListener false
             }
@@ -252,6 +279,14 @@ class PrefsFragment : PreferenceFragmentCompat() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_LOCATION) showBackgroundLocationState()
+        if (requestCode == REQUEST_STORAGE &&
+            grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED
+        ) {
+            Toast.makeText(
+                context, "Storage allowed — the notes are being written from now on",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     override fun onResume() {

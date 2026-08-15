@@ -114,8 +114,21 @@ object DebugLog {
         }
     }, "debug-log").apply { isDaemon = true; start() }
 
-    /** Everything noted so far, for the clipboard; null outside debug builds. */
-    fun copyText(): String? = file?.takeIf { it.exists() }?.readText()
+    /**
+     * The newest of what is noted, for the clipboard; null outside debug
+     * builds. A clip rides one binder transaction, which dies near a
+     * megabyte — copying the whole file crashed the settings screen — and
+     * the newest quarter of one holds the session being asked about.
+     */
+    fun copyText(): String? = file?.takeIf { it.exists() }?.let {
+        val bytes = it.readBytes()
+        val most = 256 * 1024
+        if (bytes.size <= most) return String(bytes)
+        var from = bytes.size - most
+        // up to the next whole line, so the paste does not open mid-word
+        while (from < bytes.size && bytes[from] != '\n'.code.toByte()) from++
+        String(bytes.copyOfRange(from, bytes.size))
+    }
 
     fun clear() {
         try {
