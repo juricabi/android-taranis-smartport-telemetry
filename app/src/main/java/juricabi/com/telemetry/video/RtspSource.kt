@@ -217,8 +217,11 @@ class RtspSource(
                     // standing latency, still enough to soak one jitter
                     // spike. After a rebuffer the link has proven it stalls,
                     // and restarting on the same thin cushion thrashed; that
-                    // case alone waits for 300ms.
-                    .setBufferDurationsMs(150, 1000, 150, 300)
+                    // case alone waits for 300ms. The first number must be at
+                    // least the last — the player enforces it at runtime, and
+                    // 150 there crashed the field; it only says when loading
+                    // may rest, so it does not set the latency floor.
+                    .setBufferDurationsMs(300, 1000, 150, 300)
                     // start on time held, not bytes held — for a live
                     // picture the clock is the constraint that matters
                     .setPrioritizeTimeOverSizeThresholds(true)

@@ -652,7 +652,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         myLocationButton = findViewById(R.id.my_location_button)
         findQuadButton = findViewById(R.id.find_quad_button)
         videoButton = findViewById(R.id.video_button)
-        videoButton.imageAlpha = 128
         videoButton.setOnClickListener { toggleVideo() }
         videoSoundButton = findViewById(R.id.video_sound_button)
         videoSoundButton.imageAlpha = 128
@@ -2386,7 +2385,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             videoWaiting.visibility = View.VISIBLE
             arrangeFlightPane()
             videoHalf.visibility = View.VISIBLE
-            videoButton.imageAlpha = 255
             videoSoundButton.visibility = View.GONE
             videoFillButton.visibility = View.GONE
             videoRotateButton.visibility = View.GONE
@@ -2411,7 +2409,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         videoWaiting.visibility = View.VISIBLE
         arrangeFlightPane()
         videoHalf.visibility = View.VISIBLE
-        videoButton.imageAlpha = 255
         // the speaker only where there could be sound; remembered before
         // start so the choice needs no second session
         videoSoundButton.visibility = if (source.hasAudio) View.VISIBLE else View.GONE
@@ -2453,7 +2450,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         videoSource?.stop()
         videoSource = null
         videoHalf.visibility = View.GONE
-        videoButton.imageAlpha = 128
     }
 
     /**
