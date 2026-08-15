@@ -33,7 +33,8 @@ import juricabi.com.telemetry.utils.DebugLog
  * stone. Sound is therefore joined only when asked for (the speaker button),
  * and if the stream cannot start with it, it is dropped again and said so —
  * the picture always wins. Stalls and errors rejoin the live stream, running
- * forgives, and only three failures in a row drop back to the map.
+ * forgives, and only three failures in a row drop back to the map. A stream
+ * that arrives torn or starved retires UDP and rejoins over TCP.
  */
 @OptIn(UnstableApi::class)
 class RtspSource(
@@ -47,6 +48,7 @@ class RtspSource(
     private var recoveries = 0
     private var audioOn = false
     private var playedSinceChange = false
+    private var forceTcp = false
     private val handler = Handler(Looper.getMainLooper())
 
     // the address with any credentials kept out of the notes
@@ -119,6 +121,12 @@ class RtspSource(
                             events.onTrouble("the stream stopped sending pictures")
                             return
                         }
+                        // silent UDP loss starves the decoder without ever
+                        // raising an error; the TCP escalation applies here too
+                        if (!forceTcp) {
+                            forceTcp = true
+                            DebugLog.note("Video", "rtsp switching to TCP transport")
+                        }
                         rejoin("no pictures arriving")
                     }
                     else -> lastRendered = rendered
@@ -127,6 +135,17 @@ class RtspSource(
             handler.postDelayed(this, 4000)
         }
     }
+
+    // The stream carried over UDP or, once the datagrams prove lossy, over
+    // the RTSP connection itself. A torn FU-A fragment reads as a garbage
+    // NAL type, and the field log showed exactly that: "packetization mode
+    // [25..31] not supported", a different number every second, from a
+    // camera that only ever sends FU-A. The player's own UDP-to-TCP
+    // fallback never fires for this — it needs silence, and torn packets
+    // are not silence.
+    private fun mediaSource() = RtspMediaSource.Factory()
+        .setForceUseRtpTcp(forceTcp)
+        .createMediaSource(MediaItem.fromUri(url))
 
     /** A live stream has no history to pick up; the recovery is a fresh session. */
     private fun rejoin(why: String) {
@@ -145,6 +164,7 @@ class RtspSource(
             return
         }
         p.stop()
+        p.setMediaSource(mediaSource())
         p.prepare()
     }
 
@@ -162,9 +182,7 @@ class RtspSource(
         this.player = player
         applyAudio(player)
         player.setVideoTextureView(view)
-        player.setMediaSource(
-            RtspMediaSource.Factory().createMediaSource(MediaItem.fromUri(url))
-        )
+        player.setMediaSource(mediaSource())
         player.addListener(object : Player.Listener {
             override fun onVideoSizeChanged(videoSize: VideoSize) {
                 DebugLog.note("Video", "rtsp size ${videoSize.width}x${videoSize.height}")
@@ -207,6 +225,14 @@ class RtspSource(
                 DebugLog.note(
                     "Video", "rtsp error ${error.errorCodeName}: ${causeChain(error)}"
                 )
+                // The first hard error retires UDP for this session and takes
+                // the stream over TCP, with fresh chances — over a lossy
+                // link every UDP rejoin dies the same death within a second.
+                if (!forceTcp) {
+                    forceTcp = true
+                    recoveries = 0
+                    DebugLog.note("Video", "rtsp switching to TCP transport")
+                }
                 rejoin(error.cause?.message ?: error.errorCodeName)
             }
         })
