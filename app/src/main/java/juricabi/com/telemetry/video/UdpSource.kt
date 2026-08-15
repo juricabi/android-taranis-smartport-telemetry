@@ -2,6 +2,8 @@ package juricabi.com.telemetry.video
 
 import android.media.MediaCodec
 import android.media.MediaFormat
+import android.os.Handler
+import android.os.HandlerThread
 import android.view.Surface
 import android.view.TextureView
 import java.io.ByteArrayOutputStream
@@ -214,6 +216,10 @@ class UdpSource(
     // seconds of grey garbage in between.
     @Volatile private var needKeyframe = true
 
+    // pokes the codec thread when a fresh access unit lands; null while
+    // there is no codec to feed
+    @Volatile private var feedNudge: (() -> Unit)? = null
+
     private val refitOnLayout = android.view.View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
         refit()
     }
@@ -290,6 +296,7 @@ class UdpSource(
                 needKeyframe = !key
                 if (key) units.offer(Triple(bytes, auTimestamp, key))
             }
+            feedNudge?.invoke()
         }
 
         try {
@@ -408,6 +415,103 @@ class UdpSource(
             if (running) events.onTrouble("this phone has no ${codec.name} decoder")
             return
         }
+        // Everything the codec does happens on this one thread, through its
+        // own callbacks. The synchronous polling loop this replaced died on
+        // a field phone whose Qualcomm stack poisoned the codec at its very
+        // first frame and only said so by wrecking the next poll — while the
+        // same phone plays RTSP through ExoPlayer, which runs its codecs
+        // exactly this way. Asynchronous, onError finally says what broke.
+        val codecThread = HandlerThread("udp-codec")
+        codecThread.start()
+        val handler = Handler(codecThread.looper)
+        val died = java.util.concurrent.atomic.AtomicBoolean(false)
+        // touched on the codec thread alone
+        val freeInputs = ArrayDeque<Int>()
+        var fed = 0
+        var drained = 0
+        // the 32-bit RTP clock extended to 64: it starts anywhere and can
+        // wrap mid-session, and time running backward upsets some decoders
+        var lastRawTicks = -1L
+        var ticks = 0L
+
+        fun fail(said: String, what: String) {
+            // stop() tearing the codec down mid-callback is the usual way
+            // here; only a death while still wanted is trouble
+            if (died.getAndSet(true) || !running) return
+            DebugLog.note("Video", "$said, fed=$fed drained=$drained")
+            events.onTrouble(what)
+        }
+
+        // waiting units into waiting input buffers — run when either side
+        // gains a piece
+        val pump = object : Runnable {
+            override fun run() {
+                try {
+                    while (freeInputs.isNotEmpty()) {
+                        val (bytes, timestamp, keyframe) = units.poll() ?: return
+                        // frames behind a drop lean on pictures never decoded
+                        if (needKeyframe && !keyframe) continue
+                        if (keyframe) needKeyframe = false
+                        val at = freeInputs.removeFirst()
+                        if (lastRawTicks >= 0) ticks += (timestamp - lastRawTicks).toInt()
+                        lastRawTicks = timestamp
+                        decoder.getInputBuffer(at)?.put(bytes)
+                        // 90 kHz ticks to microseconds; frames render on
+                        // arrival, so only monotony matters, not the epoch
+                        decoder.queueInputBuffer(at, 0, bytes.size, ticks * 100 / 9, 0)
+                        fed++
+                    }
+                } catch (e: Exception) {
+                    fail("udp feed error: ${worded(e)}", "decoding failed — ${e.message}")
+                }
+            }
+        }
+
+        decoder.setCallback(object : MediaCodec.Callback() {
+            override fun onInputBufferAvailable(c: MediaCodec, index: Int) {
+                freeInputs.addLast(index)
+                pump.run()
+            }
+
+            override fun onOutputBufferAvailable(
+                c: MediaCodec, index: Int, info: MediaCodec.BufferInfo
+            ) {
+                try {
+                    c.releaseOutputBuffer(index, true)
+                } catch (e: Exception) {
+                    fail("udp render error: ${worded(e)}", "decoding failed — ${e.message}")
+                    return
+                }
+                drained++
+                if (!live) {
+                    live = true
+                    DebugLog.note("Video", "udp first frame rendered")
+                    events.onLive()
+                }
+            }
+
+            override fun onOutputFormatChanged(c: MediaCodec, f: MediaFormat) {
+                // the crop is the picture; the coded size carries the
+                // macroblock padding — 1088 tall for a 1080p stream
+                pictureWidth = if (f.containsKey("crop-right"))
+                    f.getInteger("crop-right") - f.getInteger("crop-left") + 1
+                else f.getInteger(MediaFormat.KEY_WIDTH)
+                pictureHeight = if (f.containsKey("crop-bottom"))
+                    f.getInteger("crop-bottom") - f.getInteger("crop-top") + 1
+                else f.getInteger(MediaFormat.KEY_HEIGHT)
+                DebugLog.note("Video", "udp picture ${pictureWidth}x$pictureHeight")
+                view?.post { refit() }
+            }
+
+            override fun onError(c: MediaCodec, e: MediaCodec.CodecException) {
+                fail(
+                    "udp codec error: ${worded(e)} " +
+                        "recoverable=${e.isRecoverable} transient=${e.isTransient}",
+                    "decoding failed — ${e.message}"
+                )
+            }
+        }, handler)
+
         try {
             val format = MediaFormat.createVideoFormat(codec.mime, 1920, 1080)
             // the parameter sets, not this nominal 1920x1080, decide the
@@ -419,8 +523,7 @@ class UdpSource(
             // 11's low-latency switch tells the codec to hand each frame
             // over the moment it is decoded. Asked of the codec first: the
             // key is only defined for codecs that declare the feature, and
-            // set blindly it killed a field phone's decoder on its first
-            // frame — the same phone that decodes RTSP fine without it.
+            // set blindly it can kill a decoder that never heard of it.
             val lowLatency = android.os.Build.VERSION.SDK_INT >= 30 &&
                 decoder.codecInfo.getCapabilitiesForType(codec.mime)
                     .isFeatureSupported(
@@ -450,7 +553,7 @@ class UdpSource(
             decoder.start()
             DebugLog.note(
                 "Video",
-                "udp ${codec.name} decoder up: ${decoder.name}" +
+                "udp ${codec.name} decoder up (async): ${decoder.name}" +
                     (if (lowLatency) ", low-latency" else "") +
                     ", surface valid=${surface?.isValid}"
             )
@@ -458,92 +561,24 @@ class UdpSource(
             // a released codec is not scarce; an unreleased one starves the
             // user's own retry of a hardware decoder instance
             decoder.release()
+            codecThread.quitSafely()
             DebugLog.note("Video", "udp decoder failed: ${worded(e)}")
             if (running) events.onTrouble("the ${codec.name} decoder failed to start")
             return
         }
-        val info = MediaCodec.BufferInfo()
-        var fed = 0
-        var drained = 0
-        // the 32-bit RTP clock extended to 64: it starts anywhere and can
-        // wrap mid-session, and time running backward upsets some decoders
-        var lastRawTicks = -1L
-        var ticks = 0L
+        feedNudge = { handler.post(pump) }
         try {
-            while (running) {
-                val unit = units.poll(10, java.util.concurrent.TimeUnit.MILLISECONDS)
-                if (unit != null) run feed@{
-                    val (bytes, timestamp, keyframe) = unit
-                    // frames queued behind a drop lean on pictures never decoded
-                    if (needKeyframe && !keyframe) return@feed
-                    if (keyframe) needKeyframe = false
-                    val at = decoder.dequeueInputBuffer(100_000)
-                    if (at < 0) {
-                        needKeyframe = true // the unit is dropped; so is the chain
-                        return@feed
-                    }
-                    if (lastRawTicks >= 0) ticks += (timestamp - lastRawTicks).toInt()
-                    lastRawTicks = timestamp
-                    decoder.getInputBuffer(at)?.put(bytes)
-                    // 90 kHz ticks to microseconds; frames render on arrival, so
-                    // only monotony matters, not the epoch
-                    decoder.queueInputBuffer(at, 0, bytes.size, ticks * 100 / 9, 0)
-                    fed++
-                }
-                // Drained every pass, fed or not: a frame finishes decoding
-                // milliseconds after its input goes in, long before the next
-                // unit arrives off the air. Drained only behind an input, as
-                // this first ran, every finished frame sat inside the decoder
-                // until its successor landed — a whole frame interval of
-                // latency that no buffer setting showed.
-                while (true) {
-                    val out = decoder.dequeueOutputBuffer(info, 0)
-                    if (out == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                        val f = decoder.outputFormat
-                        // the crop is the picture; the coded size carries the
-                        // macroblock padding — 1088 tall for a 1080p stream
-                        pictureWidth = if (f.containsKey("crop-right"))
-                            f.getInteger("crop-right") - f.getInteger("crop-left") + 1
-                        else f.getInteger(MediaFormat.KEY_WIDTH)
-                        pictureHeight = if (f.containsKey("crop-bottom"))
-                            f.getInteger("crop-bottom") - f.getInteger("crop-top") + 1
-                        else f.getInteger(MediaFormat.KEY_HEIGHT)
-                        DebugLog.note(
-                            "Video", "udp picture ${pictureWidth}x$pictureHeight"
-                        )
-                        view?.post { refit() }
-                        continue
-                    }
-                    if (out < 0) break
-                    decoder.releaseOutputBuffer(out, true)
-                    drained++
-                    if (!live) {
-                        live = true
-                        DebugLog.note("Video", "udp first frame rendered")
-                        events.onLive()
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            // stop() closing things under the loop is the usual way here
-            if (running) {
-                // the throwing call and the counts are the whole diagnosis:
-                // a field decoder died with no output and a message only its
-                // vendor understood
-                val trace = android.util.Log.getStackTraceString(e)
-                    .lineSequence().take(7).joinToString(" | ")
-                DebugLog.note(
-                    "Video",
-                    "udp decode error, fed=$fed drained=$drained: ${worded(e)} | $trace"
-                )
-                events.onTrouble("decoding failed — ${e.message}")
-            }
+            // this thread now only minds the codec's lifetime
+            while (running && !died.get()) Thread.sleep(50)
+        } catch (e: InterruptedException) {
         } finally {
+            feedNudge = null
             try {
                 decoder.stop()
             } catch (e: Exception) {
             }
             decoder.release()
+            codecThread.quitSafely()
         }
     }
 
