@@ -99,6 +99,16 @@
 
         </FrameLayout>
 
+        <!-- The grab bar between the picture and the map: drag it and the
+             split follows, clamped so neither half can be squeezed away.
+             Sized and oriented from code with its neighbours. -->
+        <View
+                android:id="@+id/video_divider"
+                android:layout_width="match_parent"
+                android:layout_height="12dp"
+                android:background="@drawable/bg_video_divider"
+                android:visibility="gone"/>
+
         <!-- The map and every flight overlay together, so the horizon, the
              clock, the compass, the button column and the seek bar shrink
              and move with the map's half instead of standing over the

@@ -1,0 +1,17 @@
+<!-- The grab bar between the picture and the map: the strip in the video
+     half's grey, a lighter dot in the middle saying "hold here". -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#303030"/>
+        </shape>
+    </item>
+    <item
+        android:width="8dp"
+        android:height="8dp"
+        android:gravity="center">
+        <shape android:shape="oval">
+            <solid android:color="#909090"/>
+        </shape>
+    </item>
+</layer-list>

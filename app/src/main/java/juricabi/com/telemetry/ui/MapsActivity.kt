@@ -28,6 +28,7 @@ import android.text.SpannableString
 import android.text.method.LinkMovementMethod
 import android.text.style.StyleSpan
 import android.util.TypedValue
+import android.view.MotionEvent
 import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
@@ -329,6 +330,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private lateinit var videoSoundButton: ImageView
     private lateinit var videoFillButton: ImageView
     private lateinit var videoRotateButton: ImageView
+    private lateinit var videoDivider: View
     private lateinit var videoView: TextureView
     private lateinit var videoHalf: FrameLayout
     private lateinit var videoWaiting: TextViewOutline
@@ -660,6 +662,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         videoFillButton.setOnClickListener { toggleVideoFill() }
         videoRotateButton = findViewById(R.id.video_rotate_button)
         videoRotateButton.setOnClickListener { rotateVideo() }
+        videoDivider = findViewById(R.id.video_divider)
+        videoDivider.setOnTouchListener { _, event -> dragVideoSplit(event) }
         videoView = findViewById(R.id.video_view)
         videoHalf = findViewById(R.id.video_half)
         videoWaiting = findViewById(R.id.video_waiting)
@@ -2339,9 +2343,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     /**
-     * Half each, along the axis the screen has more of: the picture left of
-     * the map held landscape, above it held upright. A rotation rebuilds the
-     * screen, so this is decided fresh each time video starts.
+     * Along the axis the screen has more of: the picture left of the map
+     * held landscape, above it held upright. The picture takes the share
+     * the divider was last dragged to, remembered for each orientation, and
+     * the map takes the rest. A rotation rebuilds the screen, so this is
+     * decided fresh each time video starts.
      */
     private fun arrangeFlightPane() {
         val landscape =
@@ -2349,11 +2355,44 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         flightPane.orientation =
             if (landscape) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
         val match = LinearLayout.LayoutParams.MATCH_PARENT
-        for (half in listOf<View>(videoHalf, mapPane)) {
+        val share = preferenceManager.getVideoSplit(landscape)
+        val grab = (12 * resources.displayMetrics.density).toInt()
+        videoDivider.layoutParams = LinearLayout.LayoutParams(
+            if (landscape) grab else match, if (landscape) match else grab
+        )
+        for ((half, weight) in listOf(videoHalf to share, mapPane to 1f - share)) {
             half.layoutParams = LinearLayout.LayoutParams(
-                if (landscape) 0 else match, if (landscape) match else 0, 1f
+                if (landscape) 0 else match, if (landscape) match else 0, weight
             )
         }
+    }
+
+    /**
+     * The divider under a finger: the split follows the touch, clamped so
+     * neither half can be squeezed past a fifth of the pane, and the
+     * sources refit their pictures on the layout changes this causes. The
+     * landing place is written down only when the finger lifts.
+     */
+    private fun dragVideoSplit(event: MotionEvent): Boolean {
+        val landscape =
+            resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val paneOnScreen = IntArray(2)
+        flightPane.getLocationOnScreen(paneOnScreen)
+        val total = (if (landscape) flightPane.width else flightPane.height).toFloat()
+        if (total <= 0) return true
+        val at = if (landscape) event.rawX - paneOnScreen[0] else event.rawY - paneOnScreen[1]
+        val share = (at / total).coerceIn(0.2f, 0.8f)
+        val match = LinearLayout.LayoutParams.MATCH_PARENT
+        for ((half, weight) in listOf(videoHalf to share, mapPane to 1f - share)) {
+            half.layoutParams = LinearLayout.LayoutParams(
+                if (landscape) 0 else match, if (landscape) match else 0, weight
+            )
+        }
+        if (event.actionMasked == MotionEvent.ACTION_UP) {
+            preferenceManager.setVideoSplit(landscape, share)
+            videoDivider.performClick()
+        }
+        return true
     }
 
     private fun startVideo() {
@@ -2385,6 +2424,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             videoWaiting.visibility = View.VISIBLE
             arrangeFlightPane()
             videoHalf.visibility = View.VISIBLE
+            videoDivider.visibility = View.VISIBLE
             videoSoundButton.visibility = View.GONE
             videoFillButton.visibility = View.GONE
             videoRotateButton.visibility = View.GONE
@@ -2409,6 +2449,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         videoWaiting.visibility = View.VISIBLE
         arrangeFlightPane()
         videoHalf.visibility = View.VISIBLE
+        videoDivider.visibility = View.VISIBLE
         // the speaker only where there could be sound; remembered before
         // start so the choice needs no second session
         videoSoundButton.visibility = if (source.hasAudio) View.VISIBLE else View.GONE
@@ -2450,6 +2491,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         videoSource?.stop()
         videoSource = null
         videoHalf.visibility = View.GONE
+        videoDivider.visibility = View.GONE
     }
 
     /**

@@ -168,6 +168,23 @@ class PreferenceManager(context: Context) {
         sharedPreferences.edit().putString("video_url_history", kept.joinToString("\n")).apply()
     }
 
+    /**
+     * The picture's share of the flight pane, dragged on the divider and
+     * held apart for each way the phone is held — the split that suits a
+     * wide screen is the wrong one for a tall one.
+     */
+    fun getVideoSplit(landscape: Boolean): Float {
+        return sharedPreferences.getFloat(
+            if (landscape) "video_split_landscape" else "video_split_portrait", 0.5f
+        )
+    }
+
+    fun setVideoSplit(landscape: Boolean, share: Float) {
+        sharedPreferences.edit().putFloat(
+            if (landscape) "video_split_landscape" else "video_split_portrait", share
+        ).apply()
+    }
+
     /** Fill the video half with the picture, cropping the overflow, instead of letterboxing. */
     fun isVideoFillEnabled(): Boolean {
         return sharedPreferences.getBoolean("video_fill", false)
