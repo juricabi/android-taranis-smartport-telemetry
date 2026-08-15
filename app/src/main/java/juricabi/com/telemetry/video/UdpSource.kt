@@ -392,6 +392,11 @@ class UdpSource(
         }
     }
 
+    // a bare CodecException says nothing; its diagnostic carries the
+    // vendor's actual error code
+    private fun worded(e: Exception): String =
+        if (e is MediaCodec.CodecException) "$e [${e.diagnosticInfo}]" else "$e"
+
     private fun decode(codec: RtpCodec, parameterSets: List<ByteArray>) {
         val startCode = byteArrayOf(0, 0, 0, 1)
         val decoder = try {
@@ -407,13 +412,19 @@ class UdpSource(
             // real picture — but the input buffers are sized off it, and a
             // 4K keyframe must still fit in one
             format.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 1 shl 20)
-            // decoders left to themselves pipeline a few frames for
+            // Decoders left to themselves pipeline a few frames for
             // throughput's sake; this stream is a pilot's eyes, and Android
             // 11's low-latency switch tells the codec to hand each frame
-            // over the moment it is decoded (older phones just ignore it)
-            if (android.os.Build.VERSION.SDK_INT >= 30) {
-                format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
-            }
+            // over the moment it is decoded. Asked of the codec first: the
+            // key is only defined for codecs that declare the feature, and
+            // set blindly it killed a field phone's decoder on its first
+            // frame — the same phone that decodes RTSP fine without it.
+            val lowLatency = android.os.Build.VERSION.SDK_INT >= 30 &&
+                decoder.codecInfo.getCapabilitiesForType(codec.mime)
+                    .isFeatureSupported(
+                        android.media.MediaCodecInfo.CodecCapabilities.FEATURE_LowLatency
+                    )
+            if (lowLatency) format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
             when (codec) {
                 // AVC's documented form is SPS and PPS as separate buffers;
                 // one concatenated run worked on most phones and failed on
@@ -435,15 +446,19 @@ class UdpSource(
             }
             decoder.configure(format, surface, null, 0)
             decoder.start()
+            DebugLog.note(
+                "Video",
+                "udp ${codec.name} decoder up: ${decoder.name}" +
+                    if (lowLatency) ", low-latency" else ""
+            )
         } catch (e: Exception) {
             // a released codec is not scarce; an unreleased one starves the
             // user's own retry of a hardware decoder instance
             decoder.release()
-            DebugLog.note("Video", "udp decoder failed: $e")
+            DebugLog.note("Video", "udp decoder failed: ${worded(e)}")
             if (running) events.onTrouble("the ${codec.name} decoder failed to start")
             return
         }
-        DebugLog.note("Video", "udp ${codec.name} decoder up")
         val info = MediaCodec.BufferInfo()
         // the 32-bit RTP clock extended to 64: it starts anywhere and can
         // wrap mid-session, and time running backward upsets some decoders
@@ -505,7 +520,7 @@ class UdpSource(
         } catch (e: Exception) {
             // stop() closing things under the loop is the usual way here
             if (running) {
-                DebugLog.note("Video", "udp decode error: $e")
+                DebugLog.note("Video", "udp decode error: ${worded(e)}")
                 events.onTrouble("decoding failed — ${e.message}")
             }
         } finally {
