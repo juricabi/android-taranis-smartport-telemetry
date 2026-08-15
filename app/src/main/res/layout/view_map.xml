@@ -45,16 +45,17 @@
                     app:outlineColor="@android:color/black"
                     app:outlineSize="3dp"/>
 
-            <!-- The picture's playback controls, on its own bottom-left —
-                 the corner the map keeps its buttons in, so both halves
-                 read the same way. Inside the half, they fold away with it. -->
+            <!-- The picture's playback controls, a column on its own
+                 bottom-right — the mirror of the map's button column, so
+                 both halves read the same way. Inside the half, they fold
+                 away with it. -->
             <LinearLayout
                     android:id="@+id/video_controls"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_gravity="bottom|start"
+                    android:layout_gravity="bottom|end"
                     android:layout_margin="4dp"
-                    android:orientation="horizontal">
+                    android:orientation="vertical">
 
                 <ImageView
                         android:id="@+id/video_sound_button"
