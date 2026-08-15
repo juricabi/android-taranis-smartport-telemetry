@@ -136,9 +136,33 @@ class MjpegSource(
     // is eight megabytes, and allocating one per frame kept the collector
     // running against the decoder — the picture stuttered for it
     private val decodeOptions = BitmapFactory.Options().apply { inMutable = true }
+    private val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+
+    /**
+     * Powers of two the decoder can skip while reading: a 1080p frame shown
+     * in a half-screen pane spends most of its decode on pixels the pane
+     * cannot show. The longer sides are compared so a filled or quarter-
+     * turned picture stays sharp; a pane not yet laid out decodes whole.
+     */
+    private fun sampleFor(frameLong: Int, view: TextureView): Int {
+        val paneLong = maxOf(view.width, view.height)
+        if (paneLong == 0) return 1
+        var sample = 1
+        while (frameLong / (sample * 2) >= paneLong) sample *= 2
+        return sample
+    }
 
     private fun draw(bytes: ByteArray) {
         if (!running) return
+        val view = view ?: return
+        // the frame's own header says its size — read every time, because
+        // some cameras switch size mid-stream when their screen is turned
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, boundsOptions)
+        val sample = sampleFor(maxOf(boundsOptions.outWidth, boundsOptions.outHeight), view)
+        if (decodeOptions.inSampleSize != sample) {
+            decodeOptions.inSampleSize = sample
+            decodeOptions.inBitmap = null
+        }
         val bitmap = try {
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions)
         } catch (e: IllegalArgumentException) {
@@ -147,7 +171,6 @@ class MjpegSource(
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions)
         } ?: return
         decodeOptions.inBitmap = bitmap
-        val view = view ?: return
         if (bitmap.width != frameWidth || bitmap.height != frameHeight) {
             frameWidth = bitmap.width
             frameHeight = bitmap.height

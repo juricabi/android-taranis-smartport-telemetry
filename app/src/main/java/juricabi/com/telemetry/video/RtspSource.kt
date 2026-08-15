@@ -126,6 +126,16 @@ class RtspSource(
         override fun run() {
             val p = player ?: return
             if (p.playbackState == Player.STATE_READY) {
+                // Latency creep: every stall leaves the picture a little
+                // further behind the camera, and an RTSP session never
+                // announces a live edge for the player to chase on its own.
+                // A backlog past double the configured buffer is drift, not
+                // buffering — jump it.
+                val behind = p.totalBufferedDuration
+                if (behind > 2000) {
+                    DebugLog.note("Video", "rtsp ${behind}ms behind the camera, catching up")
+                    p.seekToDefaultPosition()
+                }
                 val rendered = p.videoDecoderCounters?.renderedOutputBufferCount ?: -1
                 val gained = rendered - lastRendered
                 when {
@@ -200,6 +210,9 @@ class RtspSource(
             .setLoadControl(
                 DefaultLoadControl.Builder()
                     .setBufferDurationsMs(300, 1000, 300, 300)
+                    // start on time held, not bytes held — for a live
+                    // picture the clock is the constraint that matters
+                    .setPrioritizeTimeOverSizeThresholds(true)
                     .build()
             )
             .build()
