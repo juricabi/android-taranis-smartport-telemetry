@@ -56,7 +56,7 @@ class UsbUvcSource(
     private var view: TextureView? = null
     private var surface: Surface? = null
 
-    private val refit = android.view.View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+    private val refitOnLayout = android.view.View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
         fitToCamera()
     }
 
@@ -65,13 +65,22 @@ class UsbUvcSource(
         view?.fitPicture(size.width, size.height)
     }
 
+    override fun refit() = fitToCamera()
+
     private fun said(device: UsbDevice): String =
         "${device.productName ?: device.deviceName} " +
             "%04x:%04x".format(device.vendorId, device.productId)
 
     private val stateCallback = object : ICameraHelper.StateCallback {
         override fun onAttach(device: UsbDevice) {
-            DebugLog.note("Video", "uvc attach ${said(device)}")
+            // the interface classes say whether this identity carries video
+            // at all (class 14) — a multi-mode camera announces several
+            // identities and only one of them is the webcam. "Unknown error"
+            // from an open is decided by this line in the log.
+            val interfaces = (0 until device.interfaceCount).joinToString {
+                device.getInterface(it).run { "$interfaceClass/$interfaceSubclass" }
+            }
+            DebugLog.note("Video", "uvc attach ${said(device)} interfaces=[$interfaces]")
             // the first camera wins; one arriving while another is open waits
             // for the next start
             val h = helper ?: return
@@ -102,6 +111,12 @@ class UsbUvcSource(
         override fun onCameraClose(device: UsbDevice) {
             DebugLog.note("Video", "uvc camera close ${said(device)}")
             surface?.let { helper?.removeSurface(it) }
+            // The surface must go with the camera: the view outlives a
+            // replug, so a kept surface made attachSurfaceIfReady believe
+            // the reopened camera was already served — frames flowed to the
+            // callback, onLive took the card down, and the half stayed black.
+            surface?.release()
+            surface = null
             // the half folds away until frames flow again — a replugged
             // camera re-earns it through the next first frame
             live = false
@@ -141,7 +156,7 @@ class UsbUvcSource(
     override fun start(view: TextureView) {
         DebugLog.note("Video", "uvc start")
         this.view = view
-        view.addOnLayoutChangeListener(refit)
+        view.addOnLayoutChangeListener(refitOnLayout)
         view.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
             override fun onSurfaceTextureAvailable(t: SurfaceTexture, w: Int, h: Int) {
                 attachSurfaceIfReady()
@@ -190,8 +205,11 @@ class UsbUvcSource(
     override fun stop() {
         DebugLog.note("Video", "uvc stop")
         view?.surfaceTextureListener = null
-        view?.removeOnLayoutChangeListener(refit)
+        view?.removeOnLayoutChangeListener(refitOnLayout)
         view = null
+        // taken from the helper before release — the preview must not render
+        // into a surface already gone
+        surface?.let { helper?.removeSurface(it) }
         surface?.release()
         surface = null
         helper?.release()

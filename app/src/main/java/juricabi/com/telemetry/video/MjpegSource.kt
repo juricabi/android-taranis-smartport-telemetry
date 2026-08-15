@@ -64,6 +64,10 @@ class MjpegSource(
     private val said = url.replace(Regex("//[^/@]+@"), "//<auth>@")
 
     @Volatile private var running = false
+    // what the server answered, for the toast when no frame ever came — an
+    // error page is HTTP 200 too, and "ended" for a stream that never began
+    // sent the field re-tapping at a wrong path
+    @Volatile private var answer: String? = null
     private var thread: Thread? = null
     @Volatile private var connection: HttpURLConnection? = null
     private var view: TextureView? = null
@@ -71,19 +75,27 @@ class MjpegSource(
     @Volatile private var frameHeight = 0
 
     // refits the letterbox when the fullscreen toggle resizes the pane
-    private val refit = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+    private val refitOnLayout = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+        refit()
+    }
+
+    override fun refit() {
         view?.fitPicture(frameWidth, frameHeight)
     }
 
     override fun start(view: TextureView) {
         DebugLog.note("Video", "mjpeg start")
         this.view = view
-        view.addOnLayoutChangeListener(refit)
+        view.addOnLayoutChangeListener(refitOnLayout)
         running = true
         thread = Thread({
             try {
                 stream()
-                if (running) events.onTrouble("$said ended")
+                if (running) events.onTrouble(
+                    if (live) "$said ended"
+                    else "$said sent no MJPEG picture (${answer ?: "no answer"}) — " +
+                        "is the path right?"
+                )
             } catch (e: Exception) {
                 // closing the connection under a blocked read is how stop()
                 // works, so only a failure while still wanted is trouble
@@ -103,9 +115,8 @@ class MjpegSource(
         }
         conn.connectTimeout = 5000
         conn.readTimeout = 10000
-        DebugLog.note(
-            "Video", "mjpeg HTTP ${conn.responseCode}, type ${conn.contentType}"
-        )
+        answer = "HTTP ${conn.responseCode}, ${conn.contentType}"
+        DebugLog.note("Video", "mjpeg $answer")
         if (conn.responseCode != HttpURLConnection.HTTP_OK) {
             throw IOException("HTTP " + conn.responseCode)
         }
@@ -146,7 +157,7 @@ class MjpegSource(
         connection?.disconnect() // unblocks a read waiting on the network
         connection = null
         thread = null
-        view?.removeOnLayoutChangeListener(refit)
+        view?.removeOnLayoutChangeListener(refitOnLayout)
         view = null
     }
 }

@@ -152,6 +152,36 @@ class PreferenceManager(context: Context) {
         return sharedPreferences.getString("video_stream_url", "") ?: ""
     }
 
+    /** Fill the video half with the picture, cropping the overflow, instead of letterboxing. */
+    fun isVideoFillEnabled(): Boolean {
+        return sharedPreferences.getBoolean("video_fill", false)
+    }
+
+    fun setVideoFillEnabled(on: Boolean) {
+        sharedPreferences.edit().putBoolean("video_fill", on).apply()
+    }
+
+    /** The picture's extra turn, degrees clockwise: 0, 90, 180 or 270. */
+    fun getVideoRotation(): Int {
+        return sharedPreferences.getInt("video_rotation", 0)
+    }
+
+    fun setVideoRotation(degrees: Int) {
+        sharedPreferences.edit().putInt("video_rotation", degrees).apply()
+    }
+
+    /**
+     * The one stream address that proved lossy over UDP. Keyed by the address
+     * itself, so changing the address forgets the lesson with it.
+     */
+    fun getVideoTcpUrl(): String {
+        return sharedPreferences.getString("video_tcp_url", "") ?: ""
+    }
+
+    fun setVideoTcpUrl(url: String) {
+        sharedPreferences.edit().putString("video_tcp_url", url).apply()
+    }
+
     fun isClockEnabled(): Boolean {
         return sharedPreferences.getBoolean("show_clock", true)
     }

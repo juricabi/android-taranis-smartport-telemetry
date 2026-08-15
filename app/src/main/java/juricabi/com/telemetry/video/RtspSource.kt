@@ -16,6 +16,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.rtsp.RtspMediaSource
+import juricabi.com.telemetry.manager.PreferenceManager
 import juricabi.com.telemetry.utils.DebugLog
 
 /**
@@ -48,8 +49,22 @@ class RtspSource(
     private var recoveries = 0
     private var audioOn = false
     private var playedSinceChange = false
-    private var forceTcp = false
     private val handler = Handler(Looper.getMainLooper())
+
+    /**
+     * A lossy link is a property of the address, not of the session. The
+     * lesson used to die with the source — every rotation and every session
+     * re-ran the torn UDP second, and its smeared frames were what the field
+     * reported as "blobbed" pictures. Now an address that once tore starts
+     * on TCP for good; entering a different address forgets the lesson.
+     */
+    private var forceTcp = PreferenceManager(context).getVideoTcpUrl() == url
+
+    private fun retireUdp() {
+        forceTcp = true
+        PreferenceManager(context).setVideoTcpUrl(url)
+        DebugLog.note("Video", "rtsp switching to TCP transport")
+    }
 
     // the address with any credentials kept out of the notes
     private val said = url.replace(Regex("//[^/@]+@"), "//<auth>@")
@@ -80,8 +95,12 @@ class RtspSource(
     }
 
     // refits the letterbox when showing or the fullscreen toggle resizes the pane
-    private val refit = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-        val size = player?.videoSize ?: return@OnLayoutChangeListener
+    private val refitOnLayout = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+        refit()
+    }
+
+    override fun refit() {
+        val size = player?.videoSize ?: return
         view?.fitPicture(size.width, size.height)
     }
 
@@ -123,10 +142,7 @@ class RtspSource(
                         }
                         // silent UDP loss starves the decoder without ever
                         // raising an error; the TCP escalation applies here too
-                        if (!forceTcp) {
-                            forceTcp = true
-                            DebugLog.note("Video", "rtsp switching to TCP transport")
-                        }
+                        if (!forceTcp) retireUdp()
                         rejoin("no pictures arriving")
                     }
                     else -> lastRendered = rendered
@@ -147,11 +163,17 @@ class RtspSource(
         .setForceUseRtpTcp(forceTcp)
         .createMediaSource(MediaItem.fromUri(url))
 
-    /** A live stream has no history to pick up; the recovery is a fresh session. */
-    private fun rejoin(why: String) {
+    /**
+     * A live stream has no history to pick up; the recovery is a fresh
+     * session. transportChanged spares the audio for one attempt: a failure
+     * that just retired UDP was the transport's fault, not the audio trap's,
+     * and dropping the asked-for sound on it silenced streams that would
+     * have played it fine over TCP.
+     */
+    private fun rejoin(why: String, transportChanged: Boolean = false) {
         val p = player ?: return
         DebugLog.note("Video", "rtsp rejoin ($why), recoveries=$recoveries")
-        if (!playedSinceChange && audioOn) {
+        if (!playedSinceChange && audioOn && !transportChanged) {
             // It cannot start with the sound it was just asked for — the
             // likeliest trap is an advertised audio track nothing feeds.
             // The picture wins; the screen is told so its button agrees.
@@ -173,7 +195,7 @@ class RtspSource(
     override fun start(view: TextureView) {
         DebugLog.note("Video", "rtsp start $said")
         this.view = view
-        view.addOnLayoutChangeListener(refit)
+        view.addOnLayoutChangeListener(refitOnLayout)
         val player = ExoPlayer.Builder(context)
             .setLoadControl(
                 DefaultLoadControl.Builder()
@@ -219,6 +241,10 @@ class RtspSource(
                         recoveries = 0
                     }
                     Player.STATE_BUFFERING -> handler.postDelayed(stalled, 12000)
+                    // a clean end-of-stream — the server restarting, say —
+                    // raises no error and starves no watchdog; without this
+                    // it left the last frame standing forever
+                    Player.STATE_ENDED -> rejoin("the stream ended")
                     else -> {}
                 }
             }
@@ -227,15 +253,15 @@ class RtspSource(
                 DebugLog.note(
                     "Video", "rtsp error ${error.errorCodeName}: ${causeChain(error)}"
                 )
-                // The first hard error retires UDP for this session and takes
-                // the stream over TCP, with fresh chances — over a lossy
-                // link every UDP rejoin dies the same death within a second.
-                if (!forceTcp) {
-                    forceTcp = true
+                // The first hard error retires UDP and takes the stream over
+                // TCP, with fresh chances — over a lossy link every UDP
+                // rejoin dies the same death within a second.
+                val transportChanged = !forceTcp
+                if (transportChanged) {
+                    retireUdp()
                     recoveries = 0
-                    DebugLog.note("Video", "rtsp switching to TCP transport")
                 }
-                rejoin(error.cause?.message ?: error.errorCodeName)
+                rejoin(error.cause?.message ?: error.errorCodeName, transportChanged)
             }
         })
         player.playWhenReady = true
@@ -247,7 +273,7 @@ class RtspSource(
         DebugLog.note("Video", "rtsp stop")
         handler.removeCallbacks(stalled)
         handler.removeCallbacks(starving)
-        view?.removeOnLayoutChangeListener(refit)
+        view?.removeOnLayoutChangeListener(refitOnLayout)
         view = null
         player?.release()
         player = null

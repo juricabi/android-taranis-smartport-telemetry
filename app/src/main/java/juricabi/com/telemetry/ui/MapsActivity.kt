@@ -324,6 +324,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private lateinit var findQuadButton: FloatingActionButton
     private lateinit var videoButton: FloatingActionButton
     private lateinit var videoSoundButton: FloatingActionButton
+    private lateinit var videoFillButton: FloatingActionButton
+    private lateinit var videoRotateButton: FloatingActionButton
     private lateinit var videoView: TextureView
     private lateinit var videoHalf: FrameLayout
     private lateinit var videoWaiting: TextViewOutline
@@ -650,6 +652,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         videoSoundButton = findViewById(R.id.video_sound_button)
         videoSoundButton.imageAlpha = 128
         videoSoundButton.setOnClickListener { toggleVideoSound() }
+        videoFillButton = findViewById(R.id.video_fill_button)
+        videoFillButton.setOnClickListener { toggleVideoFill() }
+        videoRotateButton = findViewById(R.id.video_rotate_button)
+        videoRotateButton.setOnClickListener { rotateVideo() }
         videoView = findViewById(R.id.video_view)
         videoHalf = findViewById(R.id.video_half)
         videoWaiting = findViewById(R.id.video_waiting)
@@ -1591,13 +1597,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
             readOperatorTrack(file)
 
-            if (ContextCompat.checkSelfPermission(
-                    this,
-                    android.Manifest.permission.WRITE_EXTERNAL_STORAGE
-                ) == PackageManager.PERMISSION_GRANTED
-            ) {
-            }
-
             this.logPlayer = LogPlayer(this)
 
             val context = this;
@@ -2224,39 +2223,52 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private var videoAudioOn = false
 
-    private val videoEvents = object : VideoSource.Events {
-        override fun onLive() {
-            runOnUiThread {
-                if (videoWanted) videoWaiting.visibility = View.GONE
-            }
-        }
+    /**
+     * Every start numbers its events, and stopping a source retires the
+     * number. A stopped source's last words can still be queued on their way
+     * to the UI thread, and unguarded they acted on the fresh source's
+     * screen — one dead stream's parting trouble kept folding away its
+     * healthy successor under quick re-taps.
+     */
+    private var videoGeneration = 0
 
-        override fun onIdle() {
-            runOnUiThread {
-                // the picture stopped and may return; the card says so where
-                // the picture was, instead of the layout jumping about
-                if (videoWanted) videoWaiting.visibility = View.VISIBLE
+    private fun newVideoEvents(): VideoSource.Events {
+        val generation = ++videoGeneration
+        fun current() = generation == videoGeneration && videoWanted
+        return object : VideoSource.Events {
+            override fun onLive() {
+                runOnUiThread {
+                    if (current()) videoWaiting.visibility = View.GONE
+                }
             }
-        }
 
-        override fun onTrouble(what: String) {
-            runOnUiThread {
-                if (!videoWanted) return@runOnUiThread
-                Toast.makeText(this@MapsActivity, "Video: $what", Toast.LENGTH_LONG).show()
-                hideVideo()
+            override fun onIdle() {
+                runOnUiThread {
+                    // the picture stopped and may return; the card says so where
+                    // the picture was, instead of the layout jumping about
+                    if (current()) videoWaiting.visibility = View.VISIBLE
+                }
             }
-        }
 
-        override fun onAudioLost() {
-            runOnUiThread {
-                if (!videoWanted) return@runOnUiThread
-                videoAudioOn = false
-                videoSoundButton.imageAlpha = 128
-                Toast.makeText(
-                    this@MapsActivity,
-                    "This stream's sound never arrived — playing the picture alone",
-                    Toast.LENGTH_LONG
-                ).show()
+            override fun onTrouble(what: String) {
+                runOnUiThread {
+                    if (!current()) return@runOnUiThread
+                    Toast.makeText(this@MapsActivity, "Video: $what", Toast.LENGTH_LONG).show()
+                    hideVideo()
+                }
+            }
+
+            override fun onAudioLost() {
+                runOnUiThread {
+                    if (!current()) return@runOnUiThread
+                    videoAudioOn = false
+                    videoSoundButton.imageAlpha = 128
+                    Toast.makeText(
+                        this@MapsActivity,
+                        "This stream's sound never arrived — playing the picture alone",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             }
         }
     }
@@ -2278,17 +2290,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * in agreement with it would only add a way to disagree.
      */
     private fun buildVideoSource(): VideoSource? {
+        val events = newVideoEvents()
         return when (preferenceManager.getVideoSource()) {
-            "usb" -> UsbUvcSource(this, videoEvents)
+            "usb" -> UsbUvcSource(this, events)
             "network" -> {
                 val url = preferenceManager.getVideoStreamUrl()
                 val trouble = when {
                     url.isBlank() -> "No stream address set — enter one under Settings, Video"
                     url.startsWith("rtsp://", ignoreCase = true) ->
-                        return RtspSource(this, url, videoEvents)
+                        return RtspSource(this, url, events)
                     url.startsWith("http://", ignoreCase = true) ||
                         url.startsWith("https://", ignoreCase = true) ->
-                        return MjpegSource(url, videoEvents)
+                        return MjpegSource(url, events)
                     else -> "The stream address must start rtsp:// (RTSP) or http:// (MJPEG)"
                 }
                 Toast.makeText(this, trouble, Toast.LENGTH_LONG).show()
@@ -2331,6 +2344,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA)
             != PackageManager.PERMISSION_GRANTED
         ) {
+            // the half opens on the ask, its card saying what is being
+            // waited for — left untouched, whatever happened to be on screen
+            // stood over the dialog and read as broken
+            videoWaiting.text = "Waiting for the camera permission…"
+            videoWaiting.visibility = View.VISIBLE
+            arrangeFlightPane()
+            videoHalf.visibility = View.VISIBLE
+            videoButton.imageAlpha = 255
+            videoSoundButton.visibility = View.GONE
+            videoFillButton.visibility = View.GONE
+            videoRotateButton.visibility = View.GONE
+            juricabi.com.telemetry.utils.DebugLog.note("Video", "camera permission asked")
             ActivityCompat.requestPermissions(
                 this,
                 arrayOf(android.Manifest.permission.CAMERA),
@@ -2344,6 +2369,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             return
         }
         videoSource = source
+        // The view keeps the last session's final frame; painted over, the
+        // card stands on the dark half instead of floating over a stale
+        // picture that reads as live. No source owns the surface here.
+        try {
+            videoView.lockCanvas()?.let {
+                it.drawColor(0xFF303030.toInt())
+                videoView.unlockCanvasAndPost(it)
+            }
+        } catch (e: Exception) {
+            // a surface a departed decoder still counts as its own cannot be
+            // painted — the fresh source replaces the picture anyway
+        }
         // the card says what is being waited for, and the first real frame
         // replaces it
         videoWaiting.text = if (preferenceManager.getVideoSource() == "usb")
@@ -2357,7 +2394,28 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         videoSoundButton.visibility = if (source.hasAudio) View.VISIBLE else View.GONE
         videoSoundButton.imageAlpha = if (videoAudioOn) 255 else 128
         if (videoAudioOn) source.setAudio(true)
+        // how the picture lies in its half — fill and turn, both remembered
+        videoFillButton.visibility = View.VISIBLE
+        videoFillButton.imageAlpha = if (preferenceManager.isVideoFillEnabled()) 255 else 128
+        videoRotateButton.visibility = View.VISIBLE
+        videoRotateButton.imageAlpha = if (preferenceManager.getVideoRotation() != 0) 255 else 128
         source.start(videoView)
+    }
+
+    /** Fill the half with the picture, cropping the overflow, or letterbox it. */
+    private fun toggleVideoFill() {
+        val fill = !preferenceManager.isVideoFillEnabled()
+        preferenceManager.setVideoFillEnabled(fill)
+        videoFillButton.imageAlpha = if (fill) 255 else 128
+        videoSource?.refit()
+    }
+
+    /** A quarter-turn per tap, for a camera mounted sideways; 0 comes back around. */
+    private fun rotateVideo() {
+        val degrees = (preferenceManager.getVideoRotation() + 90) % 360
+        preferenceManager.setVideoRotation(degrees)
+        videoRotateButton.imageAlpha = if (degrees != 0) 255 else 128
+        videoSource?.refit()
     }
 
     private fun toggleVideoSound() {
@@ -2368,11 +2426,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     private fun hideVideo() {
         videoWanted = false
+        videoGeneration++ // whatever the stopped source still says is stale
         videoSource?.stop()
         videoSource = null
         videoHalf.visibility = View.GONE
         videoButton.imageAlpha = 128
         videoSoundButton.visibility = View.GONE
+        videoFillButton.visibility = View.GONE
+        videoRotateButton.visibility = View.GONE
     }
 
     /**
@@ -2418,6 +2479,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // releasing cancelled the pending request, the restart asked again,
         // and the field watched dialogs churn at three a second. videoWanted
         // stays, and coming back starts it again.
+        videoGeneration++
         videoSource?.stop()
         videoSource = null
     }
@@ -3418,15 +3480,28 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (grantResults.isEmpty()) {
+            // an interrupted ask delivers no results at all; the camera ask
+            // put a waiting half on screen that must not outlive its dialog
+            if (requestCode == REQUEST_CAMERA_PERMISSION) {
+                juricabi.com.telemetry.utils.DebugLog.note(
+                    "Video", "camera permission ask interrupted"
+                )
+                hideVideo()
+            }
+            return
+        }
         if (grantResults.isNotEmpty()) {
             if (requestCode == REQUEST_LOCATION_PERMISSION) {
                 if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    map?.isMyLocationEnabled = true
+                    // through the same door the ask came from, so the
+                    // live-arrow setting and the 3D view are both honoured
+                    showMyLocation()
                 } else {
-                    this.showDialog(AlertDialog.Builder(this)
-                        .setMessage("Location permission is needed in order to discover BLE devices and show your location on map")
-                        .setPositiveButton("OK", null)
-                        .create())
+                    explainDeniedPermission(
+                        "Location permission is needed in order to discover BLE devices and show your location on map",
+                        permissions.firstOrNull()
+                    )
                 }
             } else if (requestCode == REQUEST_WRITE_PERMISSION) {
                 if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
@@ -3442,41 +3517,64 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     }
                     requestWritePermissionSequence = RequestWritePermissionSequenceType.NONE;
                 } else {
-                    this.showDialog(
-                        AlertDialog.Builder(this)
-                            .setMessage("Write permission is required in order to log telemetry data. Disable logging or grant permission to continue")
-                            .setPositiveButton("OK", null)
-                            .create()
+                    explainDeniedPermission(
+                        "Write permission is required in order to log telemetry data. Disable logging or grant permission to continue",
+                        permissions.firstOrNull()
                     )
                 }
             } else if (requestCode == REQUEST_CAMERA_PERMISSION) {
                 if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    juricabi.com.telemetry.utils.DebugLog.note(
+                        "Video", "camera permission granted"
+                    )
                     if (videoWanted && videoSource == null) startVideo()
                 } else {
+                    juricabi.com.telemetry.utils.DebugLog.note(
+                        "Video", "camera permission denied"
+                    )
                     hideVideo()
-                    this.showDialog(
-                        AlertDialog.Builder(this)
-                            .setMessage(
-                                "Camera permission is needed for a USB camera — " +
-                                    "Android refuses the USB device without it"
-                            )
-                            .setPositiveButton("OK", null)
-                            .create()
+                    explainDeniedPermission(
+                        "Camera permission is needed for a USB camera — " +
+                            "Android refuses the USB device without it",
+                        permissions.firstOrNull()
                     )
                 }
             } else if (requestCode == REQUEST_READ_PERMISSION) {
                 if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                     replay()
                 } else {
-                    this.showDialog(
-                        AlertDialog.Builder(this)
-                            .setMessage("Read permission is required in order to read and replay telemetry data")
-                            .setPositiveButton("OK", null)
-                            .create()
+                    explainDeniedPermission(
+                        "Read permission is required in order to read and replay telemetry data",
+                        permissions.firstOrNull()
                     )
                 }
             }
         }
+    }
+
+    /**
+     * A "don't ask again" refusal makes every later ask come back denied
+     * instantly, dialog unseen — an explanation alone then describes a grant
+     * that is impossible from inside the app. Exactly there, and only there,
+     * the dialog grows a way to the one place the grant still lives.
+     */
+    private fun explainDeniedPermission(message: String, permission: String?) {
+        val builder = AlertDialog.Builder(this)
+            .setMessage(message)
+            .setPositiveButton("OK", null)
+        if (permission != null &&
+            !ActivityCompat.shouldShowRequestPermissionRationale(this, permission)
+        ) {
+            builder.setNeutralButton("Open app settings") { _, _ ->
+                startActivity(
+                    Intent(
+                        android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.fromParts("package", packageName, null)
+                    )
+                )
+            }
+        }
+        this.showDialog(builder.create())
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

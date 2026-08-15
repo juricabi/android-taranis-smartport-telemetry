@@ -389,7 +389,7 @@
         <ListPreference
             app:iconSpaceReserved="false"
                 android:title="Video source"
-                android:summary="A live picture in place of the map, under the telemetry readouts: a USB (UVC) receiver or goggles over OTG, or an RTSP network stream. With a source chosen, a video button appears on the map to switch between picture and map\n%s"
+                android:summary="A live picture beside the map, under the telemetry readouts: a USB (UVC) receiver or goggles over OTG, or a network stream (RTSP or MJPEG). With a source chosen, a video button on the map shows and hides the picture\n%s"
                 android:entries="@array/VideoSources"
                 android:entryValues="@array/VideoSourceValues"
                 android:defaultValue="off"
