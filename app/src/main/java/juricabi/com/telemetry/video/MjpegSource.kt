@@ -75,8 +75,18 @@ class MjpegSource(
     // sent the field re-tapping at a wrong path
     @Volatile private var answer: String? = null
     private var thread: Thread? = null
+    private var drawThread: Thread? = null
     @Volatile private var connection: HttpURLConnection? = null
     @Volatile private var view: TextureView? = null
+
+    // The newest complete frame, waiting on the decoder — one slot, newest
+    // wins. Reading the wire is the cheap half and decoding the dear one;
+    // decoded inline, a camera faster than the decode banked its lead in
+    // the TCP buffers, and the picture ran seconds behind after minutes of
+    // watching. Every frame is a whole picture, so dropping costs nothing
+    // but the frames nobody would have seen in time anyway.
+    private val latest = java.util.concurrent.ArrayBlockingQueue<ByteArray>(1)
+    private var skipped = 0
     @Volatile private var frameWidth = 0
     @Volatile private var frameHeight = 0
 
@@ -108,6 +118,18 @@ class MjpegSource(
                 if (running) events.onTrouble("$said — ${e.message ?: "stream failed"}")
             }
         }, "mjpeg-video").also { it.start() }
+        drawThread = Thread({
+            try {
+                while (running) {
+                    val frame = latest.poll(
+                        100, java.util.concurrent.TimeUnit.MILLISECONDS
+                    ) ?: continue
+                    draw(frame)
+                }
+            } catch (e: InterruptedException) {
+                // stopping; nothing left to draw
+            }
+        }, "mjpeg-draw").also { it.start() }
     }
 
     private fun stream() {
@@ -127,7 +149,14 @@ class MjpegSource(
             throw IOException("HTTP " + conn.responseCode)
         }
         scanMjpegFrames(BufferedInputStream(conn.inputStream)) { bytes ->
-            draw(bytes)
+            if (!latest.offer(bytes)) {
+                latest.clear()
+                latest.offer(bytes)
+                if (++skipped % 300 == 1) DebugLog.note(
+                    "Video",
+                    "mjpeg $skipped frames behind the wire so far, dropped to stay live"
+                )
+            }
             running
         }
     }
@@ -204,6 +233,7 @@ class MjpegSource(
         connection?.disconnect() // unblocks a read waiting on the network
         connection = null
         thread = null
+        drawThread = null
         view?.removeOnLayoutChangeListener(refitOnLayout)
         view = null
     }
