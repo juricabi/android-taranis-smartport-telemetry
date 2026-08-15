@@ -2245,6 +2245,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private var videoGeneration = 0
 
+    /**
+     * Tries the stream again after trouble stopped the source but left the
+     * pane standing. Cancelled wherever the pane closes or the screen goes.
+     */
+    private val videoRetry = Runnable {
+        if (videoWanted && videoSource == null) startVideo()
+    }
+
     private fun newVideoEvents(): VideoSource.Events {
         val generation = ++videoGeneration
         fun current() = generation == videoGeneration && videoWanted
@@ -2266,8 +2274,28 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             override fun onTrouble(what: String) {
                 runOnUiThread {
                     if (!current()) return@runOnUiThread
-                    Toast.makeText(this@MapsActivity, "Video: $what", Toast.LENGTH_LONG).show()
-                    hideVideo()
+                    if (preferenceManager.getVideoSource() == "network") {
+                        // An unreachable stream is a waiting state, not a
+                        // verdict — the server may simply not be up yet. The
+                        // pane stays, like the USB half waiting for its
+                        // camera: the card says what is wrong and the stream
+                        // is tried again. Folding on the spot made the button
+                        // read as broken — a tap opened the half for the
+                        // tenth of a second four refused connections take,
+                        // then it snapped shut, and the field logs are full
+                        // of the re-taps. USB keeps the fold: retrying there
+                        // would re-ask the USB permission at every turn.
+                        videoGeneration++
+                        videoSource?.stop()
+                        videoSource = null
+                        videoWaiting.text = "$what — trying again…"
+                        videoWaiting.visibility = View.VISIBLE
+                        videoWaiting.removeCallbacks(videoRetry)
+                        videoWaiting.postDelayed(videoRetry, 2000)
+                    } else {
+                        Toast.makeText(this@MapsActivity, "Video: $what", Toast.LENGTH_LONG).show()
+                        hideVideo()
+                    }
                 }
             }
 
@@ -2508,6 +2536,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private fun hideVideo() {
         videoWanted = false
         videoGeneration++ // whatever the stopped source still says is stale
+        videoWaiting.removeCallbacks(videoRetry)
         videoSource?.stop()
         videoSource = null
         videoHalf.visibility = View.GONE
@@ -2558,6 +2587,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // and the field watched dialogs churn at three a second. videoWanted
         // stays, and coming back starts it again.
         videoGeneration++
+        videoWaiting.removeCallbacks(videoRetry)
         videoSource?.stop()
         videoSource = null
     }
