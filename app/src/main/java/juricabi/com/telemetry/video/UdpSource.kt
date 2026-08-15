@@ -407,6 +407,13 @@ class UdpSource(
             // real picture — but the input buffers are sized off it, and a
             // 4K keyframe must still fit in one
             format.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 1 shl 20)
+            // decoders left to themselves pipeline a few frames for
+            // throughput's sake; this stream is a pilot's eyes, and Android
+            // 11's low-latency switch tells the codec to hand each frame
+            // over the moment it is decoded (older phones just ignore it)
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+            }
             when (codec) {
                 // AVC's documented form is SPS and PPS as separate buffers;
                 // one concatenated run worked on most phones and failed on
@@ -444,23 +451,30 @@ class UdpSource(
         var ticks = 0L
         try {
             while (running) {
-                val (bytes, timestamp, keyframe) = units.poll(
-                    100, java.util.concurrent.TimeUnit.MILLISECONDS
-                ) ?: continue
-                // frames queued behind a drop lean on pictures never decoded
-                if (needKeyframe && !keyframe) continue
-                if (keyframe) needKeyframe = false
-                val at = decoder.dequeueInputBuffer(100_000)
-                if (at < 0) {
-                    needKeyframe = true // the unit is dropped; so is the chain
-                    continue
+                val unit = units.poll(10, java.util.concurrent.TimeUnit.MILLISECONDS)
+                if (unit != null) run feed@{
+                    val (bytes, timestamp, keyframe) = unit
+                    // frames queued behind a drop lean on pictures never decoded
+                    if (needKeyframe && !keyframe) return@feed
+                    if (keyframe) needKeyframe = false
+                    val at = decoder.dequeueInputBuffer(100_000)
+                    if (at < 0) {
+                        needKeyframe = true // the unit is dropped; so is the chain
+                        return@feed
+                    }
+                    if (lastRawTicks >= 0) ticks += (timestamp - lastRawTicks).toInt()
+                    lastRawTicks = timestamp
+                    decoder.getInputBuffer(at)?.put(bytes)
+                    // 90 kHz ticks to microseconds; frames render on arrival, so
+                    // only monotony matters, not the epoch
+                    decoder.queueInputBuffer(at, 0, bytes.size, ticks * 100 / 9, 0)
                 }
-                if (lastRawTicks >= 0) ticks += (timestamp - lastRawTicks).toInt()
-                lastRawTicks = timestamp
-                decoder.getInputBuffer(at)?.put(bytes)
-                // 90 kHz ticks to microseconds; frames render on arrival, so
-                // only monotony matters, not the epoch
-                decoder.queueInputBuffer(at, 0, bytes.size, ticks * 100 / 9, 0)
+                // Drained every pass, fed or not: a frame finishes decoding
+                // milliseconds after its input goes in, long before the next
+                // unit arrives off the air. Drained only behind an input, as
+                // this first ran, every finished frame sat inside the decoder
+                // until its successor landed — a whole frame interval of
+                // latency that no buffer setting showed.
                 while (true) {
                     val out = decoder.dequeueOutputBuffer(info, 0)
                     if (out == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {

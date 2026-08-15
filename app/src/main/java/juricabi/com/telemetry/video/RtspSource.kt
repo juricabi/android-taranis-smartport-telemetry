@@ -130,9 +130,12 @@ class RtspSource(
                 // further behind the camera, and an RTSP session never
                 // announces a live edge for the player to chase on its own.
                 // A backlog past double the configured buffer is drift, not
-                // buffering — jump it.
+                // buffering — jump it. Bounded above too: the field showed a
+                // seconds-old stream reporting hours of "buffer" — a broken
+                // clock, not a backlog, and a one-second buffer cannot hold
+                // more than seconds; seeking on the lie stuttered the picture.
                 val behind = p.totalBufferedDuration
-                if (behind > 2000) {
+                if (behind in 2001..30_000) {
                     DebugLog.note("Video", "rtsp ${behind}ms behind the camera, catching up")
                     p.seekToDefaultPosition()
                 }
