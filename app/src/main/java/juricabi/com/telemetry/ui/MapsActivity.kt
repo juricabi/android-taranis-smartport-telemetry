@@ -589,6 +589,20 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         lastSelectedBluetoothDeviceAddress = preferenceManager.getLastSelectedBluetoothDeviceAddress()
         lastSelectedBLEDeviceAddress = preferenceManager.getLastSelectedBLEDeviceAddress()
 
+        // The recordings, the CSVs and — on a debug build — the diagnostics
+        // all live on storage, and a first flight recorded to nowhere is
+        // found out too late. Asked up front therefore, but only once: a
+        // refusal is not nagged at every start, and the in-context asks at
+        // connect and replay still come as they always have.
+        if (!preferenceManager.wasStorageAskedAtStart()
+            && ContextCompat.checkSelfPermission(
+                this, android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            preferenceManager.setStorageAskedAtStart()
+            requestWritePermission(RequestWritePermissionSequenceType.NONE)
+        }
+
         rootLayout = findViewById(R.id.rootLayout)
         fuel = findViewById(R.id.fuel)
         rssi = findViewById(R.id.rssi)

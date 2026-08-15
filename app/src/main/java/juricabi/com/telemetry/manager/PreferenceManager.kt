@@ -133,6 +133,15 @@ class PreferenceManager(context: Context) {
         return sharedPreferences.getBoolean("mock_location_enabled", false)
     }
 
+    /** Whether the start-of-app storage ask has been made, ever. Once is polite. */
+    fun wasStorageAskedAtStart(): Boolean {
+        return sharedPreferences.getBoolean("storage_asked_at_start", false)
+    }
+
+    fun setStorageAskedAtStart() {
+        sharedPreferences.edit().putBoolean("storage_asked_at_start", true).apply()
+    }
+
     /** "off", "usb" or "network": where the live picture comes from. */
     fun getVideoSource(): String {
         return sharedPreferences.getString("video_source", "off") ?: "off"
