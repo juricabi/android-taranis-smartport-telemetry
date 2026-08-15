@@ -323,9 +323,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private lateinit var myLocationButton: FloatingActionButton
     private lateinit var findQuadButton: FloatingActionButton
     private lateinit var videoButton: FloatingActionButton
-    private lateinit var videoSoundButton: FloatingActionButton
-    private lateinit var videoFillButton: FloatingActionButton
-    private lateinit var videoRotateButton: FloatingActionButton
+
+    // on the picture itself, not among the map's buttons — they only mean
+    // anything while the half is up, and go with it
+    private lateinit var videoSoundButton: ImageButton
+    private lateinit var videoFillButton: ImageButton
+    private lateinit var videoRotateButton: ImageButton
     private lateinit var videoView: TextureView
     private lateinit var videoHalf: FrameLayout
     private lateinit var videoWaiting: TextViewOutline
@@ -2431,9 +2434,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         videoSource = null
         videoHalf.visibility = View.GONE
         videoButton.imageAlpha = 128
-        videoSoundButton.visibility = View.GONE
-        videoFillButton.visibility = View.GONE
-        videoRotateButton.visibility = View.GONE
     }
 
     /**

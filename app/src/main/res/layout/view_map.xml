@@ -43,6 +43,58 @@
                     app:outlineColor="@android:color/black"
                     app:outlineSize="3dp"/>
 
+            <!-- The picture's own controls live on the picture, not among
+                 the map's buttons: sound, fill and turn only mean anything
+                 while the half is up, and the half hides them with itself. -->
+            <LinearLayout
+                    android:id="@+id/video_controls"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="top|end"
+                    android:layout_margin="4dp"
+                    android:orientation="horizontal">
+
+                <ImageButton
+                        android:id="@+id/video_sound_button"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:layout_margin="4dp"
+                        android:padding="8dp"
+                        android:background="@drawable/bg_video_control"
+                        android:contentDescription="Stream sound"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_sound"
+                        android:visibility="gone"
+                        tools:visibility="visible"/>
+
+                <ImageButton
+                        android:id="@+id/video_fill_button"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:layout_margin="4dp"
+                        android:padding="8dp"
+                        android:background="@drawable/bg_video_control"
+                        android:contentDescription="Fill the half"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_fill"
+                        android:visibility="gone"
+                        tools:visibility="visible"/>
+
+                <ImageButton
+                        android:id="@+id/video_rotate_button"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:layout_margin="4dp"
+                        android:padding="8dp"
+                        android:background="@drawable/bg_video_control"
+                        android:contentDescription="Turn the picture"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_rotate"
+                        android:visibility="gone"
+                        tools:visibility="visible"/>
+
+            </LinearLayout>
+
         </FrameLayout>
 
         <FrameLayout
@@ -201,39 +253,6 @@
                     android:layout_height="wrap_content"
                     android:layout_margin="8dp"
                     android:src="@drawable/ic_video"
-                    android:visibility="gone"
-                    app:fabSize="mini"
-                    tools:visibility="visible"
-                    app:backgroundTint="@color/colorAccent" />
-
-            <com.google.android.material.floatingactionbutton.FloatingActionButton
-                    android:id="@+id/video_sound_button"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_margin="8dp"
-                    android:src="@drawable/ic_sound"
-                    android:visibility="gone"
-                    app:fabSize="mini"
-                    tools:visibility="visible"
-                    app:backgroundTint="@color/colorAccent" />
-
-            <com.google.android.material.floatingactionbutton.FloatingActionButton
-                    android:id="@+id/video_fill_button"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_margin="8dp"
-                    android:src="@drawable/ic_fill"
-                    android:visibility="gone"
-                    app:fabSize="mini"
-                    tools:visibility="visible"
-                    app:backgroundTint="@color/colorAccent" />
-
-            <com.google.android.material.floatingactionbutton.FloatingActionButton
-                    android:id="@+id/video_rotate_button"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_margin="8dp"
-                    android:src="@drawable/ic_rotate"
                     android:visibility="gone"
                     app:fabSize="mini"
                     tools:visibility="visible"
