@@ -21,27 +21,33 @@ import juricabi.com.telemetry.utils.DebugLog
  * the JPEG marks are the one part of the stream they cannot get wrong.
  */
 internal fun scanMjpegFrames(input: InputStream, onFrame: (ByteArray) -> Boolean) {
+    // read in chunks and walk them locally: a stream's read() per byte is a
+    // synchronized call four hundred thousand times a frame, and it showed
+    val chunk = ByteArray(32 * 1024)
     val frame = ByteArrayOutputStream(64 * 1024)
     var previous = -1
     var inJpeg = false
     while (true) {
-        val b = input.read()
-        if (b < 0) return
-        if (!inJpeg) {
-            if (previous == 0xFF && b == 0xD8) {
-                inJpeg = true
-                frame.reset()
-                frame.write(0xFF)
-                frame.write(0xD8)
+        val got = input.read(chunk)
+        if (got < 0) return
+        for (i in 0 until got) {
+            val b = chunk[i].toInt() and 0xFF
+            if (!inJpeg) {
+                if (previous == 0xFF && b == 0xD8) {
+                    inJpeg = true
+                    frame.reset()
+                    frame.write(0xFF)
+                    frame.write(0xD8)
+                }
+            } else {
+                frame.write(b)
+                if (previous == 0xFF && b == 0xD9) {
+                    inJpeg = false
+                    if (!onFrame(frame.toByteArray())) return
+                }
             }
-        } else {
-            frame.write(b)
-            if (previous == 0xFF && b == 0xD9) {
-                inJpeg = false
-                if (!onFrame(frame.toByteArray())) return
-            }
+            previous = b
         }
-        previous = b
     }
 }
 
@@ -126,9 +132,21 @@ class MjpegSource(
         }
     }
 
+    // each frame decodes into the last frame's pixels: a fresh 1080p bitmap
+    // is eight megabytes, and allocating one per frame kept the collector
+    // running against the decoder — the picture stuttered for it
+    private val decodeOptions = BitmapFactory.Options().apply { inMutable = true }
+
     private fun draw(bytes: ByteArray) {
         if (!running) return
-        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return
+        val bitmap = try {
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions)
+        } catch (e: IllegalArgumentException) {
+            // the camera changed frame size and the old pixels no longer fit
+            decodeOptions.inBitmap = null
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions)
+        } ?: return
+        decodeOptions.inBitmap = bitmap
         val view = view ?: return
         if (bitmap.width != frameWidth || bitmap.height != frameHeight) {
             frameWidth = bitmap.width
@@ -138,12 +156,11 @@ class MjpegSource(
         }
         // null while the view is not yet available; the stream keeps going
         // and the next frame after it appears lands
-        val canvas = view.lockCanvas() ?: run { bitmap.recycle(); return }
+        val canvas = view.lockCanvas() ?: return
         try {
             canvas.drawBitmap(bitmap, null, Rect(0, 0, canvas.width, canvas.height), null)
         } finally {
             view.unlockCanvasAndPost(canvas)
-            bitmap.recycle()
         }
         if (!live) {
             live = true

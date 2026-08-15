@@ -322,13 +322,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private lateinit var northUpButton: FloatingActionButton
     private lateinit var myLocationButton: FloatingActionButton
     private lateinit var findQuadButton: FloatingActionButton
-    private lateinit var videoButton: FloatingActionButton
-
-    // on the picture itself, not among the map's buttons — they only mean
-    // anything while the half is up, and go with it
-    private lateinit var videoSoundButton: ImageButton
-    private lateinit var videoFillButton: ImageButton
-    private lateinit var videoRotateButton: ImageButton
+    // in the top bar with the other whole-screen switches, off both the map
+    // and the picture; sound, fill and turn show only while the half is up
+    private lateinit var videoButton: ImageView
+    private lateinit var videoSoundButton: ImageView
+    private lateinit var videoFillButton: ImageView
+    private lateinit var videoRotateButton: ImageView
     private lateinit var videoView: TextureView
     private lateinit var videoHalf: FrameLayout
     private lateinit var videoWaiting: TextViewOutline
@@ -2205,8 +2204,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         startFr24()
         updateVideoControls()
         // built fresh from the settings just left, so a changed source or
-        // address takes effect on the way back
-        if (videoWanted && videoSource == null) startVideo()
+        // address takes effect on the way back. Noted, because a resume also
+        // follows every system dialog — a run of these lines in the log means
+        // something keeps pausing the screen, not that somebody keeps tapping.
+        if (videoWanted && videoSource == null) {
+            juricabi.com.telemetry.utils.DebugLog.note("Video", "restart on resume")
+            startVideo()
+        }
     }
 
     /**
@@ -2372,17 +2376,16 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             return
         }
         videoSource = source
-        // The view keeps the last session's final frame; painted over, the
-        // card stands on the dark half instead of floating over a stale
-        // picture that reads as live. No source owns the surface here.
-        try {
-            videoView.lockCanvas()?.let {
-                it.drawColor(0xFF303030.toInt())
-                videoView.unlockCanvasAndPost(it)
-            }
-        } catch (e: Exception) {
-            // a surface a departed decoder still counts as its own cannot be
-            // painted — the fresh source replaces the picture anyway
+        // One canvas draw ties a surface to the CPU for good — MJPEG paints
+        // every frame that way — and a decoder can never attach to it after:
+        // MJPEG then RTSP on the same texture failed every decoder init until
+        // the screen was rebuilt. Passing the view through the window hands
+        // each source a texture with no history, which also retires the stale
+        // last frame the old paint-over here existed for.
+        (videoView.parent as ViewGroup).let { parent ->
+            val at = parent.indexOfChild(videoView)
+            parent.removeViewAt(at)
+            parent.addView(videoView, at)
         }
         // the card says what is being waited for, and the first real frame
         // replaces it
@@ -2434,6 +2437,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         videoSource = null
         videoHalf.visibility = View.GONE
         videoButton.imageAlpha = 128
+        // the picture's controls live in the top bar, so the half folding
+        // away does not take them along
+        videoSoundButton.visibility = View.GONE
+        videoFillButton.visibility = View.GONE
+        videoRotateButton.visibility = View.GONE
     }
 
     /**
