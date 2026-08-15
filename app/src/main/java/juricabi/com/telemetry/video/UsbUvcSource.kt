@@ -118,7 +118,14 @@ class UsbUvcSource(
 
         override fun onCancel(device: UsbDevice) {
             DebugLog.note("Video", "uvc permission refused for ${said(device)}")
-            events.onTrouble("USB permission was refused")
+            // A "no" to the USB dialog is remembered: Android answers every
+            // later ask itself, instantly, showing nothing, until the camera
+            // is replugged. The toast must say that remedy — a retry alone
+            // just re-earns the same silent no.
+            events.onTrouble(
+                "Android refused USB access to ${said(device)} and will keep " +
+                    "refusing quietly — unplug the camera, plug it back in, then allow it"
+            )
         }
 
         override fun onError(device: UsbDevice, e: CameraException) {
