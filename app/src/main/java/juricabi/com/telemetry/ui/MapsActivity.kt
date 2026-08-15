@@ -2388,10 +2388,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // The service keeps both location and compass for a connected flight;
         // this only removes callbacks to a screen that is no longer drawing.
         setPhoneWatch(false)
-        // the camera or the stream goes with the screen; videoWanted stays,
-        // and onResume starts it again
-        videoSource?.stop()
-        videoSource = null
     }
 
     override fun onStop() {
@@ -2399,6 +2395,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         map?.onStop()
         this.logPlayer?.stop();
         this.sensorTimeoutManager.pause();
+        // The camera or the stream goes with the screen — this screen, truly
+        // gone, not merely paused. Released in onPause it died under every
+        // system dialog, and the USB permission ask is itself such a dialog:
+        // releasing cancelled the pending request, the restart asked again,
+        // and the field watched dialogs churn at three a second. videoWanted
+        // stays, and coming back starts it again.
+        videoSource?.stop()
+        videoSource = null
     }
 
     private fun connectBluetooth() {
