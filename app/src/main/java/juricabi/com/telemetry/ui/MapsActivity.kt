@@ -59,6 +59,7 @@ import juricabi.com.telemetry.maps.maplibre.MapLibreStyles
 import org.maplibre.android.MapLibre
 import juricabi.com.telemetry.utils.GeoUtils
 import juricabi.com.telemetry.utils.PlusCode
+import juricabi.com.telemetry.video.MjpegSource
 import juricabi.com.telemetry.video.RtspSource
 import juricabi.com.telemetry.video.UsbUvcSource
 import juricabi.com.telemetry.video.VideoSource
@@ -2202,21 +2203,28 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         if (videoWanted) hideVideo() else showVideo()
     }
 
-    /** The configured source, or null having said why there is nothing to start. */
+    /**
+     * The configured source, or null having said why there is nothing to
+     * start. One network entry, and the address's scheme picks the decoder:
+     * the scheme already states the protocol, and a separate choice to keep
+     * in agreement with it would only add a way to disagree.
+     */
     private fun buildVideoSource(): VideoSource? {
         return when (preferenceManager.getVideoSource()) {
             "usb" -> UsbUvcSource(this, ::videoTrouble)
-            "rtsp" -> {
-                val url = preferenceManager.getVideoRtspUrl()
-                if (url.isBlank()) {
-                    Toast.makeText(
-                        this, "No RTSP address set — enter one under Settings, Video",
-                        Toast.LENGTH_LONG
-                    ).show()
-                    null
-                } else {
-                    RtspSource(this, url, ::videoTrouble)
+            "network" -> {
+                val url = preferenceManager.getVideoStreamUrl()
+                val trouble = when {
+                    url.isBlank() -> "No stream address set — enter one under Settings, Video"
+                    url.startsWith("rtsp://", ignoreCase = true) ->
+                        return RtspSource(this, url, ::videoTrouble)
+                    url.startsWith("http://", ignoreCase = true) ||
+                        url.startsWith("https://", ignoreCase = true) ->
+                        return MjpegSource(url, ::videoTrouble)
+                    else -> "The stream address must start rtsp:// (RTSP) or http:// (MJPEG)"
                 }
+                Toast.makeText(this, trouble, Toast.LENGTH_LONG).show()
+                null
             }
             else -> null
         }

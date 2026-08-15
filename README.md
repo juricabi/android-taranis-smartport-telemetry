@@ -143,9 +143,12 @@ measured from whatever there is to be near, and the warning says which:
 ### Live video
 
 Pick a source under **Settings → Video** — a USB (UVC) receiver or goggles
-plugged in over OTG, or an RTSP network stream — and a video button appears
-on the map. It swaps the ground under the readouts between map and picture;
-every sensor, the horizon and the buttons keep working over the video.
+plugged in over OTG, or a network stream — and a video button appears on the
+map. It swaps the ground under the readouts between map and picture; every
+sensor, the horizon and the buttons keep working over the video. A network
+address starting `rtsp://` is played as RTSP (OpenIPC, OpenHD, WiFi VRX
+boxes); one starting `http://` is read as MJPEG (ESP32-CAM, mjpg-streamer,
+the IP Webcam app).
 
 ### Drone GPS as phone location
 
@@ -244,8 +247,8 @@ first. Ghost telemetry mirror uses **115200 baud**.
   needs a separate scoped-storage, notification and foreground-service migration.
 - Map caching is opportunistic; there is no offline-area downloader yet.
 - Live video (Settings → Video) is a USB UVC receiver or goggles over OTG, or
-  an RTSP network stream at roughly half-a-second ground-station latency; it
-  is not a sub-150 ms FPV feed.
+  a network stream — RTSP at roughly half-a-second ground-station latency, or
+  MJPEG over HTTP; it is not a sub-150 ms FPV feed.
 - Real transport reconnection still needs verification with the corresponding
   physical radio/module; the simulator tests the network and decoder path.
 

@@ -133,13 +133,14 @@ class PreferenceManager(context: Context) {
         return sharedPreferences.getBoolean("mock_location_enabled", false)
     }
 
-    /** "off", "usb" or "rtsp": where the live picture comes from. */
+    /** "off", "usb" or "network": where the live picture comes from. */
     fun getVideoSource(): String {
         return sharedPreferences.getString("video_source", "off") ?: "off"
     }
 
-    fun getVideoRtspUrl(): String {
-        return sharedPreferences.getString("video_rtsp_url", "") ?: ""
+    /** The network stream. Its scheme says what it speaks: rtsp or http (MJPEG). */
+    fun getVideoStreamUrl(): String {
+        return sharedPreferences.getString("video_stream_url", "") ?: ""
     }
 
     fun isClockEnabled(): Boolean {
