@@ -31,6 +31,18 @@ internal fun sniffRtpCodec(packet: ByteArray, length: Int): RtpCodec? {
     if ((b0 == 0x40 || b0 == 0x42) && at + 1 < length &&
         packet[at + 1].toInt() == 0x01
     ) return RtpCodec.H265
+    // parameter sets also ride first inside aggregates — ffmpeg packs
+    // SPS+PPS into one STAP-A and VPS+SPS+PPS into one AP — so the first
+    // aggregated unit is sniffed where it lies
+    if (b0 and 0x1F == 24 && at + 3 < length &&
+        packet[at + 3].toInt() and 0x9F == 0x07
+    ) return RtpCodec.H264
+    if ((b0 shr 1) and 0x3F == 48 && at + 5 < length) {
+        val f0 = packet[at + 4].toInt() and 0xFF
+        if ((f0 == 0x40 || f0 == 0x42) && packet[at + 5].toInt() == 0x01) {
+            return RtpCodec.H265
+        }
+    }
     return null
 }
 
@@ -99,6 +111,7 @@ internal class RtpDepacketizer(
                 while (i + 2 <= end) {
                     val size = ((p[i].toInt() and 0xFF) shl 8) or (p[i + 1].toInt() and 0xFF)
                     i += 2
+                    if (size == 0) continue // junk entry, not a dead session
                     if (i + size > end) break
                     onNal(p.copyOfRange(i, i + size), ts, marker && i + size >= end)
                     i += size
@@ -131,6 +144,7 @@ internal class RtpDepacketizer(
                 while (i + 2 <= end) {
                     val size = ((p[i].toInt() and 0xFF) shl 8) or (p[i + 1].toInt() and 0xFF)
                     i += 2
+                    if (size == 0) continue // junk entry, not a dead session
                     if (i + size > end) break
                     onNal(p.copyOfRange(i, i + size), ts, marker && i + size >= end)
                     i += size
@@ -184,13 +198,21 @@ class UdpSource(
     @Volatile private var live = false
     @Volatile private var socket: DatagramSocket? = null
     @Volatile private var surface: Surface? = null
-    private var view: TextureView? = null
+    @Volatile private var view: TextureView? = null
     @Volatile private var pictureWidth = 0
     @Volatile private var pictureHeight = 0
 
-    // whole access units, receiver to decoder; a burst beyond the decoder's
-    // pace drops the backlog rather than growing a latency debt
-    private val units = ArrayBlockingQueue<Pair<ByteArray, Long>>(4)
+    // whole access units, receiver to decoder, each marked whether it
+    // carries a keyframe; a burst beyond the decoder's pace drops the
+    // backlog rather than growing a latency debt
+    private val units = ArrayBlockingQueue<Triple<ByteArray, Long, Boolean>>(4)
+
+    // Decoding must (re)start at a keyframe — the picture before one is
+    // built on frames never seen. True at the start, and raised again by
+    // anything that dropped frames: without this, every burst-then-stall
+    // smeared the picture until the sender's next keyframe anyway, plus
+    // seconds of grey garbage in between.
+    @Volatile private var needKeyframe = true
 
     private val refitOnLayout = android.view.View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
         refit()
@@ -232,31 +254,39 @@ class UdpSource(
             return
         }
         this.socket = socket
+        // stop() closes whatever it finds in the field; landed after it
+        // already ran, this side of the handshake closes it itself
+        if (!running) {
+            socket.close()
+            return
+        }
         val packet = DatagramPacket(ByteArray(65536), 65536)
         var codec: RtpCodec? = null
         var depacketizer: RtpDepacketizer? = null
-        val csd = LinkedHashMap<Int, ByteArray>() // parameter sets, in arrival order
+        val csd = LinkedHashMap<Int, ByteArray>() // parameter sets by NAL type
         var decoder: Thread? = null
         // the access unit being gathered: NALs sharing one RTP timestamp
-        var au = ByteArrayOutputStream(256 * 1024)
+        val au = ByteArrayOutputStream(256 * 1024)
         var auTimestamp = -1L
         var auHasKeyframe = false
-        var sentFirstKeyframe = false
         var lastHeard = System.currentTimeMillis()
+        var firstHeard = lastHeard
         var everHeard = false
 
         fun finishAu() {
             if (au.size() == 0) return
             val bytes = au.toByteArray()
+            val key = auHasKeyframe
             au.reset()
-            // decoding must begin at a keyframe; the picture before one is
-            // built on frames never seen
-            if (!sentFirstKeyframe && !auHasKeyframe) { auHasKeyframe = false; return }
-            sentFirstKeyframe = true
             auHasKeyframe = false
-            if (!units.offer(Pair(bytes, auTimestamp))) {
+            if (needKeyframe && !key) return
+            needKeyframe = false
+            if (!units.offer(Triple(bytes, auTimestamp, key))) {
+                // the decoder fell behind; the backlog goes, and with it the
+                // reference pictures — so a non-keyframe goes with them
                 units.clear()
-                units.offer(Pair(bytes, auTimestamp))
+                needKeyframe = !key
+                if (key) units.offer(Triple(bytes, auTimestamp, key))
             }
         }
 
@@ -282,6 +312,7 @@ class UdpSource(
                     }
                     if (live && quiet > 4000) {
                         live = false
+                        needKeyframe = true // whatever was mid-air is gone
                         DebugLog.note("Video", "udp stream went quiet")
                         events.onIdle()
                     }
@@ -290,6 +321,7 @@ class UdpSource(
                 lastHeard = System.currentTimeMillis()
                 if (!everHeard) {
                     everHeard = true
+                    firstHeard = lastHeard
                     val b = packet.data
                     if (packet.length >= 188 && b[0].toInt() == 0x47 &&
                         packet.length % 188 == 0
@@ -302,7 +334,21 @@ class UdpSource(
                     }
                 }
                 if (codec == null) {
-                    codec = sniffRtpCodec(packet.data, packet.length) ?: continue
+                    codec = sniffRtpCodec(packet.data, packet.length)
+                    if (codec == null) {
+                        // judged here, among the arriving packets — a check
+                        // living only in the silence branch never ran while
+                        // an undecodable stream kept the socket busy
+                        if (lastHeard - firstHeard > 8000) {
+                            events.onTrouble(
+                                "UDP port $port carries data but no " +
+                                    "H.264/H.265 parameter sets came — is " +
+                                    "the sender using RTP?"
+                            )
+                            return
+                        }
+                        continue
+                    }
                     DebugLog.note("Video", "udp stream is ${codec.name} (RTP)")
                     val chosen = codec
                     depacketizer = RtpDepacketizer(chosen) { nal, ts, marker ->
@@ -330,7 +376,9 @@ class UdpSource(
                     (codec == RtpCodec.H264 && csd.size >= 2 ||
                         codec == RtpCodec.H265 && csd.size >= 3)
                 ) {
-                    val d = Thread({ decode(codec!!, csd.values.toList()) }, "udp-decode")
+                    // sorted by NAL type: SPS before PPS, VPS-SPS-PPS —
+                    // whatever order the stream repeated them in
+                    val d = Thread({ decode(codec!!, csd.toSortedMap().values.toList()) }, "udp-decode")
                     decoder = d
                     d.start()
                 }
@@ -347,43 +395,84 @@ class UdpSource(
     private fun decode(codec: RtpCodec, parameterSets: List<ByteArray>) {
         val startCode = byteArrayOf(0, 0, 0, 1)
         val decoder = try {
-            MediaCodec.createDecoderByType(codec.mime).also {
-                val format = MediaFormat.createVideoFormat(codec.mime, 1920, 1080)
-                // the parameter sets as one Annex-B run — the sizes in them,
-                // not this nominal 1920x1080, decide the real picture
-                val bytes = ByteArrayOutputStream()
-                for (set in parameterSets) {
+            MediaCodec.createDecoderByType(codec.mime)
+        } catch (e: Exception) {
+            DebugLog.note("Video", "udp no ${codec.name} decoder: $e")
+            if (running) events.onTrouble("this phone has no ${codec.name} decoder")
+            return
+        }
+        try {
+            val format = MediaFormat.createVideoFormat(codec.mime, 1920, 1080)
+            // the parameter sets, not this nominal 1920x1080, decide the
+            // real picture — but the input buffers are sized off it, and a
+            // 4K keyframe must still fit in one
+            format.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 1 shl 20)
+            when (codec) {
+                // AVC's documented form is SPS and PPS as separate buffers;
+                // one concatenated run worked on most phones and failed on
+                // the picky ones. HEVC's documented form is the one run.
+                RtpCodec.H264 -> parameterSets.forEachIndexed { i, set ->
+                    val bytes = ByteArrayOutputStream()
                     bytes.write(startCode)
                     bytes.write(set)
+                    format.setByteBuffer("csd-$i", java.nio.ByteBuffer.wrap(bytes.toByteArray()))
                 }
-                format.setByteBuffer("csd-0", java.nio.ByteBuffer.wrap(bytes.toByteArray()))
-                it.configure(format, surface, null, 0)
-                it.start()
+                RtpCodec.H265 -> {
+                    val bytes = ByteArrayOutputStream()
+                    for (set in parameterSets) {
+                        bytes.write(startCode)
+                        bytes.write(set)
+                    }
+                    format.setByteBuffer("csd-0", java.nio.ByteBuffer.wrap(bytes.toByteArray()))
+                }
             }
+            decoder.configure(format, surface, null, 0)
+            decoder.start()
         } catch (e: Exception) {
+            // a released codec is not scarce; an unreleased one starves the
+            // user's own retry of a hardware decoder instance
+            decoder.release()
             DebugLog.note("Video", "udp decoder failed: $e")
             if (running) events.onTrouble("the ${codec.name} decoder failed to start")
             return
         }
         DebugLog.note("Video", "udp ${codec.name} decoder up")
         val info = MediaCodec.BufferInfo()
+        // the 32-bit RTP clock extended to 64: it starts anywhere and can
+        // wrap mid-session, and time running backward upsets some decoders
+        var lastRawTicks = -1L
+        var ticks = 0L
         try {
             while (running) {
-                val (bytes, timestamp) = units.poll(
+                val (bytes, timestamp, keyframe) = units.poll(
                     100, java.util.concurrent.TimeUnit.MILLISECONDS
                 ) ?: continue
+                // frames queued behind a drop lean on pictures never decoded
+                if (needKeyframe && !keyframe) continue
+                if (keyframe) needKeyframe = false
                 val at = decoder.dequeueInputBuffer(100_000)
-                if (at < 0) continue // decoder jammed; the unit is dropped
+                if (at < 0) {
+                    needKeyframe = true // the unit is dropped; so is the chain
+                    continue
+                }
+                if (lastRawTicks >= 0) ticks += (timestamp - lastRawTicks).toInt()
+                lastRawTicks = timestamp
                 decoder.getInputBuffer(at)?.put(bytes)
-                // 90 kHz RTP ticks to microseconds; frames render on arrival,
-                // so only monotony matters, not the epoch
-                decoder.queueInputBuffer(at, 0, bytes.size, timestamp * 100 / 9, 0)
+                // 90 kHz ticks to microseconds; frames render on arrival, so
+                // only monotony matters, not the epoch
+                decoder.queueInputBuffer(at, 0, bytes.size, ticks * 100 / 9, 0)
                 while (true) {
                     val out = decoder.dequeueOutputBuffer(info, 0)
                     if (out == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                         val f = decoder.outputFormat
-                        pictureWidth = f.getInteger(MediaFormat.KEY_WIDTH)
-                        pictureHeight = f.getInteger(MediaFormat.KEY_HEIGHT)
+                        // the crop is the picture; the coded size carries the
+                        // macroblock padding — 1088 tall for a 1080p stream
+                        pictureWidth = if (f.containsKey("crop-right"))
+                            f.getInteger("crop-right") - f.getInteger("crop-left") + 1
+                        else f.getInteger(MediaFormat.KEY_WIDTH)
+                        pictureHeight = if (f.containsKey("crop-bottom"))
+                            f.getInteger("crop-bottom") - f.getInteger("crop-top") + 1
+                        else f.getInteger(MediaFormat.KEY_HEIGHT)
                         DebugLog.note(
                             "Video", "udp picture ${pictureWidth}x$pictureHeight"
                         )

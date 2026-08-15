@@ -76,7 +76,7 @@ class MjpegSource(
     @Volatile private var answer: String? = null
     private var thread: Thread? = null
     @Volatile private var connection: HttpURLConnection? = null
-    private var view: TextureView? = null
+    @Volatile private var view: TextureView? = null
     @Volatile private var frameWidth = 0
     @Volatile private var frameHeight = 0
 
@@ -177,13 +177,20 @@ class MjpegSource(
             // setTransform belongs to the UI thread; the frames do not
             view.post { view.fitPicture(frameWidth, frameHeight) }
         }
+        // Re-read both before touching the canvas: the decode above took
+        // tens of milliseconds, long enough for a stop-and-restart to hand
+        // this same TextureView a fresh texture for the next source — and
+        // one stale canvas draw would tie that texture to the CPU and fail
+        // the successor's decoder for good.
+        val target = this.view ?: return
+        if (!running) return
         // null while the view is not yet available; the stream keeps going
         // and the next frame after it appears lands
-        val canvas = view.lockCanvas() ?: return
+        val canvas = target.lockCanvas() ?: return
         try {
             canvas.drawBitmap(bitmap, null, Rect(0, 0, canvas.width, canvas.height), null)
         } finally {
-            view.unlockCanvasAndPost(canvas)
+            target.unlockCanvasAndPost(canvas)
         }
         if (!live) {
             live = true

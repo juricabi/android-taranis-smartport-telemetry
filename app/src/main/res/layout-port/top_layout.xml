@@ -23,6 +23,23 @@
                     android:text="@string/connect"
                     android:textColor="@android:color/white" />
 
+<!-- Every top_layout variant must carry this button — the screen binds
+                 it unconditionally, and the portrait variant missing it crashed
+                 the whole app at launch. -->
+            <ImageView
+                    android:id="@+id/video_button"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:layout_centerVertical="true"
+                    android:layout_marginEnd="8dp"
+                    android:layout_marginRight="8dp"
+                    android:layout_toStartOf="@+id/replay_button"
+                    android:layout_toLeftOf="@+id/replay_button"
+                    android:background="?selectableItemBackground"
+                    android:contentDescription="Live video"
+                    android:src="@drawable/ic_video"
+                    android:visibility="gone" />
+
             <ImageView
                     android:id="@id/replay_button"
                     android:layout_width="32dp"

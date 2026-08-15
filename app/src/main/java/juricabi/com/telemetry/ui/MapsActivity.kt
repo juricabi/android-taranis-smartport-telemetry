@@ -349,7 +349,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     // the map and its overlays together — the half arrangement resizes this,
     // and the overlays ride along instead of standing over the picture
     private lateinit var mapPane: FrameLayout
-    private lateinit var mapViewHolder: FrameLayout
     private lateinit var rc_widget: RCWidget
     private lateinit var dnSnr: TextView
     private lateinit var upSnr: TextView
@@ -679,7 +678,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         bottomList = findViewById(R.id.bottom_list)
         mapHolder = findViewById(R.id.map_holder)
         mapPane = findViewById(R.id.map_pane)
-        mapViewHolder = findViewById(R.id.mapViewHolder)
         rc_widget = findViewById(R.id.rc_widget)
         dnSnr = findViewById(R.id.dn_snr)
         upSnr = findViewById(R.id.up_snr)
@@ -2306,7 +2304,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         return when (preferenceManager.getVideoSource()) {
             "usb" -> UsbUvcSource(this, events)
             "network" -> {
-                val url = preferenceManager.getVideoStreamUrl()
+                // trimmed, because a keyboard's autocomplete space made a
+                // right address fail with a toast insisting it was wrong
+                val url = preferenceManager.getVideoStreamUrl().trim()
                 val trouble = when {
                     url.isBlank() -> "No stream address set — enter one under Settings, Video"
                     url.startsWith("rtsp://", ignoreCase = true) ->
@@ -2325,7 +2325,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                         "udp:// needs the port the stream is pushed to, like udp://5600"
                     }
                     else -> "The stream address must start rtsp:// (RTSP), " +
-                        "http:// (MJPEG) or udp:// (a pushed RTP stream)"
+                        "http(s):// (MJPEG) or udp:// (a pushed RTP stream)"
                 }
                 Toast.makeText(this, trouble, Toast.LENGTH_LONG).show()
                 null
@@ -2358,6 +2358,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     private fun startVideo() {
+        // One canvas draw ties a surface to the CPU for good — MJPEG paints
+        // every frame that way — and a decoder can never attach to it after:
+        // MJPEG then RTSP on the same texture failed every decoder init until
+        // the screen was rebuilt. Passing the view through the window hands
+        // each source a texture with no history, and retires the previous
+        // stream's stale last frame — before every branch, so the camera-
+        // permission card below never stands on a dead picture either.
+        (videoView.parent as ViewGroup).let { parent ->
+            val at = parent.indexOfChild(videoView)
+            parent.removeViewAt(at)
+            parent.addView(videoView, at)
+        }
         // Android hands a camera-class USB device only to a holder of the
         // camera permission; without it the USB ask is refused instantly and
         // silently, which the field read as a "no" that could never be taken
@@ -2392,17 +2404,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             return
         }
         videoSource = source
-        // One canvas draw ties a surface to the CPU for good — MJPEG paints
-        // every frame that way — and a decoder can never attach to it after:
-        // MJPEG then RTSP on the same texture failed every decoder init until
-        // the screen was rebuilt. Passing the view through the window hands
-        // each source a texture with no history, which also retires the stale
-        // last frame the old paint-over here existed for.
-        (videoView.parent as ViewGroup).let { parent ->
-            val at = parent.indexOfChild(videoView)
-            parent.removeViewAt(at)
-            parent.addView(videoView, at)
-        }
         // the card says what is being waited for, and the first real frame
         // replaces it
         videoWaiting.text = if (preferenceManager.getVideoSource() == "usb")

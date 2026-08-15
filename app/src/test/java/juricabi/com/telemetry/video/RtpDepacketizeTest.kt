@@ -127,6 +127,38 @@ class RtpDepacketizeTest {
     }
 
     @Test
+    fun aFragmentSurvivesTheSequenceNumbersWrapping() {
+        val nals = collect(
+            RtpCodec.H264,
+            rtp(65535, intArrayOf(0x7C, 0x85, 0x01)),
+            rtp(0, intArrayOf(0x7C, 0x45, 0x02)) // 65535 → 0 is no gap
+        )
+        assertEquals(1, nals.size)
+        assertArrayEquals(byteArrayOf(0x65, 0x01, 0x02), nals[0])
+    }
+
+    @Test
+    fun aZeroSizedAggregateEntryIsSkippedNotFatal() {
+        // [len=0] junk entry, then [len=1][0x68] — the junk must not end
+        // the walk or hand an empty unit onward
+        val nals = collect(
+            RtpCodec.H264,
+            rtp(1, intArrayOf(0x18, 0, 0, 0, 1, 0x68))
+        )
+        assertEquals(1, nals.size)
+        assertArrayEquals(byteArrayOf(0x68), nals[0])
+    }
+
+    @Test
+    fun parameterSetsInsideAggregatesStillNameTheCodec() {
+        // ffmpeg packs SPS+PPS into one STAP-A and VPS+SPS+PPS into one AP
+        val stapA = rtp(1, intArrayOf(0x18, 0, 3, 0x67, 0x64, 0x00, 0, 1, 0x68))
+        val ap = rtp(1, intArrayOf(0x60, 0x01, 0, 3, 0x40, 0x01, 0x0C))
+        assertEquals(RtpCodec.H264, sniffRtpCodec(stapA, stapA.size))
+        assertEquals(RtpCodec.H265, sniffRtpCodec(ap, ap.size))
+    }
+
+    @Test
     fun theCodecIsReadOffTheParameterSets() {
         val sps264 = rtp(1, intArrayOf(0x67, 0x64, 0x00))
         val vps265 = rtp(1, intArrayOf(0x40, 0x01, 0x0C))
