@@ -17,16 +17,16 @@ interface VideoSource {
     /** What a source tells the screen, from whatever thread it lives on. */
     interface Events {
         /**
-         * The first real frame is showing. The screen gives the picture its
-         * half only now — split earlier, a refused connection put an empty
-         * black half over the flight for as long as the retries took.
+         * The first real frame is showing — a renderer clearing a surface
+         * does not count. The screen takes its waiting card down.
          */
         fun onLive()
 
         /**
          * The picture stopped but may return — a camera unplugged mid-watch.
-         * The screen folds the half away and keeps waiting; onLive earns it
-         * back. Unlike onTrouble, this does not give the watching up.
+         * The screen puts the waiting card back where the picture was, and
+         * onLive takes it down again. Unlike onTrouble, this does not give
+         * the watching up.
          */
         fun onIdle() {}
 

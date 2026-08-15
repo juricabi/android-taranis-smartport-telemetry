@@ -117,12 +117,13 @@ object DebugLog {
     /**
      * The newest of what is noted, for the clipboard; null outside debug
      * builds. A clip rides one binder transaction, which dies near a
-     * megabyte — copying the whole file crashed the settings screen — and
-     * the newest quarter of one holds the session being asked about.
+     * megabyte — copying the whole file crashed the settings screen. Half a
+     * megabyte of text parcels near that edge; if the clipboard still dies,
+     * the copy's own catch will say so instead of crashing.
      */
     fun copyText(): String? = file?.takeIf { it.exists() }?.let {
         val bytes = it.readBytes()
-        val most = 256 * 1024
+        val most = 512 * 1024
         if (bytes.size <= most) return String(bytes)
         var from = bytes.size - most
         // up to the next whole line, so the paste does not open mid-word

@@ -7,22 +7,43 @@
     <!-- The ground, split when the live picture is on: video beside the map —
          left of it in landscape, above it in portrait — never over it, so the
          flight stays watchable next to what the camera sees. The axes and
-         weights are arranged in code, and the picture is given its half only
-         once its first real frame shows; with the picture GONE the map is the
-         only weighted child and keeps the whole pane. The readouts and
-         buttons overlay both halves alike. -->
+         weights are arranged in code. The video half opens as a deliberate
+         waiting card and the first real frame replaces it — an accidental
+         dead-black half was the worst thing this screen ever showed. With
+         the half GONE the map is the only weighted child and keeps the whole
+         pane. The readouts and buttons overlay both halves alike. -->
     <LinearLayout
             android:id="@+id/flight_pane"
             android:orientation="vertical"
             android:layout_width="match_parent"
             android:layout_height="match_parent">
 
-        <TextureView
-                android:id="@+id/video_view"
+        <FrameLayout
+                android:id="@+id/video_half"
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
                 android:layout_weight="1"
-                android:visibility="gone"/>
+                android:background="#303030"
+                android:visibility="gone">
+
+            <TextureView
+                    android:id="@+id/video_view"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"/>
+
+            <juricabi.com.telemetry.ui.TextViewOutline
+                    android:id="@+id/video_waiting"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:text="Connecting to the stream…"
+                    android:textColor="@android:color/white"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    app:outlineColor="@android:color/black"
+                    app:outlineSize="3dp"/>
+
+        </FrameLayout>
 
         <FrameLayout
                 android:id="@+id/map_holder"

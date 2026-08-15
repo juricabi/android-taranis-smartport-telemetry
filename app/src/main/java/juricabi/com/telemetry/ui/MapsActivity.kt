@@ -324,6 +324,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private lateinit var videoButton: FloatingActionButton
     private lateinit var videoSoundButton: FloatingActionButton
     private lateinit var videoView: TextureView
+    private lateinit var videoHalf: FrameLayout
+    private lateinit var videoWaiting: TextViewOutline
     private lateinit var flightPane: LinearLayout
     private lateinit var fullscreenButton: ImageView
     private lateinit var menuButton: FloatingActionButton
@@ -634,6 +636,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         videoSoundButton.imageAlpha = 128
         videoSoundButton.setOnClickListener { toggleVideoSound() }
         videoView = findViewById(R.id.video_view)
+        videoHalf = findViewById(R.id.video_half)
+        videoWaiting = findViewById(R.id.video_waiting)
         flightPane = findViewById(R.id.flight_pane)
         videoWanted = savedInstanceState?.getBoolean("video_wanted") ?: false
         videoAudioOn = savedInstanceState?.getBoolean("video_audio") ?: false
@@ -2205,25 +2209,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private var videoAudioOn = false
 
-    /** Whether the picture has earned its half — a first frame has shown. */
-    private var videoShowingLive = false
-
     private val videoEvents = object : VideoSource.Events {
         override fun onLive() {
             runOnUiThread {
-                if (videoWanted && !videoShowingLive) {
-                    videoShowingLive = true
-                    arrangeFlightPane()
-                }
+                if (videoWanted) videoWaiting.visibility = View.GONE
             }
         }
 
         override fun onIdle() {
             runOnUiThread {
-                if (videoWanted && videoShowingLive) {
-                    videoShowingLive = false
-                    arrangeFlightPane()
-                }
+                // the picture stopped and may return; the card says so where
+                // the picture was, instead of the layout jumping about
+                if (videoWanted) videoWaiting.visibility = View.VISIBLE
             }
         }
 
@@ -2295,11 +2292,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * Half each, along the axis the screen has more of: the picture left of
      * the map held landscape, above it held upright. A rotation rebuilds the
      * screen, so this is decided fresh each time video starts.
-     *
-     * Until the first real frame the picture's share is a hairline: laid out,
-     * so the decoders have a surface to aim at, but taking nothing from the
-     * map — split sooner, a refused connection put an empty black half over
-     * the flight for as long as the retries took.
      */
     private fun arrangeFlightPane() {
         val landscape =
@@ -2307,13 +2299,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         flightPane.orientation =
             if (landscape) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
         val match = LinearLayout.LayoutParams.MATCH_PARENT
-        videoView.layoutParams = if (videoShowingLive) {
-            LinearLayout.LayoutParams(if (landscape) 0 else match, if (landscape) match else 0, 1f)
-        } else {
-            LinearLayout.LayoutParams(if (landscape) 1 else match, if (landscape) match else 1, 0f)
+        for (half in listOf<View>(videoHalf, mapHolder)) {
+            half.layoutParams = LinearLayout.LayoutParams(
+                if (landscape) 0 else match, if (landscape) match else 0, 1f
+            )
         }
-        mapHolder.layoutParams =
-            LinearLayout.LayoutParams(if (landscape) 0 else match, if (landscape) match else 0, 1f)
     }
 
     private fun startVideo() {
@@ -2323,9 +2313,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             return
         }
         videoSource = source
-        videoShowingLive = false
+        // the card says what is being waited for, and the first real frame
+        // replaces it
+        videoWaiting.text = if (preferenceManager.getVideoSource() == "usb")
+            "Waiting for the USB camera…" else "Connecting to the stream…"
+        videoWaiting.visibility = View.VISIBLE
         arrangeFlightPane()
-        videoView.visibility = View.VISIBLE
+        videoHalf.visibility = View.VISIBLE
         videoButton.imageAlpha = 255
         // the speaker only where there could be sound; remembered before
         // start so the choice needs no second session
@@ -2345,7 +2339,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         videoWanted = false
         videoSource?.stop()
         videoSource = null
-        videoView.visibility = View.GONE
+        videoHalf.visibility = View.GONE
         videoButton.imageAlpha = 128
         videoSoundButton.visibility = View.GONE
     }

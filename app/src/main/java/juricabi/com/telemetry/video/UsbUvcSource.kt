@@ -8,6 +8,8 @@ import android.view.TextureView
 import com.herohan.uvcapp.CameraException
 import com.herohan.uvcapp.CameraHelper
 import com.herohan.uvcapp.ICameraHelper
+import com.serenegiant.usb.IFrameCallback
+import com.serenegiant.usb.UVCCamera
 import com.serenegiant.utils.UVCUtils
 import juricabi.com.telemetry.utils.DebugLog
 
@@ -27,6 +29,22 @@ class UsbUvcSource(
 ) : VideoSource {
 
     private var live = false
+    private var sawSurfaceDraw = false
+
+    /**
+     * One real camera frame is the proof a picture exists. The renderer also
+     * paints a surface the moment it is added — a clear, not a picture — and
+     * a split trusting surface updates showed an empty half for it.
+     */
+    private val firstFrame = IFrameCallback { frame ->
+        if (!live) {
+            live = true
+            DebugLog.note("Video", "uvc first frame, ${frame?.remaining() ?: 0} bytes")
+            events.onLive()
+        }
+        // heard once; the per-frame copy is not worth carrying after that
+        view?.post { helper?.setFrameCallback(null, 0) }
+    }
 
     init {
         // The library digs its application context out by reflection unless
@@ -75,6 +93,7 @@ class UsbUvcSource(
                 "Video", "uvc camera open ${said(device)}, " +
                     "preview=${helper?.previewSize}, supports=$sizes"
             )
+            helper?.setFrameCallback(firstFrame, UVCCamera.PIXEL_FORMAT_RAW)
             helper?.startPreview()
             fitToCamera()
             attachSurfaceIfReady()
@@ -131,10 +150,12 @@ class UsbUvcSource(
             }
 
             override fun onSurfaceTextureUpdated(t: SurfaceTexture) {
-                // fires per delivered frame; the first one is the picture
-                if (!live) {
-                    live = true
-                    events.onLive()
+                // not a signal of anything: the renderer's clear lands here
+                // too. Noted once, for telling a drawn-black half from a
+                // never-drawn one in the log.
+                if (!sawSurfaceDraw) {
+                    sawSurfaceDraw = true
+                    DebugLog.note("Video", "uvc surface first drawn")
                 }
             }
         }
