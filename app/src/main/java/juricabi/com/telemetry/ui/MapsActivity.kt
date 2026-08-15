@@ -322,8 +322,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private lateinit var northUpButton: FloatingActionButton
     private lateinit var myLocationButton: FloatingActionButton
     private lateinit var findQuadButton: FloatingActionButton
-    // in the top bar with the other whole-screen switches, off both the map
-    // and the picture; sound, fill and turn show only while the half is up
+    // the switch in the top bar beside replay; sound, fill and turn on the
+    // picture's own top-right, folding away with the half
     private lateinit var videoButton: ImageView
     private lateinit var videoSoundButton: ImageView
     private lateinit var videoFillButton: ImageView
@@ -345,6 +345,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private lateinit var loadingGrid: LoadingGrid
     private lateinit var clock_text: TextViewOutline
     private lateinit var mapHolder: FrameLayout
+    // the map and its overlays together — the half arrangement resizes this,
+    // and the overlays ride along instead of standing over the picture
+    private lateinit var mapPane: FrameLayout
     private lateinit var mapViewHolder: FrameLayout
     private lateinit var rc_widget: RCWidget
     private lateinit var dnSnr: TextView
@@ -674,6 +677,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         topList = findViewById(R.id.top_list)
         bottomList = findViewById(R.id.bottom_list)
         mapHolder = findViewById(R.id.map_holder)
+        mapPane = findViewById(R.id.map_pane)
         mapViewHolder = findViewById(R.id.mapViewHolder)
         rc_widget = findViewById(R.id.rc_widget)
         dnSnr = findViewById(R.id.dn_snr)
@@ -2334,7 +2338,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         flightPane.orientation =
             if (landscape) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
         val match = LinearLayout.LayoutParams.MATCH_PARENT
-        for (half in listOf<View>(videoHalf, mapHolder)) {
+        for (half in listOf<View>(videoHalf, mapPane)) {
             half.layoutParams = LinearLayout.LayoutParams(
                 if (landscape) 0 else match, if (landscape) match else 0, 1f
             )
@@ -2437,11 +2441,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         videoSource = null
         videoHalf.visibility = View.GONE
         videoButton.imageAlpha = 128
-        // the picture's controls live in the top bar, so the half folding
-        // away does not take them along
-        videoSoundButton.visibility = View.GONE
-        videoFillButton.visibility = View.GONE
-        videoRotateButton.visibility = View.GONE
     }
 
     /**

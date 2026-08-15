@@ -297,57 +297,10 @@
 
         </com.nex3z.flowlayout.FlowLayout>
 
-<!-- The video button and, while the picture is up, its sound, fill and
-             turn — in the bar with the other whole-screen switches, where they
-             sit over neither the map nor the picture. Only the video button
-             stays when the half is folded away. -->
+<!-- The one whole-screen video switch, beside replay; the picture's
+             own playback controls live on the picture. -->
         <ImageView
                 android:id="@+id/video_button"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:layout_centerVertical="true"
-                android:layout_marginEnd="8dp"
-                android:layout_marginRight="8dp"
-                android:layout_toStartOf="@+id/video_sound_button"
-                android:layout_toLeftOf="@+id/video_sound_button"
-                android:background="?selectableItemBackground"
-                android:contentDescription="Live video"
-                android:src="@drawable/ic_video"
-                android:visibility="gone"
-                tools:visibility="visible"/>
-
-        <ImageView
-                android:id="@+id/video_sound_button"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:layout_centerVertical="true"
-                android:layout_marginEnd="8dp"
-                android:layout_marginRight="8dp"
-                android:layout_toStartOf="@+id/video_fill_button"
-                android:layout_toLeftOf="@+id/video_fill_button"
-                android:background="?selectableItemBackground"
-                android:contentDescription="Stream sound"
-                android:src="@drawable/ic_sound"
-                android:visibility="gone"
-                tools:visibility="visible"/>
-
-        <ImageView
-                android:id="@+id/video_fill_button"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:layout_centerVertical="true"
-                android:layout_marginEnd="8dp"
-                android:layout_marginRight="8dp"
-                android:layout_toStartOf="@+id/video_rotate_button"
-                android:layout_toLeftOf="@+id/video_rotate_button"
-                android:background="?selectableItemBackground"
-                android:contentDescription="Fill the half"
-                android:src="@drawable/ic_fill"
-                android:visibility="gone"
-                tools:visibility="visible"/>
-
-        <ImageView
-                android:id="@+id/video_rotate_button"
                 android:layout_width="32dp"
                 android:layout_height="32dp"
                 android:layout_centerVertical="true"
@@ -356,8 +309,8 @@
                 android:layout_toStartOf="@id/replay_button"
                 android:layout_toLeftOf="@id/replay_button"
                 android:background="?selectableItemBackground"
-                android:contentDescription="Turn the picture"
-                android:src="@drawable/ic_rotate"
+                android:contentDescription="Live video"
+                android:src="@drawable/ic_video"
                 android:visibility="gone"
                 tools:visibility="visible"/>
 
