@@ -2355,7 +2355,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         flightPane.orientation =
             if (landscape) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
         val match = LinearLayout.LayoutParams.MATCH_PARENT
-        val share = preferenceManager.getVideoSplit(landscape)
+        // coerced here too, so a split saved under looser old bounds obeys
+        val share = preferenceManager.getVideoSplit(landscape).coerceIn(0.3f, 0.5f)
         val grab = (12 * resources.displayMetrics.density).toInt()
         videoDivider.layoutParams = LinearLayout.LayoutParams(
             if (landscape) grab else match, if (landscape) match else grab
@@ -2368,10 +2369,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     /**
-     * The divider under a finger: the split follows the touch, clamped so
-     * neither half can be squeezed past a fifth of the pane, and the
+     * The divider under a finger: the split follows the touch, and the
      * sources refit their pictures on the layout changes this causes. The
-     * landing place is written down only when the finger lifts.
+     * picture may shrink to 30% but never grow past half — the map is the
+     * flight, and a video allowed to crowd it out got dragged there by
+     * accident more than by wish. The landing place is written down only
+     * when the finger lifts.
      */
     private fun dragVideoSplit(event: MotionEvent): Boolean {
         val landscape =
@@ -2381,7 +2384,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val total = (if (landscape) flightPane.width else flightPane.height).toFloat()
         if (total <= 0) return true
         val at = if (landscape) event.rawX - paneOnScreen[0] else event.rawY - paneOnScreen[1]
-        val share = (at / total).coerceIn(0.2f, 0.8f)
+        val share = (at / total).coerceIn(0.3f, 0.5f)
         val match = LinearLayout.LayoutParams.MATCH_PARENT
         for ((half, weight) in listOf(videoHalf to share, mapPane to 1f - share)) {
             half.layoutParams = LinearLayout.LayoutParams(
