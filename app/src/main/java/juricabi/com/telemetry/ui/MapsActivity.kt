@@ -1246,15 +1246,41 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // setting rather than simply off.
             map?.isMyLocationEnabled = showLiveArrow()
         } else {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(
-                    android.Manifest.permission.ACCESS_FINE_LOCATION
-                ),
+            askPermission(
+                android.Manifest.permission.ACCESS_FINE_LOCATION,
                 REQUEST_LOCATION_PERMISSION
             )
             map?.isMyLocationEnabled = false
         }
+    }
+
+    /**
+     * One permission dialog at a time. Android cancels a request fired while
+     * another request's dialog is standing — the cancelled ask returns empty
+     * and unseen, which is how a fresh install lost its location dialog under
+     * the start-of-app storage one, and a first Connect under a pending
+     * dialog lost its tap. Every ask funnels through here: one in flight,
+     * the next waits for its result, and a repeat of one already waiting is
+     * dropped rather than shown twice.
+     */
+    private var askInFlight = -1
+    private val asksWaiting = kotlin.collections.ArrayDeque<Pair<String, Int>>()
+
+    private fun askPermission(permission: String, code: Int) {
+        if (askInFlight == code || asksWaiting.any { it.second == code }) return
+        if (askInFlight != -1) {
+            asksWaiting.addLast(permission to code)
+            return
+        }
+        askInFlight = code
+        ActivityCompat.requestPermissions(this, arrayOf(permission), code)
+    }
+
+    /** Any result — granted, denied or cancelled — frees the next ask. */
+    private fun askResolved() {
+        askInFlight = -1
+        val next = asksWaiting.removeFirstOrNull() ?: return
+        askPermission(next.first, next.second)
     }
 
 
@@ -1504,9 +1530,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     android.Manifest.permission.READ_EXTERNAL_STORAGE
                 ) == PackageManager.PERMISSION_DENIED
             ) {
-                ActivityCompat.requestPermissions(
-                    this,
-                    arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE),
+                askPermission(
+                    android.Manifest.permission.READ_EXTERNAL_STORAGE,
                     REQUEST_READ_PERMISSION
                 )
             } else {
@@ -2488,11 +2513,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             videoFillButton.visibility = View.GONE
             videoRotateButton.visibility = View.GONE
             juricabi.com.telemetry.utils.DebugLog.note("Video", "camera permission asked")
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(android.Manifest.permission.CAMERA),
-                REQUEST_CAMERA_PERMISSION
-            )
+            askPermission(android.Manifest.permission.CAMERA, REQUEST_CAMERA_PERMISSION)
             return
         }
         val source = buildVideoSource()
@@ -3601,6 +3622,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        askResolved()
         if (grantResults.isEmpty()) {
             // an interrupted ask delivers no results at all; the camera ask
             // put a waiting half on screen that must not outlive its dialog
@@ -3625,13 +3647,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     )
                 }
             } else if (requestCode == REQUEST_WRITE_PERMISSION) {
-                // The start-of-app storage ask stands over the map's own
-                // location ask: fired under another permission dialog, that
-                // one is cancelled unanswered and a fresh install never got
-                // asked at all. Read before the sequence is reset below, and
-                // the location ask is repeated once this dialog is done.
-                val frontDoor =
-                    requestWritePermissionSequence == RequestWritePermissionSequenceType.NONE
                 if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                     when (requestWritePermissionSequence) {
                         RequestWritePermissionSequenceType.CONNECT -> connect()
@@ -3650,7 +3665,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                         permissions.firstOrNull()
                     )
                 }
-                if (frontDoor) showMyLocation()
             } else if (requestCode == REQUEST_CAMERA_PERMISSION) {
                 if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                     juricabi.com.telemetry.utils.DebugLog.note(
@@ -6703,9 +6717,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             ) == PackageManager.PERMISSION_DENIED
         ) {
             requestWritePermissionSequence = seq;
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(android.Manifest.permission.WRITE_EXTERNAL_STORAGE),
+            askPermission(
+                android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
                 REQUEST_WRITE_PERMISSION
             )
             return false;
