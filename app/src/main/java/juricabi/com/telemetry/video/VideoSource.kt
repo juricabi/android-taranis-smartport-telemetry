@@ -31,7 +31,11 @@ interface VideoSource {
          */
         fun onIdle() {}
 
-        /** The source is dead; the screen should fold the picture away. */
+        /**
+         * The source is dead. For a network stream the screen keeps the pane,
+         * says what is wrong and retries; for USB it folds the picture away —
+         * retrying there would storm the permission dialog.
+         */
         fun onTrouble(what: String)
 
         /** Sound was dropped to keep the picture; the button should agree. */

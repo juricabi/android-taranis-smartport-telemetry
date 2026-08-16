@@ -227,6 +227,7 @@ class MjpegSource(
     }
 
     override fun stop() {
+        DebugLog.note("Video", "mjpeg stop")
         running = false
         connection?.disconnect() // unblocks a read waiting on the network
         connection = null
