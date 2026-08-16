@@ -1,4 +1,4 @@
-# Android Telemetry Viewer 2.4.1
+# Android Telemetry Viewer 2.5.0
 
 Live and recorded RC telemetry on a smooth 2D map or real 3D terrain.
 
@@ -14,12 +14,22 @@ Bluetooth, BLE, USB serial and network connections.
 
 ## Current state
 
-Version 2.4.1: the 2.4.0 ground and map, with the flight ending when you
-say so, a map that no longer turns to rainbow, a row that names the
-protocol the link speaks, the 3D ground no longer hanging a wall as it
-loads, and one camera that behaves the same across both views, live or
-replayed.
+Version 2.5.0: live video beside the map — USB goggles and receivers,
+RTSP, MJPEG, and raw RTP pushed at the phone, each flown until it
+behaved — and the drone's GPS republished as the phone's own position
+for tracker apps. On the 2.4 ground and map, with the flight ending when
+you say so and one camera across both views.
 
+- **Live video in half the screen**, the flight in the other: a USB (UVC)
+  receiver or goggles over OTG — UVC 1.5 action cameras included — or a
+  network stream: RTSP, MJPEG, or raw RTP at a port (H.264/H.265). The
+  seam drags and is remembered per orientation; latency is treated as the
+  point — 150 ms RTSP buffers, newest-frame MJPEG, no buffer at all on
+  the raw path. A stream that cannot connect keeps its pane, says why,
+  and retries; refusals name the reason. See **Live video** below.
+- **The drone's GPS as the phone's position**, opt-in: a tracker app on
+  the phone broadcasts the drone instead of the pilot while telemetry is
+  connected. See below.
 - 3D terrain is a quadtree of web-mercator tiles — the Google Earth and
   Cesium design — metre-sharp under the model, coarse where it can afford
   to be, with morphed levels and dissolving pictures.
