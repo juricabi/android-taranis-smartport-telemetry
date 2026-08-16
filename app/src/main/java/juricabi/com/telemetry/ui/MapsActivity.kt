@@ -1263,7 +1263,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         flightHeadLine?.let { it.color = preferenceManager.getRouteColor() }
         marker?.setIcon(modelIcon(), preferenceManager.getPlaneColor())
         if (!isIdle()) {
-            if (preferenceManager.isHeadingLineEnabled() && headingPolyline == null) {
+            // and only once there is a fix to seed it at: connected but not
+            // yet located, lastGPS is (0,0), and the seed's round cap drew a
+            // dot on the equator — tryCreateMarker builds the line when the
+            // fix lands
+            if (preferenceManager.isHeadingLineEnabled() && headingPolyline == null &&
+                (lastGPS.lat != 0.0 || lastGPS.lon != 0.0)
+            ) {
                 headingPolyline = createHeadingPolyline()
                 updateHeading()
             } else if (!preferenceManager.isHeadingLineEnabled() && headingPolyline != null) {
