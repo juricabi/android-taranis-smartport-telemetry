@@ -980,17 +980,22 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // though it were happening — which the 3D ground never did.
         redrawFlightLine()
         homeLine = map?.addHomeLine(LineWeights.HOME, preferenceManager.getHomeLineColor())
-        // Keep a real two-point line from the start, as the heading line does.
-        // A missing phone fix can then leave it alone instead of repeatedly
-        // dismantling and rebuilding its renderer source.
-        homeLine?.addPoints(listOf(lastGPS, lastGPS))
         operatorLine = map?.addOperatorLine(LineWeights.HOME, preferenceManager.getOperatorLineColor())
-        operatorLine?.addPoints(listOf(lastGPS, lastGPS))
         drawFlightPlans()
         flightHeadLine = map?.addFlightHeadLine(
             LineWeights.FLIGHT, preferenceManager.getRouteColor()
         )
-        flightHeadLine?.addPoints(listOf(lastGPS, lastGPS))
+        // Keep a real two-point line from the start, as the heading line
+        // does, so a missing phone fix leaves it alone instead of repeatedly
+        // dismantling its renderer source — but only where there is a flight
+        // to seed it with. Idle, lastGPS is (0,0), and a zero-length segment
+        // there drew its round cap as a dot on the equator: a fresh install
+        // opens on the whole world and stared straight at it.
+        if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) {
+            homeLine?.addPoints(listOf(lastGPS, lastGPS))
+            operatorLine?.addPoints(listOf(lastGPS, lastGPS))
+            flightHeadLine?.addPoints(listOf(lastGPS, lastGPS))
+        }
         showMyLocation()
         // Twice over the building of a map, deliberately. Here it is what
         // points the camera — the map remembers where it was aimed and obeys
@@ -3614,6 +3619,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     )
                 }
             } else if (requestCode == REQUEST_WRITE_PERMISSION) {
+                // The start-of-app storage ask stands over the map's own
+                // location ask: fired under another permission dialog, that
+                // one is cancelled unanswered and a fresh install never got
+                // asked at all. Read before the sequence is reset below, and
+                // the location ask is repeated once this dialog is done.
+                val frontDoor =
+                    requestWritePermissionSequence == RequestWritePermissionSequenceType.NONE
                 if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                     when (requestWritePermissionSequence) {
                         RequestWritePermissionSequenceType.CONNECT -> connect()
@@ -3632,6 +3644,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                         permissions.firstOrNull()
                     )
                 }
+                if (frontDoor) showMyLocation()
             } else if (requestCode == REQUEST_CAMERA_PERMISSION) {
                 if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                     juricabi.com.telemetry.utils.DebugLog.note(
