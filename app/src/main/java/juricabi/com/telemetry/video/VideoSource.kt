@@ -65,18 +65,19 @@ interface VideoSource {
  * pane — a 4:3 receiver frame pulled over a 20:9 phone screen is not a
  * picture anyone can fly by.
  *
- * A SurfaceView cannot take a content matrix the way a TextureView could,
- * so the same three choices are made by moving the view itself: the surface
- * is sized to the picture's on-screen box and centred in its half, and the
- * turn is the view's own rotation. Letterbox sizes the surface inside the
- * half; fill sizes it to overflow and the half clips the surplus. Every
- * source funnels every size and layout change through this, on the UI
- * thread — layout params and rotation belong to it.
+ * A SurfaceView cannot take a content matrix, and — the field taught this,
+ * not the docs — its own view rotation does not turn the surface content
+ * either: the decoder writes to a separate compositor layer the view's
+ * transform never reaches, so setRotation only squished. The turn is
+ * therefore done at the source — the decoder for UDP, the canvas for
+ * MJPEG, the library for UVC — and this only sizes the surface to the box
+ * the already-turned picture lies in, centred in its half. Letterbox sizes
+ * it inside the half; fill sizes it to overflow and the half clips.
  *
- * The half's size is read from the parent, since the surface is now smaller
- * than the pane and cannot report it. Rotation follows the view (API 24+);
- * below that the surface does not turn, an accepted graceful loss for a
- * device population that has all but vanished.
+ * [videoWidth]/[videoHeight] are the picture's sides AS THEY LEAVE the
+ * source, after any turn it has applied — so a source turning a 1280×720
+ * feed sideways passes 720×1280. The half's size is read from the parent,
+ * since the surface is now smaller than the pane and cannot report it.
  */
 internal fun SurfaceView.fitPicture(videoWidth: Int, videoHeight: Int) {
     val half = parent as? ViewGroup ?: return
@@ -84,32 +85,25 @@ internal fun SurfaceView.fitPicture(videoWidth: Int, videoHeight: Int) {
     val paneHeight = half.height
     if (videoWidth <= 0 || videoHeight <= 0 || paneWidth == 0 || paneHeight == 0) return
     val preferences = PreferenceManager(context)
-    val rotation = preferences.getVideoRotation()
     val fill = preferences.isVideoFillEnabled()
-    // the picture's sides as they will lie on screen after the turn
-    val sideways = rotation % 180 != 0
-    val shownWidth = if (sideways) videoHeight else videoWidth
-    val shownHeight = if (sideways) videoWidth else videoHeight
     val scale =
-        if (fill) maxOf(paneWidth.toFloat() / shownWidth, paneHeight.toFloat() / shownHeight)
-        else minOf(paneWidth.toFloat() / shownWidth, paneHeight.toFloat() / shownHeight)
-    // The box as it lies on screen, then un-turned back to how the surface
-    // is laid out before its own rotation swings it there: a quarter-turn
-    // rotates around the centre, so the pre-rotation box has the sides
-    // swapped.
-    val onScreenWidth = Math.round(shownWidth * scale)
-    val onScreenHeight = Math.round(shownHeight * scale)
-    val boxWidth = if (sideways) onScreenHeight else onScreenWidth
-    val boxHeight = if (sideways) onScreenWidth else onScreenHeight
-    rotation.toFloat().let { if (this.rotation != it) this.rotation = it }
+        if (fill) maxOf(paneWidth.toFloat() / videoWidth, paneHeight.toFloat() / videoHeight)
+        else minOf(paneWidth.toFloat() / videoWidth, paneHeight.toFloat() / videoHeight)
+    val surfaceWidth = Math.round(videoWidth * scale)
+    val surfaceHeight = Math.round(videoHeight * scale)
     val params = layoutParams as? FrameLayout.LayoutParams
-        ?: FrameLayout.LayoutParams(boxWidth, boxHeight)
-    if (params.width != boxWidth || params.height != boxHeight ||
+        ?: FrameLayout.LayoutParams(surfaceWidth, surfaceHeight)
+    if (params.width != surfaceWidth || params.height != surfaceHeight ||
         params.gravity != android.view.Gravity.CENTER
     ) {
-        params.width = boxWidth
-        params.height = boxHeight
+        params.width = surfaceWidth
+        params.height = surfaceHeight
         params.gravity = android.view.Gravity.CENTER
         layoutParams = params
     }
 }
+
+/** The picture's sides as they leave a source that turns [rotation]° at the
+ *  source: a quarter-turn swaps them, so the half is fitted to the real box. */
+internal fun turnedSides(videoWidth: Int, videoHeight: Int, rotation: Int): Pair<Int, Int> =
+    if (rotation % 180 != 0) videoHeight to videoWidth else videoWidth to videoHeight

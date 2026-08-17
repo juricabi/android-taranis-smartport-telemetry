@@ -2557,6 +2557,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val degrees = (preferenceManager.getVideoRotation() + 90) % 360
         preferenceManager.setVideoRotation(degrees)
         videoRotateButton.imageAlpha = if (degrees != 0) 255 else 128
+        // The turn is the source's now, not the view's — a SurfaceView will
+        // not rotate its surface content. refit carries the new turn to the
+        // source, which takes it up in place: the decoder rebuilds with it,
+        // no reconnect, a keyframe's worth of black at most.
         videoSource?.refit()
     }
 

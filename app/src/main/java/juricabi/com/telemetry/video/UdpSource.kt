@@ -251,8 +251,22 @@ class UdpSource(
         refit()
     }
 
+    // the turn the running decoder was configured with; KEY_ROTATION binds
+    // only at configure, so a change to the preference asks the decoder to
+    // rebuild — the receive loop respawns it, the socket untouched
+    @Volatile private var decoderRotation = 0
+    @Volatile private var rebuildDecoder = false
+
     override fun refit() {
-        view?.fitPicture(pictureWidth, pictureHeight)
+        val v = view ?: return
+        val wanted = juricabi.com.telemetry.manager.PreferenceManager(v.context)
+            .getVideoRotation()
+        // a tap on rotate moved the preference; the running decoder still
+        // outputs the old turn, so rebuild it and keep fitting to the old
+        // one until the new frames land and refit again
+        if (wanted != decoderRotation) rebuildDecoder = true
+        val (w, h) = turnedSides(pictureWidth, pictureHeight, decoderRotation)
+        v.fitPicture(w, h)
     }
 
     private val holderCallback = object : SurfaceHolder.Callback {
@@ -408,11 +422,18 @@ class UdpSource(
                 }
                 depacketizer?.feed(packet.data, packet.length)
                 // the decoder starts once the stream has told it what it is
-                // and the screen has given it somewhere to draw
-                if (decoder == null && surface != null &&
+                // and the screen has given it somewhere to draw — and starts
+                // again after a turn ended the last one. A turned decoder is
+                // let die fully first (isAlive false) so two hardware codecs
+                // never overlap, and a keyframe is waited for so the fresh
+                // one is not built on frames unseen; the rebuild flag clears
+                // as it is born, or the new decoder would end at once too.
+                if (decoder?.isAlive != true && surface != null &&
                     (codec == RtpCodec.H264 && csd.size >= 2 ||
                         codec == RtpCodec.H265 && csd.size >= 3)
                 ) {
+                    rebuildDecoder = false
+                    needKeyframe = true
                     val sps = if (codec == RtpCodec.H264) csd[7] else csd[33]
                     val hostile = sps?.let { hostileProfile(codec!!, it) }
                     if (hostile != null) {
@@ -567,6 +588,14 @@ class UdpSource(
                         android.media.MediaCodecInfo.CodecCapabilities.FEATURE_LowLatency
                     )
             if (lowLatency) format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+            // The turn is the decoder's, not the view's: a SurfaceView will
+            // not rotate its surface content, so the codec is told to rotate
+            // the frames before they reach the surface. Read once here; a
+            // change to it rebuilds the decoder, since the key is honoured
+            // only at configure.
+            decoderRotation = juricabi.com.telemetry.manager.PreferenceManager(view!!.context)
+                .getVideoRotation()
+            format.setInteger(MediaFormat.KEY_ROTATION, decoderRotation)
             when (codec) {
                 // AVC's documented form is SPS and PPS as separate buffers;
                 // one concatenated run worked on most phones and failed on
@@ -605,8 +634,10 @@ class UdpSource(
         }
         feedNudge = { handler.post(pump) }
         try {
-            // this thread now only minds the codec's lifetime
-            while (running && !died.get()) Thread.sleep(50)
+            // this thread now only minds the codec's lifetime, and ends it
+            // early when the turn changed — the receive loop builds a fresh
+            // one with the new KEY_ROTATION
+            while (running && !died.get() && !rebuildDecoder) Thread.sleep(50)
         } catch (e: InterruptedException) {
         } finally {
             feedNudge = null
