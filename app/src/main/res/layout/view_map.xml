@@ -33,8 +33,8 @@
                  GPU copy into the view tree — the fast path Orqa's own app
                  rides. It frees the GPU the map and 3D terrain share the pane
                  with, so the whole screen gains, not only the picture. It
-                 cannot take a content matrix, so fit, fill and the turn are
-                 done by sizing and rotating the view itself — see
+                 cannot take a content matrix, so the fit and the turn are
+                 done by sizing the view and turning at the source — see
                  fitPicture. Sized and centred in code; starts wrap so an
                  unsized surface never flashes full-bleed. -->
             <SurfaceView
@@ -78,19 +78,6 @@
                         android:contentDescription="Stream sound"
                         android:scaleType="fitCenter"
                         android:src="@drawable/ic_sound"
-                        android:visibility="gone"
-                        tools:visibility="visible"/>
-
-                <ImageView
-                        android:id="@+id/video_fill_button"
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
-                        android:layout_margin="4dp"
-                        android:padding="8dp"
-                        android:background="@drawable/bg_video_control"
-                        android:contentDescription="Fill the half"
-                        android:scaleType="fitCenter"
-                        android:src="@drawable/ic_fill"
                         android:visibility="gone"
                         tools:visibility="visible"/>
 

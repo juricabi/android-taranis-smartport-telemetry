@@ -172,15 +172,6 @@ class PreferenceManager(context: Context) {
         ).apply()
     }
 
-    /** Fill the video half with the picture, cropping the overflow, instead of letterboxing. */
-    fun isVideoFillEnabled(): Boolean {
-        return sharedPreferences.getBoolean("video_fill", false)
-    }
-
-    fun setVideoFillEnabled(on: Boolean) {
-        sharedPreferences.edit().putBoolean("video_fill", on).apply()
-    }
-
     /** The picture's extra turn, degrees clockwise: 0, 90, 180 or 270. */
     fun getVideoRotation(): Int {
         return sharedPreferences.getInt("video_rotation", 0)

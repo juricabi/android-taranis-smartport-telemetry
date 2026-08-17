@@ -64,7 +64,28 @@ class UsbUvcSource(
 
     private fun fitToCamera() {
         val size = helper?.previewSize ?: return
-        view?.fitPicture(size.width, size.height)
+        val v = view ?: return
+        val rotation = juricabi.com.telemetry.manager.PreferenceManager(v.context)
+            .getVideoRotation()
+        applyRotation(rotation)
+        // the library turns the preview, so the half is fitted to the sides
+        // as they land — swapped for a quarter-turn
+        val (w, h) = turnedSides(size.width, size.height, rotation)
+        v.fitPicture(w, h)
+    }
+
+    /** The turn for a sideways camera, done by the library on its preview. */
+    private fun applyRotation(rotation: Int) {
+        val h = helper ?: return
+        try {
+            val config = h.previewConfig
+            if (config.rotation != rotation) {
+                h.previewConfig = config.setRotation(rotation)
+            }
+        } catch (e: Exception) {
+            // an older library build without the setting; the picture plays
+            // upright, which is every forward camera
+        }
     }
 
     override fun refit() = fitToCamera()

@@ -84,9 +84,37 @@ class RtspSource(
         refit()
     }
 
+    // the turn last applied to the player's effects, to change it only when
+    // the preference moves
+    private var appliedRotation = -1
+
     override fun refit() {
+        val v = view ?: return
         val size = player?.videoSize ?: return
-        view?.fitPicture(size.width, size.height)
+        val rotation = juricabi.com.telemetry.manager.PreferenceManager(v.context)
+            .getVideoRotation()
+        applyRotation(rotation)
+        val (w, h) = turnedSides(size.width, size.height, rotation)
+        v.fitPicture(w, h)
+    }
+
+    /**
+     * The turn, through the player's GL effects — a SurfaceView will not
+     * rotate at the view. Engaged only at a non-zero turn: an upright feed
+     * keeps the plain overlay path, its frames never touched by GL.
+     */
+    private fun applyRotation(rotation: Int) {
+        val p = player ?: return
+        if (rotation == appliedRotation) return
+        appliedRotation = rotation
+        p.setVideoEffects(
+            if (rotation == 0) emptyList()
+            else listOf(
+                androidx.media3.effect.ScaleAndRotateTransformation.Builder()
+                    .setRotationDegrees(-rotation.toFloat())
+                    .build()
+            )
+        )
     }
 
     // Past the player's own UDP-to-TCP fallback, which runs at eight
@@ -235,7 +263,7 @@ class RtspSource(
         player.addListener(object : Player.Listener {
             override fun onVideoSizeChanged(videoSize: VideoSize) {
                 DebugLog.note("Video", "rtsp size ${videoSize.width}x${videoSize.height}")
-                view.fitPicture(videoSize.width, videoSize.height)
+                refit()
             }
 
             override fun onRenderedFirstFrame() {

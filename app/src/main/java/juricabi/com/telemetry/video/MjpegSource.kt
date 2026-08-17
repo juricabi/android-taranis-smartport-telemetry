@@ -87,14 +87,22 @@ class MjpegSource(
     private var skipped = 0
     @Volatile private var frameWidth = 0
     @Volatile private var frameHeight = 0
+    // the turn for a sideways camera; the canvas turns the bitmap, read on
+    // the UI thread and used on the draw thread
+    @Volatile private var rotation = 0
 
-    // refits the letterbox when the fullscreen toggle resizes the pane
+    // refits the letterbox when the divider resizes the pane
     private val refitOnLayout = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
         refit()
     }
 
     override fun refit() {
-        view?.fitPicture(frameWidth, frameHeight)
+        val v = view ?: return
+        rotation = juricabi.com.telemetry.manager.PreferenceManager(v.context).getVideoRotation()
+        // the canvas turns the picture, so the half is fitted to the sides
+        // as they land — swapped for a quarter-turn
+        val (w, h) = turnedSides(frameWidth, frameHeight, rotation)
+        v.fitPicture(w, h)
     }
 
     override fun start(view: SurfaceView) {
@@ -201,8 +209,8 @@ class MjpegSource(
         if (bitmap.width != frameWidth || bitmap.height != frameHeight) {
             frameWidth = bitmap.width
             frameHeight = bitmap.height
-            // setTransform belongs to the UI thread; the frames do not
-            view.post { view.fitPicture(frameWidth, frameHeight) }
+            // sizing the surface belongs to the UI thread; the frames do not
+            view.post { refit() }
         }
         // Re-read the view before touching the canvas: the decode above took
         // tens of milliseconds, long enough for a stop-and-restart to swap
@@ -215,7 +223,19 @@ class MjpegSource(
         // stream keeps going and the next frame after it returns lands
         val canvas = holder.lockCanvas() ?: return
         try {
-            canvas.drawBitmap(bitmap, null, Rect(0, 0, canvas.width, canvas.height), null)
+            // the surface is sized to the turned picture; turn the canvas
+            // to match and lay the frame into the box that, once turned,
+            // fills it — a quarter-turn swaps the box's sides
+            val turn = rotation
+            if (turn != 0) canvas.rotate(turn.toFloat(), canvas.width / 2f, canvas.height / 2f)
+            val sideways = turn % 180 != 0
+            val dw = if (sideways) canvas.height else canvas.width
+            val dh = if (sideways) canvas.width else canvas.height
+            val dst = Rect(
+                (canvas.width - dw) / 2, (canvas.height - dh) / 2,
+                (canvas.width + dw) / 2, (canvas.height + dh) / 2
+            )
+            canvas.drawBitmap(bitmap, null, dst, null)
         } finally {
             holder.unlockCanvasAndPost(canvas)
         }

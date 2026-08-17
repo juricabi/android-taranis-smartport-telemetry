@@ -164,6 +164,12 @@ dependencies {
     implementation 'androidx.legacy:legacy-support-v4:1.0.0'
     implementation 'androidx.media3:media3-exoplayer:1.8.0'
     implementation 'androidx.media3:media3-exoplayer-rtsp:1.8.0'
+    // turns the RTSP picture for a sideways camera: a SurfaceView cannot be
+    // rotated at the view, so the player rotates it through this GL effect —
+    // engaged only at a non-zero turn, so an upright feed stays the plain
+    // fast overlay
+    implementation 'androidx.media3:media3-effect:1.8.0'
+    implementation 'androidx.media3:media3-common:1.8.0'
     implementation 'com.google.protobuf:protobuf-javalite:3.21.12'
     testImplementation 'junit:junit:4.13.2'
     // Robolectric: an Android runtime on the JVM for the SharedPreferences,

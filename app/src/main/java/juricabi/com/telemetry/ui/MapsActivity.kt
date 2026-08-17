@@ -328,7 +328,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     // picture's own top-right, folding away with the half
     private lateinit var videoButton: ImageView
     private lateinit var videoSoundButton: ImageView
-    private lateinit var videoFillButton: ImageView
     private lateinit var videoRotateButton: ImageView
     private lateinit var videoDivider: View
     private lateinit var videoView: SurfaceView
@@ -658,8 +657,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         videoSoundButton = findViewById(R.id.video_sound_button)
         videoSoundButton.imageAlpha = 128
         videoSoundButton.setOnClickListener { toggleVideoSound() }
-        videoFillButton = findViewById(R.id.video_fill_button)
-        videoFillButton.setOnClickListener { toggleVideoFill() }
         videoRotateButton = findViewById(R.id.video_rotate_button)
         videoRotateButton.setOnClickListener { rotateVideo() }
         videoDivider = findViewById(R.id.video_divider)
@@ -2509,7 +2506,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             videoHalf.visibility = View.VISIBLE
             videoDivider.visibility = View.VISIBLE
             videoSoundButton.visibility = View.GONE
-            videoFillButton.visibility = View.GONE
             videoRotateButton.visibility = View.GONE
             juricabi.com.telemetry.utils.DebugLog.note("Video", "camera permission asked")
             askPermission(android.Manifest.permission.CAMERA, REQUEST_CAMERA_PERMISSION)
@@ -2536,20 +2532,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         videoSoundButton.visibility = if (source.hasAudio) View.VISIBLE else View.GONE
         videoSoundButton.imageAlpha = if (videoAudioOn) 255 else 128
         if (videoAudioOn) source.setAudio(true)
-        // how the picture lies in its half — fill and turn, both remembered
-        videoFillButton.visibility = View.VISIBLE
-        videoFillButton.imageAlpha = if (preferenceManager.isVideoFillEnabled()) 255 else 128
+        // the remembered turn, for a camera mounted sideways
         videoRotateButton.visibility = View.VISIBLE
         videoRotateButton.imageAlpha = if (preferenceManager.getVideoRotation() != 0) 255 else 128
         source.start(videoView)
-    }
-
-    /** Fill the half with the picture, cropping the overflow, or letterbox it. */
-    private fun toggleVideoFill() {
-        val fill = !preferenceManager.isVideoFillEnabled()
-        preferenceManager.setVideoFillEnabled(fill)
-        videoFillButton.imageAlpha = if (fill) 255 else 128
-        videoSource?.refit()
     }
 
     /** A quarter-turn per tap, for a camera mounted sideways; 0 comes back around. */

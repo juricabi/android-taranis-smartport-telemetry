@@ -3,7 +3,6 @@ package juricabi.com.telemetry.video
 import android.view.SurfaceView
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import juricabi.com.telemetry.manager.PreferenceManager
 
 /**
  * One live picture, whatever carries it: a USB (UVC) receiver or goggles, or
@@ -71,8 +70,10 @@ interface VideoSource {
  * transform never reaches, so setRotation only squished. The turn is
  * therefore done at the source — the decoder for UDP, the canvas for
  * MJPEG, the library for UVC — and this only sizes the surface to the box
- * the already-turned picture lies in, centred in its half. Letterbox sizes
- * it inside the half; fill sizes it to overflow and the half clips.
+ * the already-turned picture lies in, centred in its half and letterboxed:
+ * the surface is never larger than its half, since a SurfaceView's overlay
+ * cannot be clipped to it. The half is resized with the divider, which is
+ * the zoom a fill button would have been.
  *
  * [videoWidth]/[videoHeight] are the picture's sides AS THEY LEAVE the
  * source, after any turn it has applied — so a source turning a 1280×720
@@ -84,22 +85,9 @@ internal fun SurfaceView.fitPicture(videoWidth: Int, videoHeight: Int) {
     val paneWidth = half.width
     val paneHeight = half.height
     if (videoWidth <= 0 || videoHeight <= 0 || paneWidth == 0 || paneHeight == 0) return
-    val fill = PreferenceManager(context).isVideoFillEnabled()
-    // A SurfaceView's overlay cannot be clipped to its half — an oversized
-    // fill surface spilled a screen's worth over the map. So the surface is
-    // NEVER larger than its half: fill sizes it to the whole half and the
-    // source crops the picture into it (the decoder's crop scaling mode);
-    // fit sizes it to the picture's shape inside the half, letterboxed.
-    val surfaceWidth: Int
-    val surfaceHeight: Int
-    if (fill) {
-        surfaceWidth = paneWidth
-        surfaceHeight = paneHeight
-    } else {
-        val scale = minOf(paneWidth.toFloat() / videoWidth, paneHeight.toFloat() / videoHeight)
-        surfaceWidth = Math.round(videoWidth * scale)
-        surfaceHeight = Math.round(videoHeight * scale)
-    }
+    val scale = minOf(paneWidth.toFloat() / videoWidth, paneHeight.toFloat() / videoHeight)
+    val surfaceWidth = Math.round(videoWidth * scale)
+    val surfaceHeight = Math.round(videoHeight * scale)
     val params = layoutParams as? FrameLayout.LayoutParams
         ?: FrameLayout.LayoutParams(surfaceWidth, surfaceHeight)
     if (params.width != surfaceWidth || params.height != surfaceHeight ||
@@ -110,6 +98,12 @@ internal fun SurfaceView.fitPicture(videoWidth: Int, videoHeight: Int) {
         params.gravity = android.view.Gravity.CENTER
         layoutParams = params
     }
+    // Pin the surface buffer to the same size. A SurfaceView's surface
+    // does clip to its own bounds — but while a decoder renders into it,
+    // a resize of the view alone left the surface buffer at its old, larger
+    // size, drawn past the shrunk view and over the map. Fixing the buffer
+    // makes the surface follow the view exactly.
+    if (surfaceWidth > 0 && surfaceHeight > 0) holder.setFixedSize(surfaceWidth, surfaceHeight)
 }
 
 /** The picture's sides as they leave a source that turns [rotation]° at the
