@@ -9,7 +9,10 @@ import android.location.LocationManager
 import android.os.Looper
 import android.os.Process
 import androidx.test.core.app.ApplicationProvider
+import juricabi.com.telemetry.gl.AltitudeFrame
+import juricabi.com.telemetry.gl.TerrainScene
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -114,6 +117,8 @@ class DataServiceMockLocationTest {
         // the sandbox outlives a test, and a leaked "not chosen" would fail
         // whichever test runs after the one that set it
         ShadowTestProviderLocationManager.chosen = true
+        // likewise one flight's settled altitude answer
+        AltitudeFrame.forget()
     }
 
     private fun setMocking(on: Boolean) =
@@ -168,6 +173,46 @@ class DataServiceMockLocationTest {
         // and the MSL field carries the drone's own number, underived
         assertTrue(fix.hasMslAltitude())
         assertEquals(120.0, fix.mslAltitudeMeters, 1e-6)
+    }
+
+    @Test
+    fun publishesNoAltitudeWhileKnownDisarmed() {
+        setMocking(true)
+        val s = service()
+        s.onConnected()
+        s.onGPSState(10, true)
+        // old Betaflight says sea level disarmed and above-launch armed;
+        // which one a disarmed reading is cannot be known, so none goes out
+        s.onFlyModeData(false, false, null, null)
+        s.onGPSAltitudeData(120f)
+        s.onGPSData(45.5, 15.5)
+        val grounded = lastGpsFix()
+        assertNotNull(grounded)
+        assertFalse(grounded!!.hasAltitude())
+
+        // armed, the height is the flight's to prove, and it goes out
+        s.onFlyModeData(true, false, null, null)
+        s.onGPSData(45.5001, 15.5)
+        assertEquals(120.0, lastGpsFix()!!.altitude, 1e-6)
+    }
+
+    @Test
+    fun theProvenLaunchLiftRidesTheMockFix() {
+        setMocking(true)
+        // the scene proved the heights are measured from a launch 500 m up
+        AltitudeFrame.settle(
+            TerrainScene.Companion.Reference(aboveLaunch = true, lift = 500f),
+            AltitudeFrame.currentEpoch()
+        )
+        val s = service()
+        s.onConnected()
+        s.onGPSState(10, true)
+        s.onGPSAltitudeData(120f)
+        s.onGPSData(45.5, 15.5)
+
+        val fix = lastGpsFix()
+        assertNotNull(fix)
+        assertEquals(620.0, fix!!.altitude, 1e-6)
     }
 
     @Test

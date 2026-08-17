@@ -99,10 +99,6 @@ class PreferenceManager(context: Context) {
         return sharedPreferences.getInt("pos_arrow_logged_color", defaultPosArrowLoggedColor)
     }
 
-    fun isDisarmedHeightIgnored(): Boolean {
-        return sharedPreferences.getBoolean("ignore_disarmed_height", false)
-    }
-
     fun isLiveShownInReplay(): Boolean {
         return sharedPreferences.getBoolean("show_live_in_replay", true)
     }

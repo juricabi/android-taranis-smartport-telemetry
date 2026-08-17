@@ -218,13 +218,19 @@ https://github.com/iNavFlight/inav/blob/135456936834ab4129e6ed540038b2e88dcb3c44
                     if (stringLength < 2) return@let
                     val reported = String(it, 1, stringLength - 1)
 
-                    // Betaflight marks a disarmed quad by putting an asterisk
-                    // after the mode name, so a quad sitting on the bench sends
-                    // "ACRO*". That matched none of the names below, so nothing
-                    // was reported at all and the readout kept whatever it last
-                    // said — showing "Armed | Acro" for a disarmed quad.
-                    val armed = !reported.endsWith("*")
-                    val flightMode = if (armed) reported else reported.dropLast(1)
+                    // Betaflight marks a disarmed quad with one appended
+                    // character — '*' ready to arm, '!' arming blocked,
+                    // '?' GPS rescue unavailable — and appends none in
+                    // failsafe, whose name is literally "!FS!". Only the
+                    // star was read, so a bench quad with arming blocked
+                    // ("ACRO!") was believed armed, and its sea-level
+                    // heights entered the flight the star exists to keep
+                    // them out of.
+                    val disarmedMark = reported != "!FS!" &&
+                        (reported.endsWith("*") || reported.endsWith("!") ||
+                            reported.endsWith("?"))
+                    val armed = !disarmedMark
+                    val flightMode = if (disarmedMark) reported.dropLast(1) else reported
 
                     when (flightMode) {
                         "AIR", "ACRO" -> {

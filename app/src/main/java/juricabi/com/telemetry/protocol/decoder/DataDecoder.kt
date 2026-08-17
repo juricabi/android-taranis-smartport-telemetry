@@ -225,7 +225,12 @@ abstract class DataDecoder(protected val listener: Listener) {
      */
     fun isHeightData(telemetryType : Int ) : Boolean {
         return telemetryType == Protocol.ALTITUDE ||
-            telemetryType == Protocol.GPS_ALTITUDE;
+            telemetryType == Protocol.GPS_ALTITUDE ||
+            // The armed flag is part of what a height means: disarmed
+            // heights are left out of the flight, so a seek that collapsed
+            // fly-mode to its last packet re-admitted the pre-arm heights
+            // the live flight dropped — and drew them lifted.
+            telemetryType == Protocol.FLYMODE;
     }
 
     fun isGPSOrImageData(telemetryType : Int ) : Boolean {

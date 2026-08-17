@@ -3799,8 +3799,21 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     override fun onGPSAltitudeData(altitude: Float) {
         this.sensorTimeoutManager.onGPSAltitudeData(altitude);
+        // raw: the height question judges the reported values, and lifting
+        // its own input would beg it
         flightAltitude.onGps(altitude)
-        showAltitude(altitude, true)
+        // The widget is named above MSL, so once the flight has proven its
+        // heights are measured from the launch, it shows them lifted — the
+        // same number the 3D view draws and the published position says.
+        // Except known-disarmed readings, whose datum cannot be known —
+        // old Betaflight goes back to saying sea level on disarm, and the
+        // lift doubled it on the ground; shown raw, like every consumer
+        // treats them.
+        val lift =
+            if (gotArmedState && !isArmed) 0f
+            else juricabi.com.telemetry.gl.AltitudeFrame
+                .lift(juricabi.com.telemetry.gl.AltitudeFrame.currentEpoch()) ?: 0f
+        showAltitude(altitude + lift, true)
     }
 
     override fun onDistanceData(distance: Int) {
@@ -4280,6 +4293,40 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     private fun rememberForProfile(latitude: Double, longitude: Double) {
         rememberForProfile(latitude, longitude, heightNow())
+        // The height question must not depend on which view is open: the
+        // mock broadcasts and the MSL widget reads the answer with the map
+        // in 2D, where neither the 3D tick nor the profile dialog asks —
+        // a live flight watched flat published relative heights as sea
+        // level for as long as nobody glanced at the terrain.
+        if (!isInReplayMode()) askHeightQuestion()
+    }
+
+    /** When the live road may next walk the flight; the walk is the dear part. */
+    private var heightQuestionAskAt = 0L
+
+    private fun askHeightQuestion() {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now < heightQuestionAskAt) return
+        heightQuestionAskAt = now + 5_000
+        val path = flightPath
+        if (path.size < 2) return
+        juricabi.com.telemetry.utils.Elevation.init(this)
+        // the ground under the flight, fired and not waited for — the same
+        // warm the 3D view runs before it judges
+        var s = path[0].lat; var n = path[0].lat
+        val meridian = path[0].lon
+        var w = meridian; var e = meridian
+        for (p in path) {
+            if (p.lat < s) s = p.lat; if (p.lat > n) n = p.lat
+            val lon = juricabi.com.telemetry.gl.TerrainScene.unwrapped(p.lon, meridian)
+            if (lon < w) w = lon; if (lon > e) e = lon
+        }
+        juricabi.com.telemetry.utils.Elevation.warmBox(
+            s, w, n, e, juricabi.com.telemetry.utils.Elevation.TILE_ZOOM)
+        val epoch = juricabi.com.telemetry.gl.AltitudeFrame.currentEpoch()
+        val proposed = juricabi.com.telemetry.gl.TerrainScene.referenceOf(
+            path, juricabi.com.telemetry.utils.Elevation.TILE_ZOOM) ?: return
+        juricabi.com.telemetry.gl.AltitudeFrame.settle(proposed, epoch)
     }
 
     /**
@@ -4293,14 +4340,17 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * one ground-elevation into the sky.
      *
      * Left out rather than corrected: which of the two a disarmed reading is
-     * cannot be known from the reading. The fix itself is still recorded, and
-     * is drawn where it was, on the ground.
+     * cannot be known from the reading. And left out always, not behind the
+     * switch this once was: a craft that is not armed is standing on ground
+     * the terrain already draws, so its height adds nothing a viewer could
+     * miss — while keeping it is what drew the spike, and the switch made
+     * the person flying know their firmware's arming habits to escape it.
+     * The fix itself is still recorded, and is drawn where it was, on the
+     * ground.
      */
     private fun heightNow(fixCount: Int = 1): Float {
         val reported = flightAltitude.forFix(fixCount)
-        if (gotArmedState && !isArmed && preferenceManager.isDisarmedHeightIgnored()) {
-            return Float.NaN
-        }
+        if (gotArmedState && !isArmed) return Float.NaN
         return reported
     }
 

@@ -28,6 +28,25 @@ class AltitudeFrameTest {
     }
 
     @Test
+    fun withinAboveLaunchTheLiftOnlyGrows() {
+        AltitudeFrame.forget()
+        try {
+            val epoch = AltitudeFrame.currentEpoch()
+            val first = TerrainScene.Companion.Reference(true, 500f)
+            val tighter = TerrainScene.Companion.Reference(true, 620f)
+            val looser = TerrainScene.Companion.Reference(true, 300f)
+
+            assertSame(first, AltitudeFrame.settle(first, epoch))
+            // a tighter pass proves the flight sat lower than first thought
+            assertSame(tighter, AltitudeFrame.settle(tighter, epoch))
+            // and proof never unproves
+            assertSame(tighter, AltitudeFrame.settle(looser, epoch))
+        } finally {
+            AltitudeFrame.forget()
+        }
+    }
+
+    @Test
     fun aboveLaunchEvidenceCanUpgradeButNeverDowngradeTheFrame() {
         AltitudeFrame.forget()
         try {

@@ -165,18 +165,68 @@ class TerrainScene {
             val lowestReported = reported[Math.min(known - 1, Math.max(1, known / 20))]
 
             var lowestGround = Float.NaN
-            var groundAtStart = Float.NaN
+            val burials = FloatArray(known)
+            var buried = 0
+            var runReported = Float.NaN
             for (p in points) {
                 val ground = Elevation.elevationAt(p.lat, p.lon, zoom) ?: continue
-                if (groundAtStart.isNaN()) groundAtStart = ground
                 if (lowestGround.isNaN() || ground < lowestGround) lowestGround = ground
+                if (p.altitudeMsl.isNaN()) continue
+                val burial = ground - p.altitudeMsl
+                // One report, one vote. A single reading is smeared over
+                // every fix that arrives before the next report, so counting
+                // per fix let two copies of one wild reading outvote the
+                // one-stray guard in judge. A run of the same value counts
+                // once, at its deepest.
+                if (buried > 0 && p.altitudeMsl == runReported) {
+                    if (burial > burials[buried - 1]) burials[buried - 1] = burial
+                } else {
+                    runReported = p.altitudeMsl
+                    burials[buried++] = burial
+                }
             }
-            if (lowestGround.isNaN()) return null
+            if (lowestGround.isNaN() || buried == 0) return null
+            return judge(lowestReported, lowestGround, burials, buried)
+        }
 
+        /**
+         * The pure half of the question, for the bench: the walk above reads
+         * terrain, this weighs what it read. [burials] is ground minus
+         * reported per point that had both, and is sorted in place.
+         *
+         * The lift is what the no-underground rule itself demands: the
+         * deepest burial anywhere on the flight. For a flight that began on
+         * its launch that is the ground under the launch — the old answer.
+         * For one that began mid-air — a reconnect to a model already
+         * flying, whose zero is a launch this flight never saw — it is the
+         * most the flight has proven so far, and the frame's ratchet grows
+         * it as tighter passes prove more. The single deepest reading is
+         * not trusted alone — the second-deepest sets the lift, so one
+         * stray sample cannot move the whole flight, while a genuinely
+         * tight pass, which leaves many deep readings, is honoured. A
+         * percentile stood here once and drew every tightest pass under
+         * the ground it had just measured.
+         */
+        internal fun judge(
+            lowestReported: Float, lowestGround: Float,
+            burials: FloatArray, buried: Int
+        ): Reference {
             // thirty metres of slack for the terrain data, which is thirty
             // metre data, and for a fix only good to a few metres vertically
             val aboveLaunch = lowestReported < lowestGround - 30f
-            return Reference(aboveLaunch, if (aboveLaunch) groundAtStart else 0f)
+            java.util.Arrays.sort(burials, 0, buried)
+            // The second-deepest distinct report, never the deepest alone —
+            // and no lift at all from a single report: one reading, however
+            // deep, is not proof of where a flight sits, and the ratchet
+            // would have kept its mistake for the whole flight. Never below
+            // zero either: the verdict weighs every point, the burials only
+            // those with ground loaded under them, and while the two sets
+            // disagree — terrain still arriving — a negative pick would
+            // push the flight below what it reported.
+            val lift =
+                if (buried < 2) 0f
+                else Math.max(0f, burials[buried - 2])
+            return Reference(aboveLaunch, if (aboveLaunch) lift else 0f)
         }
 
         // ------------------------------------------------- tile arithmetic
@@ -670,22 +720,23 @@ class TerrainScene {
      * copying the whole flight twice a second to be told "not yet".
      */
     fun altitudeWorthAsking(): Boolean {
-        if (altitudeResolved && altitudeIsAboveLaunch) return false
+        // an above-launch answer no longer closes the door: the lift can
+        // still grow — a flight that began mid-air proves its ground a
+        // tighter pass at a time — and the cadence below keeps the walk rare
         return android.os.SystemClock.elapsedRealtime() >= altitudeAskAt
     }
 
     fun resolveAltitudeIfNeeded(points: List<TrackPoint>): Boolean {
-        if (altitudeResolved && altitudeIsAboveLaunch) return false
         if (points.isEmpty()) return false
         val wasAbove = altitudeIsAboveLaunch
         val wasResolved = altitudeResolved
+        val wasLift = launchGroundElevation
         resolveAltitudeReference(points)
-        return altitudeIsAboveLaunch != wasAbove || altitudeResolved != wasResolved
+        return altitudeIsAboveLaunch != wasAbove || altitudeResolved != wasResolved ||
+            launchGroundElevation != wasLift
     }
 
     private fun resolveAltitudeReference(points: List<TrackPoint>) {
-        // settled once and for good — no need to fetch anything again for it
-        if (altitudeResolved && altitudeIsAboveLaunch) return
         // Re-asked while the answer is "above the sea" — the one-way door
         // stays open — but not on every batch: the walk below reads the
         // whole flight, on the screen's thread, and a sea-level flight asked
@@ -719,21 +770,18 @@ class TerrainScene {
         }
         val proposed = referenceOf(points, Elevation.TILE_ZOOM) ?: return
         val found = AltitudeFrame.settle(proposed, altitudeEpoch) ?: return
-        val aboveLaunch = found.aboveLaunch
 
-        // Only the answer matters, not the exact origin. The lowest point of a
-        // flight keeps dropping as it descends, and following that would move
-        // the frame — and rebuild every tile in it — every few seconds. The
-        // origin is only a reference; where it sits is arbitrary.
-        // One way only. Heights that once went below the ground cannot later
-        // turn out to have been sea level ones, and letting the answer flip
-        // back — as more ground loads and the lowest ground beneath the track
-        // drops — would move the whole world under the flight.
-        if (altitudeResolved && (aboveLaunch == altitudeIsAboveLaunch || altitudeIsAboveLaunch)) {
+        // One way only, and the frame's settle enforces it: heights that
+        // once went below the ground cannot later turn out to have been sea
+        // level ones, and within above-launch the lift only grows — never
+        // shrinks as more ground loads, which would move the whole world
+        // under the flight.
+        if (altitudeResolved && found.aboveLaunch == altitudeIsAboveLaunch &&
+            found.lift == launchGroundElevation) {
             return
         }
         altitudeResolved = true
-        altitudeIsAboveLaunch = aboveLaunch
+        altitudeIsAboveLaunch = found.aboveLaunch
         // Published, so the altitude profile draws the flight at the height the
         // ground view draws it. The two sample the terrain at different
         // resolutions — the profile covers a whole flight, this covers a window

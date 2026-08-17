@@ -52,6 +52,16 @@ class DataService : Service(), DataDecoder.Listener {
     private val dataBinder = DataBinder()
     private var hasGPSFix = false
     private var isArmed = false
+    // whether the link has said so at all: a link that never speaks of
+    // arming is not treated as a disarmed one
+    private var gotArmedState = false
+    // the last fly-mode heard, kept whole: a screen rebuilt by rotation
+    // asks setDataListener for the world as it stands, and arming was the
+    // one piece it was not told — the disarmed-height gate then leaked
+    // until the next fly-mode frame happened along
+    private var lastFlyModeHeading = false
+    private var lastFlyModeFirst: DataDecoder.Companion.FlyMode? = null
+    private var lastFlyModeSecond: DataDecoder.Companion.FlyMode? = null
     private var satellites = 0
     private var lastLatitude: Double = 0.0
     private var lastLongitude: Double = 0.0
@@ -200,6 +210,17 @@ class DataService : Service(), DataDecoder.Listener {
 
     private fun listenerForNewConnection(): ConnectionListener {
         val retired = retireCurrentConnection()
+        // the new link speaks for itself: a mute one must not wear the old
+        // one's arming state — nor its altitude, speed or heading, which
+        // rode the first mock fixes of the next link until it spoke
+        isArmed = false
+        gotArmedState = false
+        lastGPSAltitude = Float.NaN
+        lastSpeed = 0f
+        lastHeading = 0f
+        lastFlyModeHeading = false
+        lastFlyModeFirst = null
+        lastFlyModeSecond = null
         updatePhoneListening()
         updateMockProvider()
         retired.logger?.onDisconnected()
@@ -709,7 +730,10 @@ class DataService : Service(), DataDecoder.Listener {
                 )
                 lm.setTestProviderEnabled(LocationManager.GPS_PROVIDER, true)
                 mockActive = true
+                juricabi.com.telemetry.utils.DebugLog.note("Mock", "provider up")
             } catch (e: SecurityException) {
+                juricabi.com.telemetry.utils.DebugLog.note(
+                    "Mock", "provider refused: not the chosen mock app")
                 // Not the chosen mock location app. Said once, at the seam
                 // where it fails; the settings screen shows the same state
                 // and where to fix it.
@@ -728,6 +752,7 @@ class DataService : Service(), DataDecoder.Listener {
                 // provider with it
             }
             mockActive = false
+            juricabi.com.telemetry.utils.DebugLog.note("Mock", "provider down")
         }
         refreshNotification()
     }
@@ -758,8 +783,21 @@ class DataService : Service(), DataDecoder.Listener {
         // asked about a height that is really MSL its answer measures the
         // geoid gap, which is enough to go the other way; both fields then
         // agree with the drone under Android's own model, whoever reads which.
-        if (!lastGPSAltitude.isNaN()) {
-            val msl = lastGPSAltitude.toDouble()
+        // A disarmed reading's datum cannot be known — old Betaflight says
+        // sea level disarmed and above-launch once armed — so it is left
+        // out here exactly as the 3D view leaves it out of the flight: the
+        // position still goes, the height waits for arming.
+        if (!lastGPSAltitude.isNaN() && !(gotArmedState && !isArmed)) {
+            // The flight being watched may have proven its heights are
+            // measured from the launch — iNav over CRSF, old Betaflight
+            // armed — and the scene publishes the ground it found under the
+            // launch. The same answer lifts what leaves the phone, so the
+            // tracker says the height the 3D view draws. Unsettled or
+            // already above the sea, the lift is null or zero and this
+            // publishes what the link said.
+            val lift = juricabi.com.telemetry.gl.AltitudeFrame
+                .lift(juricabi.com.telemetry.gl.AltitudeFrame.currentEpoch()) ?: 0f
+            val msl = lastGPSAltitude.toDouble() + lift
             fix.altitude = msl
             if (Build.VERSION.SDK_INT >= 34) try {
                 val probe = Location(fix)
@@ -779,7 +817,11 @@ class DataService : Service(), DataDecoder.Listener {
         } catch (e: Exception) {
             // Unselected as the mock app mid-flight. Every later fix would
             // throw the same way, so stop claiming to publish rather than
-            // crash the poller's thread.
+            // crash the poller's thread. Said by name: a field afternoon
+            // went to publishing that stopped mid-flight with nothing in
+            // the log to say why.
+            juricabi.com.telemetry.utils.DebugLog.note(
+                "Mock", "publish refused, giving up: $e")
             mockActive = false
             refreshNotification()
         }
@@ -877,6 +919,13 @@ class DataService : Service(), DataDecoder.Listener {
             // a phone turned round mid-flight — had no way to learn it and
             // showed nothing for the rest of the link.
             protocolName?.let { dataListener.onProtocolDetected(it) }
+            // and whether the model is armed, for the same reason: the
+            // rebuilt screen's disarmed-height gate stood open until the
+            // next fly-mode frame happened along
+            if (gotArmedState) {
+                dataListener.onFlyModeData(
+                    isArmed, lastFlyModeHeading, lastFlyModeFirst, lastFlyModeSecond)
+            }
         } else {
             if (!isConnected()) {
                 stopSelf()
@@ -1116,6 +1165,10 @@ class DataService : Service(), DataDecoder.Listener {
         secondFlightMode: DataDecoder.Companion.FlyMode?
     ) {
         isArmed = armed
+        gotArmedState = true
+        lastFlyModeHeading = heading
+        lastFlyModeFirst = firstFlightMode
+        lastFlyModeSecond = secondFlightMode
         dataListener?.onFlyModeData(armed, heading, firstFlightMode, secondFlightMode)
         logListener?.onFlyModeData(armed, heading, firstFlightMode, secondFlightMode)
     }

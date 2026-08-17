@@ -47,6 +47,17 @@ object AltitudeFrame {
                 settled = reference
                 return reference
             }
+            // Within above-launch the lift may only grow. The first answer
+            // is only what the flight had proven by then — right for one
+            // that began on its launch, a lower bound for one that began
+            // mid-air, a reconnect to a model already flying whose zero is
+            // a launch this flight never saw. A later, tighter pass over
+            // higher ground proves the heights sat lower than first
+            // thought; proof never unproves.
+            if (it.aboveLaunch && reference.aboveLaunch && reference.lift > it.lift) {
+                settled = reference
+                return reference
+            }
             return it
         }
         settled = reference
@@ -57,6 +68,12 @@ object AltitudeFrame {
     @Synchronized
     fun lift(forEpoch: Long): Float? = if (forEpoch == epoch) settled?.lift else null
 
+    // A dead flight's answer deliberately does not survive it — not even
+    // for a reconnect to the same aircraft moments later. A disconnect
+    // asked for by hand is the person drawing a line, and state that
+    // crosses such lines is where this app's bugs have lived. The next
+    // flight proves its own ground; mid-air that answer starts as a bound
+    // and ratchets toward the truth, which is the honest price.
     @Synchronized
     fun forget() {
         settled = null
