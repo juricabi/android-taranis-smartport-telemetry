@@ -84,13 +84,22 @@ internal fun SurfaceView.fitPicture(videoWidth: Int, videoHeight: Int) {
     val paneWidth = half.width
     val paneHeight = half.height
     if (videoWidth <= 0 || videoHeight <= 0 || paneWidth == 0 || paneHeight == 0) return
-    val preferences = PreferenceManager(context)
-    val fill = preferences.isVideoFillEnabled()
-    val scale =
-        if (fill) maxOf(paneWidth.toFloat() / videoWidth, paneHeight.toFloat() / videoHeight)
-        else minOf(paneWidth.toFloat() / videoWidth, paneHeight.toFloat() / videoHeight)
-    val surfaceWidth = Math.round(videoWidth * scale)
-    val surfaceHeight = Math.round(videoHeight * scale)
+    val fill = PreferenceManager(context).isVideoFillEnabled()
+    // A SurfaceView's overlay cannot be clipped to its half — an oversized
+    // fill surface spilled a screen's worth over the map. So the surface is
+    // NEVER larger than its half: fill sizes it to the whole half and the
+    // source crops the picture into it (the decoder's crop scaling mode);
+    // fit sizes it to the picture's shape inside the half, letterboxed.
+    val surfaceWidth: Int
+    val surfaceHeight: Int
+    if (fill) {
+        surfaceWidth = paneWidth
+        surfaceHeight = paneHeight
+    } else {
+        val scale = minOf(paneWidth.toFloat() / videoWidth, paneHeight.toFloat() / videoHeight)
+        surfaceWidth = Math.round(videoWidth * scale)
+        surfaceHeight = Math.round(videoHeight * scale)
+    }
     val params = layoutParams as? FrameLayout.LayoutParams
         ?: FrameLayout.LayoutParams(surfaceWidth, surfaceHeight)
     if (params.width != surfaceWidth || params.height != surfaceHeight ||

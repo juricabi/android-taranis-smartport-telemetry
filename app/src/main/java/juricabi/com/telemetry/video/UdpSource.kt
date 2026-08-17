@@ -256,14 +256,36 @@ class UdpSource(
     // rebuild — the receive loop respawns it, the socket untouched
     @Volatile private var decoderRotation = 0
     @Volatile private var rebuildDecoder = false
+    // the running codec, to switch its scaling between letterbox and crop
+    // when the fill button is tapped — no rebuild, the mode changes in place
+    @Volatile private var codecRef: MediaCodec? = null
+
+    private fun applyScaling() {
+        val v = view ?: return
+        val fill = juricabi.com.telemetry.manager.PreferenceManager(v.context)
+            .isVideoFillEnabled()
+        try {
+            codecRef?.setVideoScalingMode(
+                if (fill) MediaCodec.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
+                else MediaCodec.VIDEO_SCALING_MODE_SCALE_TO_FIT
+            )
+        } catch (e: Exception) {
+            // the codec was torn down under the tap; the next one is built
+            // with the mode read fresh
+        }
+    }
 
     override fun refit() {
         val v = view ?: return
         val wanted = juricabi.com.telemetry.manager.PreferenceManager(v.context)
             .getVideoRotation()
+        applyScaling()
         // a tap on rotate moved the preference; the running decoder still
-        // outputs the old turn, so rebuild it and keep fitting to the old
-        // one until the new frames land and refit again
+        // outputs the old turn, so rebuild it and keep the half in the old
+        // shape until the new frames land — the box and the turned picture
+        // then snap together, rather than the box turning first onto a
+        // picture not yet there, which read as wrongly turned. The gap is
+        // clean black, the old decoder's stretched frames dropped.
         if (wanted != decoderRotation) rebuildDecoder = true
         val (w, h) = turnedSides(pictureWidth, pictureHeight, decoderRotation)
         v.fitPicture(w, h)
@@ -535,11 +557,17 @@ class UdpSource(
                 c: MediaCodec, index: Int, info: MediaCodec.BufferInfo
             ) {
                 try {
-                    c.releaseOutputBuffer(index, true)
+                    // Once the turn has changed, this decoder's frames are
+                    // the old orientation stretched into the reshaped box —
+                    // a squished flash. Dropped, not rendered: the box stays
+                    // cleanly black until the fresh decoder's real turned
+                    // picture lands.
+                    c.releaseOutputBuffer(index, !rebuildDecoder)
                 } catch (e: Exception) {
                     fail("udp render error: ${worded(e)}", "decoding failed — ${e.message}")
                     return
                 }
+                if (rebuildDecoder) return
                 drained++
                 if (!live) {
                     live = true
@@ -617,6 +645,10 @@ class UdpSource(
             }
             decoder.configure(format, surface, null, 0)
             decoder.start()
+            // the surface is only ever its half's size now, so the decoder
+            // does the fill: crop the picture to cover it, or letterbox it
+            codecRef = decoder
+            applyScaling()
             DebugLog.note(
                 "Video",
                 "udp ${codec.name} decoder up (async): ${decoder.name}" +
@@ -641,11 +673,23 @@ class UdpSource(
         } catch (e: InterruptedException) {
         } finally {
             feedNudge = null
-            try {
-                decoder.stop()
-            } catch (e: Exception) {
+            // Tear the codec down ON its own handler, where the feed pump
+            // and the input callbacks also run: a rebuild that stopped it
+            // from this thread raced a queueInputBuffer still in flight —
+            // "valid only at Executing states; currently during stop()" —
+            // and the spurious throw showed as "decoding failed" on a turn.
+            // Posted here, the stop waits its turn behind any live feed.
+            codecRef = null
+            val torn = java.util.concurrent.CountDownLatch(1)
+            handler.post {
+                try {
+                    decoder.stop()
+                } catch (e: Exception) {
+                }
+                decoder.release()
+                torn.countDown()
             }
-            decoder.release()
+            torn.await(500, java.util.concurrent.TimeUnit.MILLISECONDS)
             codecThread.quitSafely()
         }
     }
