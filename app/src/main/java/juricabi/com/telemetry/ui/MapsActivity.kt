@@ -135,6 +135,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         private const val REQUEST_WRITE_PERMISSION: Int = 2
         private const val REQUEST_READ_PERMISSION: Int = 3
         private const val REQUEST_CAMERA_PERMISSION: Int = 4
+        private const val REQUEST_RECORD_AUDIO_PERMISSION: Int = 5
         private const val ACTION_USB_DEVICE = "action_usb_device"
         private val MAP_TYPE_ITEMS = arrayOf(
             "OpenStreetMap (can be cached)",
@@ -333,6 +334,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private lateinit var videoView: SurfaceView
     private lateinit var videoHalf: FrameLayout
     private lateinit var videoWaiting: TextViewOutline
+    private lateinit var videoBlank: View
     private lateinit var flightPane: LinearLayout
     private lateinit var fullscreenButton: ImageView
     private lateinit var menuButton: FloatingActionButton
@@ -654,16 +656,30 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         findQuadButton = findViewById(R.id.find_quad_button)
         videoButton = findViewById(R.id.video_button)
         videoButton.setOnClickListener { toggleVideo() }
+        videoButton.setOnLongClickListener { showVideoSettings(); true }
         videoSoundButton = findViewById(R.id.video_sound_button)
         videoSoundButton.imageAlpha = 128
         videoSoundButton.setOnClickListener { toggleVideoSound() }
         videoRotateButton = findViewById(R.id.video_rotate_button)
+        videoRotateButton.imageAlpha = 128
         videoRotateButton.setOnClickListener { rotateVideo() }
+        // it never lights up for being turned — it wears the turn as its own
+        // angle instead; a press is the only thing that brightens it, since
+        // its flat backing has no pressed state of its own
+        videoRotateButton.setOnTouchListener { v, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> (v as ImageView).imageAlpha = 255
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+                    (v as ImageView).imageAlpha = 128
+            }
+            false
+        }
         videoDivider = findViewById(R.id.video_divider)
         videoDivider.setOnTouchListener { _, event -> dragVideoSplit(event) }
         videoView = findViewById(R.id.video_view)
         videoHalf = findViewById(R.id.video_half)
         videoWaiting = findViewById(R.id.video_waiting)
+        videoBlank = findViewById(R.id.video_blank)
         flightPane = findViewById(R.id.flight_pane)
         videoWanted = savedInstanceState?.getBoolean("video_wanted") ?: false
         videoAudioOn = savedInstanceState?.getBoolean("video_audio") ?: false
@@ -2307,6 +2323,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             override fun onTrouble(what: String) {
                 runOnUiThread {
                     if (!current()) return@runOnUiThread
+                    // trouble ends any turn in progress — lift the rotate cover
+                    // so the message is not read through black (a stream that
+                    // died at the very moment of a turn would leave it standing)
+                    videoBlank.visibility = View.GONE
                     if (preferenceManager.getVideoSource() == "network") {
                         // An unreachable stream is a waiting state, not a
                         // verdict — the server may simply not be up yet. The
@@ -2329,6 +2349,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                         Toast.makeText(this@MapsActivity, "Video: $what", Toast.LENGTH_LONG).show()
                         hideVideo()
                     }
+                }
+            }
+
+            override fun onCovered(covered: Boolean) {
+                runOnUiThread {
+                    if (current()) videoBlank.visibility =
+                        if (covered) View.VISIBLE else View.GONE
                 }
             }
 
@@ -2355,6 +2382,100 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     private fun toggleVideo() {
         if (videoWanted) hideVideo() else showVideo()
+    }
+
+    /**
+     * The source and its address, reached by a long press on the video
+     * button — the switch a flying day makes over and over, between the bench
+     * camera, the goggles and the ground station, without leaving the map for
+     * the settings list. It writes the same "settings" store the settings
+     * screen does and carries the same recent addresses, so the two ways of
+     * choosing never disagree.
+     */
+    private fun showVideoSettings() {
+        val content = layoutInflater.inflate(R.layout.dialog_video_settings, null)
+        val group = content.findViewById<RadioGroup>(R.id.video_settings_source)
+        val usbButton = content.findViewById<RadioButton>(R.id.video_settings_usb)
+        val networkButton = content.findViewById<RadioButton>(R.id.video_settings_network)
+        val addressGroup = content.findViewById<View>(R.id.video_settings_address_group)
+        val input = content.findViewById<EditText>(R.id.video_settings_url)
+        val recents = content.findViewById<LinearLayout>(R.id.video_settings_recents)
+
+        when (preferenceManager.getVideoSource()) {
+            "usb" -> usbButton.isChecked = true
+            "network" -> networkButton.isChecked = true
+            else -> content.findViewById<RadioButton>(R.id.video_settings_off).isChecked = true
+        }
+        input.setText(preferenceManager.getVideoStreamUrl())
+        input.setSelection(input.text.length)
+        // the address only belongs to a network stream
+        addressGroup.visibility = if (networkButton.isChecked) View.VISIBLE else View.GONE
+        group.setOnCheckedChangeListener { _, _ ->
+            addressGroup.visibility = if (networkButton.isChecked) View.VISIBLE else View.GONE
+        }
+
+        val history = preferenceManager.getVideoUrlHistory()
+        if (history.isEmpty()) {
+            content.findViewById<TextView>(R.id.video_settings_recents_title).visibility = View.GONE
+        }
+        val ripple = TypedValue()
+        theme.resolveAttribute(android.R.attr.selectableItemBackground, ripple, true)
+        val pad = (12 * resources.displayMetrics.density).toInt()
+        for (url in history) {
+            val row = TextView(this)
+            row.text = url
+            row.textSize = 16f
+            row.setPadding(0, pad, 0, pad)
+            row.setBackgroundResource(ripple.resourceId)
+            row.setOnClickListener {
+                // a remembered address is a network one by definition
+                networkButton.isChecked = true
+                input.setText(url)
+                input.setSelection(input.text.length)
+            }
+            recents.addView(row)
+        }
+
+        showDialog(
+            AlertDialog.Builder(this)
+                .setTitle("Video source")
+                .setView(content)
+                .setPositiveButton(android.R.string.ok) { _, _ ->
+                    val chosen = when {
+                        usbButton.isChecked -> "usb"
+                        networkButton.isChecked -> "network"
+                        else -> "off"
+                    }
+                    if (chosen == "network") {
+                        val typed = input.text.toString().trim()
+                        preferenceManager.setVideoStreamUrl(typed)
+                        if (typed.isNotBlank()) preferenceManager.rememberVideoUrl(typed)
+                    }
+                    applyVideoSource(chosen)
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .create()
+        )
+    }
+
+    private fun applyVideoSource(source: String) {
+        val wasShowing = videoWanted
+        preferenceManager.setVideoSource(source)
+        // shows or hides the button, and folds a live picture away if now off
+        updateVideoControls()
+        if (source == "off") {
+            // the button that opened this is gone with the source; say where
+            // it went, or turning it back on looks impossible
+            Toast.makeText(
+                this,
+                "Video turned off — turn it back on under Settings ▸ Video",
+                Toast.LENGTH_LONG
+            ).show()
+        } else if (wasShowing) {
+            // a picture already up takes the new source at once, no extra tap
+            hideVideo()
+            showVideo()
+        }
     }
 
     /**
@@ -2531,11 +2652,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // start so the choice needs no second session
         videoSoundButton.visibility = if (source.hasAudio) View.VISIBLE else View.GONE
         videoSoundButton.imageAlpha = if (videoAudioOn) 255 else 128
-        if (videoAudioOn) source.setAudio(true)
-        // the remembered turn, for a camera mounted sideways — not on RTSP,
-        // whose digital feed comes upright and cannot be turned on the overlay
-        videoRotateButton.visibility = if (source.canRotate) View.VISIBLE else View.GONE
-        videoRotateButton.imageAlpha = if (preferenceManager.getVideoRotation() != 0) 255 else 128
+        // remembered on, so bring it up now — asking for the mic permission
+        // here if the source's sound needs it, the same nice ask as the tap
+        if (videoAudioOn) enableVideoSound()
+        // the remembered turn, for a camera mounted sideways; the button
+        // wears the same angle so it shows which turn is on
+        videoRotateButton.visibility = View.VISIBLE
+        videoRotateButton.rotation = preferenceManager.getVideoRotation().toFloat()
         source.start(videoView)
     }
 
@@ -2543,7 +2666,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private fun rotateVideo() {
         val degrees = (preferenceManager.getVideoRotation() + 90) % 360
         preferenceManager.setVideoRotation(degrees)
-        videoRotateButton.imageAlpha = if (degrees != 0) 255 else 128
+        // the button turns with the picture, so its icon shows which of the
+        // four turns is on — a brightness that only said "not zero" did not
+        videoRotateButton.rotation = degrees.toFloat()
         // The turn is the source's now, not the view's — a SurfaceView will
         // not rotate its surface content. refit carries the new turn to the
         // source, which takes it up in place: the decoder rebuilds with it,
@@ -2552,9 +2677,36 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     private fun toggleVideoSound() {
-        videoAudioOn = !videoAudioOn
-        videoSoundButton.imageAlpha = if (videoAudioOn) 255 else 128
-        videoSource?.setAudio(videoAudioOn)
+        if (videoAudioOn) {
+            // turning the sound off never needs anything
+            videoAudioOn = false
+            videoSoundButton.imageAlpha = 128
+            videoSource?.setAudio(false)
+        } else {
+            enableVideoSound()
+        }
+    }
+
+    /**
+     * Turn the picture's sound on, first asking for the microphone permission
+     * if this source's sound needs it — the USB path, whose audio is a USB
+     * input device the OS guards. The ask is raised on the speaker tap or at
+     * start, where the wish is plain and cannot get buried, and granting comes
+     * back through onRequestPermissionsResult to finish the job; a refusal
+     * leaves the picture playing on, silent.
+     */
+    private fun enableVideoSound() {
+        val source = videoSource ?: return
+        if (source.needsRecordAudio &&
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            askPermission(android.Manifest.permission.RECORD_AUDIO, REQUEST_RECORD_AUDIO_PERMISSION)
+            return
+        }
+        videoAudioOn = true
+        videoSoundButton.imageAlpha = 255
+        source.setAudio(true)
     }
 
     private fun hideVideo() {
@@ -2563,6 +2715,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         videoWaiting.removeCallbacks(videoRetry)
         videoSource?.stop()
         videoSource = null
+        videoBlank.visibility = View.GONE
         videoHalf.visibility = View.GONE
         videoDivider.visibility = View.GONE
     }
@@ -3670,6 +3823,31 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     explainDeniedPermission(
                         "Camera permission is needed for a USB camera — " +
                             "Android refuses the USB device without it",
+                        permissions.firstOrNull()
+                    )
+                }
+            } else if (requestCode == REQUEST_RECORD_AUDIO_PERMISSION) {
+                if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    juricabi.com.telemetry.utils.DebugLog.note(
+                        "Video", "record-audio permission granted"
+                    )
+                    // finish what the speaker tap or the start began, on the
+                    // source now running — if it still offers sound
+                    val source = videoSource
+                    if (source != null && source.hasAudio) {
+                        videoAudioOn = true
+                        videoSoundButton.imageAlpha = 255
+                        source.setAudio(true)
+                    }
+                } else {
+                    juricabi.com.telemetry.utils.DebugLog.note(
+                        "Video", "record-audio permission denied"
+                    )
+                    videoAudioOn = false
+                    videoSoundButton.imageAlpha = 128
+                    explainDeniedPermission(
+                        "Microphone permission lets the app play the USB " +
+                            "receiver's own sound — the picture plays without it",
                         permissions.firstOrNull()
                     )
                 }

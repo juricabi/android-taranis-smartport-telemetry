@@ -40,6 +40,13 @@ interface VideoSource {
 
         /** Sound was dropped to keep the picture; the button should agree. */
         fun onAudioLost() {}
+
+        /**
+         * Cover the picture, or uncover it. A source that rebuilds its
+         * decoder for a turn raises this so the stretched frames of the
+         * rebuild are hidden behind black until the turned picture lands.
+         */
+        fun onCovered(covered: Boolean) {}
     }
 
     fun start(view: SurfaceView)
@@ -56,12 +63,13 @@ interface VideoSource {
     val hasAudio: Boolean get() = false
 
     /**
-     * Whether the picture can be turned for a sideways camera. True for the
-     * analog roads (a receiver dongle can be mounted any way up); false for
-     * RTSP, the digital goggle feed that only ever comes upright and which a
-     * SurfaceView cannot turn without squishing.
+     * Whether turning the sound on needs the record-audio permission. True
+     * only for the USB path: its sound is a USB audio input device Android
+     * guards with the microphone permission. A network stream's sound rides
+     * its own transport and needs nothing. The screen asks before it enables
+     * the sound of a source that says yes.
      */
-    val canRotate: Boolean get() = true
+    val needsRecordAudio: Boolean get() = false
 
     /** The stream's sound, on or off. A no-op unless hasAudio. */
     fun setAudio(on: Boolean) {}

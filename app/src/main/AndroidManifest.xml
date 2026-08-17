@@ -36,11 +36,14 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
 
-    <!-- The UVC video library asks for far more than this app uses of it:
-         all-files management, audio recording. Neither is wanted for drawing
-         a USB receiver's picture, so neither is inherited. -->
+    <!-- The UVC video library asks for all-files management for recording to
+         disk, which this app does not use of it, so that one is not inherited. -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:node="remove"/>
-    <uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove"/>
+    <!-- Record-audio is not the phone's mic here: an analog receiver carries
+         the video's sound on a USB audio interface, and Android guards a USB
+         audio *input* with this permission. Asked for only when the sound is
+         turned on for a USB receiver that has one; the picture never needs it. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <!-- Camera is not about the phone's own camera here: since Android 10
          the system hands a camera-class USB device only to a holder of this
          permission, and without it refuses the USB ask instantly, showing

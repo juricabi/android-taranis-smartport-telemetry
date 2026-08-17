@@ -14,8 +14,15 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.Renderer
+import androidx.media3.exoplayer.mediacodec.MediaCodecAdapter
+import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.rtsp.RtspMediaSource
+import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
+import androidx.media3.exoplayer.video.VideoRendererEventListener
 import juricabi.com.telemetry.utils.DebugLog
 
 /**
@@ -90,16 +97,43 @@ class RtspSource(
     private var videoWidth = 0
     private var videoHeight = 0
 
-    // RTSP is the digital goggle/VRX road, and those cameras face forward —
-    // the turn is for a sideways-mounted analog receiver, which is UDP, MJPEG
-    // or UVC. A SurfaceView will not turn at the view and the player's GL
-    // rotate only squished, so the button is not offered here.
-    override val canRotate get() = false
+    // The turn the codec is configured for; a SurfaceView will not turn at
+    // the view, and the player's decoder is walled off inside ExoPlayer, so
+    // a custom renderer sets KEY_ROTATION on it — read here at configure.
+    // The key binds at configure alone, so a change re-prepares the player,
+    // the reconnect the sound switch already costs.
+    @Volatile private var rotation = 0
 
     override fun refit() {
         val v = view ?: return
         if (videoWidth <= 0 || videoHeight <= 0) return
-        v.fitPicture(videoWidth, videoHeight)
+        val wanted = juricabi.com.telemetry.manager.PreferenceManager(v.context)
+            .getVideoRotation()
+        if (wanted != rotation) {
+            rotation = wanted
+            if (player != null) {
+                // Turning rebuilds the player from scratch, not re-prepares
+                // the running one: KEY_ROTATION binds only at the codec's
+                // configure, and reaching it by re-preparing a kept player
+                // ran slower every turn — measured climbing ~0.3s a turn
+                // until the re-negotiation stalled and only the 12s watchdog
+                // freed it. A fresh player each turn stays as quick as the
+                // first, the way turning off and on already did. A cover
+                // hides the gap behind black until the turned picture lands
+                // and lifts it (onRenderedFirstFrame).
+                events.onCovered(true)
+                handler.removeCallbacks(starving)
+                handler.removeCallbacks(stalled)
+                player?.release()
+                player = null
+                val (w, h) = turnedSides(videoWidth, videoHeight, rotation)
+                v.fitPicture(w, h)
+                openPlayer()
+                return
+            }
+        }
+        val (w, h) = turnedSides(videoWidth, videoHeight, rotation)
+        v.fitPicture(w, h)
     }
 
     // Past the player's own UDP-to-TCP fallback, which runs at eight
@@ -120,41 +154,18 @@ class RtspSource(
     private var lastRendered = 0
     private var frozenRejoins = 0
 
-    // wall clock minus playback position when this READY run began; 0 while
-    // there is no run to measure against
-    private var liveBase = 0L
-
     private val starving = object : Runnable {
         override fun run() {
             val p = player ?: return
             if (p.playbackState == Player.STATE_READY) {
-                // Latency creep: every stall leaves the picture a little
-                // further behind the camera, and an RTSP session never
-                // announces a live edge for the player to chase on its own.
-                // Drift is measured against the wall clock — the playback
-                // position falls behind real time by exactly the sum of the
-                // stalls — because the player's own totalBufferedDuration
-                // lied outright in the field: hours of "buffer" on a stream
-                // seconds old. More than a second and a half adrift is not
-                // buffering — jump to live.
-                val lag = System.currentTimeMillis() - p.currentPosition
-                if (liveBase == 0L) {
-                    // A fresh run starts wherever the server hands it — the
-                    // Orqa's broadcast endpoint handed sessions born seconds
-                    // behind its camera, and this guard only ever measured
-                    // growth from that inherited backlog: a whole afternoon
-                    // of goggle flying never fired it once. Jump to the
-                    // newest the server has first; measure from there.
-                    DebugLog.note("Video", "rtsp new run, catching up to the newest")
-                    p.seekToDefaultPosition()
-                    liveBase = -1L
-                } else if (liveBase == -1L) {
-                    liveBase = lag
-                } else if (lag - liveBase > 1500) {
-                    DebugLog.note("Video", "rtsp ${lag - liveBase}ms behind the camera, catching up")
-                    p.seekToDefaultPosition()
-                    liveBase = -1L
-                }
+                // No chasing the live edge here any more. Seeking a live RTSP
+                // broadcast to "the newest" dropped the Orqa feed into a
+                // buffering it never climbed out of — twelve seconds frozen
+                // until the stalled watchdog rejoined it, then another
+                // catch-up, a cycle that ate a whole goggle flight (the field
+                // log was unmistakable). Orqa's own app does not chase it
+                // either; it plays and wears the odd stutter. What is left is
+                // only the frozen-picture check the comment above describes.
                 val rendered = p.videoDecoderCounters?.renderedOutputBufferCount ?: -1
                 val gained = rendered - lastRendered
                 when {
@@ -221,7 +232,24 @@ class RtspSource(
         DebugLog.note("Video", "rtsp start $said")
         this.view = view
         view.addOnLayoutChangeListener(refitOnLayout)
-        val player = ExoPlayer.Builder(context)
+        openPlayer()
+    }
+
+    /**
+     * Builds a fresh player on the view and starts it — to begin, and again
+     * for every turn. A rotate releases the running player and calls this
+     * rather than re-preparing the old one, which slowed with each re-prepare
+     * until it stalled outright (see refit).
+     */
+    private fun openPlayer() {
+        val view = this.view ?: return
+        // a fresh player is a fresh run: forget the last one's recovery tally,
+        // or the watchdogs misjudge the new session
+        recoveries = 0
+        playedSinceChange = false
+        frozenRejoins = 0
+        lastRendered = 0
+        val player = ExoPlayer.Builder(context, RotatingRenderersFactory(context) { rotation })
             .setLoadControl(
                 DefaultLoadControl.Builder()
                     // Start on 100ms — the number Orqa's own app starts its
@@ -253,6 +281,8 @@ class RtspSource(
 
             override fun onRenderedFirstFrame() {
                 DebugLog.note("Video", "rtsp first frame rendered")
+                // the turned picture is here; lift the cover the rotate laid
+                events.onCovered(false)
                 events.onLive()
             }
 
@@ -281,9 +311,6 @@ class RtspSource(
             override fun onPlaybackStateChanged(playbackState: Int) {
                 DebugLog.note("Video", "rtsp state $playbackState (1 idle 2 buffering 3 ready 4 ended)")
                 handler.removeCallbacks(stalled)
-                // whatever run was being measured is over; the next READY
-                // tick starts a fresh baseline
-                if (playbackState != Player.STATE_READY) liveBase = 0L
                 when (playbackState) {
                     // running is what forgives earlier recoveries
                     Player.STATE_READY -> {
@@ -319,5 +346,52 @@ class RtspSource(
         view = null
         player?.release()
         player = null
+    }
+}
+
+/**
+ * A player whose one video renderer sets KEY_ROTATION on its codec, from
+ * [rotation] read at each configure — the way to turn a SurfaceView's
+ * picture, since the view cannot and the player's decoder is otherwise
+ * sealed. The turn changes only across a re-prepare, which rebuilds the
+ * codec and reads the value afresh.
+ */
+@OptIn(UnstableApi::class)
+private class RotatingRenderersFactory(
+    context: Context,
+    private val rotation: () -> Int,
+) : DefaultRenderersFactory(context) {
+    override fun buildVideoRenderers(
+        context: Context,
+        extensionRendererMode: Int,
+        mediaCodecSelector: MediaCodecSelector,
+        enableDecoderFallback: Boolean,
+        eventHandler: Handler,
+        eventListener: VideoRendererEventListener,
+        allowedVideoJoiningTimeMs: Long,
+        out: ArrayList<Renderer>,
+    ) {
+        out.add(
+            object : MediaCodecVideoRenderer(
+                context, mediaCodecSelector, allowedVideoJoiningTimeMs,
+                eventHandler, eventListener, MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY
+            ) {
+                override fun getMediaCodecConfiguration(
+                    codecInfo: MediaCodecInfo,
+                    format: androidx.media3.common.Format,
+                    crypto: android.media.MediaCrypto?,
+                    codecOperatingRate: Float,
+                ): MediaCodecAdapter.Configuration {
+                    val config = super.getMediaCodecConfiguration(
+                        codecInfo, format, crypto, codecOperatingRate
+                    )
+                    val turn = rotation()
+                    if (turn != 0) {
+                        config.mediaFormat.setInteger(android.media.MediaFormat.KEY_ROTATION, turn)
+                    }
+                    return config
+                }
+            }
+        )
     }
 }

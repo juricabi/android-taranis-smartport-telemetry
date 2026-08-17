@@ -43,6 +43,20 @@
                     android:layout_height="wrap_content"
                     android:layout_gravity="center"/>
 
+            <!-- A cover laid over the picture while a turn rebuilds the codec:
+                 the surface cannot be blanked from outside, but a plain view
+                 draws on top of its overlay (as the controls do), so this
+                 hides the stretched frame the rebuild would otherwise show,
+                 and lifts the moment the turned picture arrives. Black, not
+                 the pane's grey: a clean dark gap reads better through the
+                 turn than the pane's own backdrop showing through. -->
+            <View
+                    android:id="@+id/video_blank"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="#000000"
+                    android:visibility="gone"/>
+
             <juricabi.com.telemetry.ui.TextViewOutline
                     android:id="@+id/video_waiting"
                     android:layout_width="wrap_content"

@@ -1,10 +1,20 @@
 package juricabi.com.telemetry.video
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.hardware.usb.UsbDevice
+import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
+import android.media.AudioFormat
+import android.media.AudioManager
+import android.media.AudioRecord
+import android.media.AudioTrack
+import android.media.MediaRecorder
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import androidx.core.content.ContextCompat
 import com.herohan.uvcapp.CameraException
 import com.herohan.uvcapp.CameraHelper
 import com.herohan.uvcapp.ICameraHelper
@@ -28,6 +38,7 @@ class UsbUvcSource(
     private val events: VideoSource.Events
 ) : VideoSource {
 
+    private val appContext = context.applicationContext
     private var live = false
     private var sawSurfaceDraw = false
 
@@ -49,7 +60,7 @@ class UsbUvcSource(
     init {
         // The library digs its application context out by reflection unless
         // it is told one; telling it is its documented front door.
-        UVCUtils.init(context.applicationContext)
+        UVCUtils.init(appContext)
     }
 
     private var helper: ICameraHelper? = null
@@ -227,8 +238,122 @@ class UsbUvcSource(
         h.addSurface(s, false)
     }
 
+    // ---- the receiver's own sound ----------------------------------------
+    //
+    // An analog VRX carries the video's audio on a UAC (USB audio) interface,
+    // and Android's audio stack claims that interface as a USB *input* device
+    // — separate from the UVC video interface this class opens. So the sound
+    // is not the library's to give (it only encodes the phone's mic for a
+    // recording); it is read straight off that input with AudioRecord and
+    // poured to the speaker through AudioTrack. No receiver audio interface,
+    // no sound button — the picture is never held hostage to it.
+
+    /** The receiver's audio input, if the OS enumerated one. */
+    private fun usbAudioInput(): AudioDeviceInfo? {
+        val am = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        return am.getDevices(AudioManager.GET_DEVICES_INPUTS).firstOrNull {
+            it.type == AudioDeviceInfo.TYPE_USB_DEVICE ||
+                it.type == AudioDeviceInfo.TYPE_USB_HEADSET
+        }
+    }
+
+    override val hasAudio: Boolean get() = usbAudioInput() != null
+
+    // its sound is a USB input the OS guards with the microphone permission
+    override val needsRecordAudio get() = true
+
+    @Volatile private var audioRunning = false
+    private var audioThread: Thread? = null
+
+    override fun setAudio(on: Boolean) {
+        if (on == audioRunning) return
+        if (on) {
+            val input = usbAudioInput() ?: return events.onAudioLost()
+            // the screen asks first, but a race or a revoke could still land
+            // here unpermitted — drop the sound cleanly rather than throw
+            if (ContextCompat.checkSelfPermission(appContext, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED
+            ) return events.onAudioLost()
+            audioRunning = true
+            audioThread = Thread({ pumpAudio(input) }, "uvc-audio").also { it.start() }
+        } else {
+            audioRunning = false
+            audioThread?.join(500)
+            audioThread = null
+        }
+    }
+
+    private fun pumpAudio(input: AudioDeviceInfo) {
+        // 48 kHz mono 16-bit — what these receivers speak, and what a phone
+        // decodes without complaint; a mismatch AudioRecord resamples itself.
+        val rate = 48000
+        val inMin = AudioRecord.getMinBufferSize(
+            rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        val outMin = AudioTrack.getMinBufferSize(
+            rate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        if (inMin <= 0 || outMin <= 0) {
+            audioRunning = false
+            return events.onAudioLost()
+        }
+        var record: AudioRecord? = null
+        var track: AudioTrack? = null
+        try {
+            record = AudioRecord(
+                MediaRecorder.AudioSource.MIC, rate,
+                AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, inMin * 2)
+            // MIC is the default input; point it at the receiver instead
+            record.preferredDevice = input
+            track = AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
+                        .build())
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setSampleRate(rate)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .build())
+                .setBufferSizeInBytes(outMin * 2)
+                .build()
+            if (record.state != AudioRecord.STATE_INITIALIZED) {
+                audioRunning = false
+                return events.onAudioLost()
+            }
+            record.startRecording()
+            track.play()
+            DebugLog.note("Video", "uvc audio up from ${input.productName}")
+            val buf = ByteArray(inMin)
+            while (audioRunning) {
+                val n = record.read(buf, 0, buf.size)
+                if (n > 0) {
+                    track.write(buf, 0, n)
+                } else if (n < 0) {
+                    // the input is gone — the receiver unplugged mid-listen.
+                    // Only trouble if it was still wanted; a clean setAudio(off)
+                    // ends the read the same way and must not toast. onAudioLost
+                    // dims the button that would otherwise still claim sound.
+                    DebugLog.note("Video", "uvc audio read ended ($n)")
+                    if (audioRunning) events.onAudioLost()
+                    break
+                }
+            }
+        } catch (e: Exception) {
+            DebugLog.note("Video", "uvc audio failed: ${e.message}")
+            if (audioRunning) events.onAudioLost()
+        } finally {
+            audioRunning = false
+            try { record?.stop() } catch (e: Exception) {}
+            record?.release()
+            try { track?.stop() } catch (e: Exception) {}
+            track?.release()
+        }
+    }
+
     override fun stop() {
         DebugLog.note("Video", "uvc stop")
+        setAudio(false)
         view?.holder?.removeCallback(holderCallback)
         view?.removeOnLayoutChangeListener(refitOnLayout)
         view = null

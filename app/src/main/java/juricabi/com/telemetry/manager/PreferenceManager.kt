@@ -134,9 +134,21 @@ class PreferenceManager(context: Context) {
         return sharedPreferences.getString("video_source", "off") ?: "off"
     }
 
+    // The settings screen writes these through the preference framework; the
+    // map's long-press video dialog writes them here. Both land in the same
+    // "settings" store (PrefsFragment points the framework at it), so the two
+    // ways of choosing a source never disagree.
+    fun setVideoSource(value: String) {
+        sharedPreferences.edit().putString("video_source", value).apply()
+    }
+
     /** The network stream. Its scheme says what it speaks: rtsp or http (MJPEG). */
     fun getVideoStreamUrl(): String {
         return sharedPreferences.getString("video_stream_url", "") ?: ""
+    }
+
+    fun setVideoStreamUrl(url: String) {
+        sharedPreferences.edit().putString("video_stream_url", url).apply()
     }
 
     /**
