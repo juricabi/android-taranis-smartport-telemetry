@@ -71,12 +71,20 @@ class RtspSource(
         if (audioOn == on) return
         audioOn = on
         DebugLog.note("Video", "rtsp audio ${if (on) "on" else "off"}")
-        val p = player ?: return // before start: remembered for it
-        applyAudio(p)
-        playedSinceChange = false
-        recoveries = 0
-        p.stop()
-        p.prepare()
+        if (player == null) return // before start: remembered, applied in openPlayer
+        // Rebuild the player, don't re-prepare the kept one. Re-preparing it to
+        // change the audio-track selection leaked exactly as a turn did — each
+        // toggle slower than the last (measured ~2s climbing past 6s). A fresh
+        // player takes up the new audioOn through applyAudio in openPlayer,
+        // still set before prepare so a phantom audio track cannot freeze the
+        // first frame — the reason the switch re-prepares at all. A cover hides
+        // the gap; onRenderedFirstFrame lifts it.
+        events.onCovered(true)
+        handler.removeCallbacks(starving)
+        handler.removeCallbacks(stalled)
+        player?.release()
+        player = null
+        openPlayer()
     }
 
     private fun applyAudio(p: ExoPlayer) {
