@@ -72,6 +72,18 @@ class DataService : Service(), DataDecoder.Listener {
             }
         }
 
+    // The toast and the settings row both send people to Developer options
+    // mid-flight, and the pick used to change nothing until the next
+    // connect — the switch stood on, obeyed, publishing nothing. Watching
+    // the app-op is what makes the pick take effect where it lands,
+    // whichever screen it happens on.
+    private val mockChoiceChanged =
+        AppOpsManager.OnOpChangedListener { _, _ ->
+            // arrives on a binder thread; the provider is installed and
+            // removed on the main one
+            Handler(Looper.getMainLooper()).post { updateMockProvider() }
+        }
+
     /**
      * A poller may finish on another thread after its replacement is already
      * running. Its callbacks must not be allowed to clear or write into that
@@ -218,6 +230,14 @@ class DataService : Service(), DataDecoder.Listener {
         preferenceManager = PreferenceManager(this)
         settingsPreferences = getSharedPreferences("settings", Context.MODE_PRIVATE).also {
             it.registerOnSharedPreferenceChangeListener(settingsChanged)
+        }
+        // the mock app-op and its Developer-options picker exist since M;
+        // before that there is nothing to watch
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            (getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager)
+                .startWatchingMode(
+                    AppOpsManager.OPSTR_MOCK_LOCATION, packageName, mockChoiceChanged
+                )
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -857,6 +877,10 @@ class DataService : Service(), DataDecoder.Listener {
         phoneHeadingListener = null
         settingsPreferences?.unregisterOnSharedPreferenceChangeListener(settingsChanged)
         settingsPreferences = null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            (getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager)
+                .stopWatchingMode(mockChoiceChanged)
+        }
         stopListeningForPhone()
         stopListeningForPhoneCompass()
         releaseCompassWakeLock()

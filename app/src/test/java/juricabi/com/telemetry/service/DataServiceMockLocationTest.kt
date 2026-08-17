@@ -1,16 +1,19 @@
 package juricabi.com.telemetry.service
 
 import android.Manifest
+import android.app.AppOpsManager
 import android.app.Application
 import android.content.Context
 import android.location.Location
 import android.location.LocationManager
 import android.os.Looper
+import android.os.Process
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -34,6 +37,12 @@ import org.robolectric.util.ReflectionHelpers.ClassParameter
 @Implements(LocationManager::class)
 class ShadowTestProviderLocationManager : ShadowLocationManager() {
 
+    companion object {
+        // whether this app is picked under Developer options, which is the
+        // whole grant the real addTestProvider checks
+        var chosen = true
+    }
+
     private val testProviders = mutableSetOf<String>()
 
     @Implementation
@@ -43,6 +52,7 @@ class ShadowTestProviderLocationManager : ShadowLocationManager() {
         supportsSpeed: Boolean, supportsBearing: Boolean,
         powerRequirement: Int, accuracy: Int
     ) {
+        if (!chosen) throw SecurityException("not the chosen mock location app")
         testProviders.add(name)
     }
 
@@ -78,6 +88,13 @@ class ShadowTestProviderLocationManager : ShadowLocationManager() {
 class DataServiceMockLocationTest {
 
     private val app get() = ApplicationProvider.getApplicationContext<Application>()
+
+    @Before
+    fun chosenAsTheMockApp() {
+        // the sandbox outlives a test, and a leaked "not chosen" would fail
+        // whichever test runs after the one that set it
+        ShadowTestProviderLocationManager.chosen = true
+    }
 
     private fun setMocking(on: Boolean) =
         app.getSharedPreferences("settings", Context.MODE_PRIVATE)
@@ -131,6 +148,33 @@ class DataServiceMockLocationTest {
         s.onGPSState(10, true)
         s.onGPSData(45.5, 15.5)
         assertNull(lastGpsFix())
+    }
+
+    @Test
+    fun thePickUnderDeveloperOptionsTakesEffectWithoutReconnecting() {
+        setMocking(true)
+        ShadowTestProviderLocationManager.chosen = false
+        val s = service()
+        s.onConnected()
+        s.onGPSState(10, true)
+        s.onGPSData(45.5, 15.5)
+        // the switch stands on, obeyed but unchosen, publishing nothing
+        assertNull(lastGpsFix())
+
+        // the pick lands in Developer options mid-link — where the toast
+        // sends people — and nobody reconnects
+        ShadowTestProviderLocationManager.chosen = true
+        val ops = app.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+        shadowOf(ops).setMode(
+            AppOpsManager.OPSTR_MOCK_LOCATION, Process.myUid(), app.packageName,
+            AppOpsManager.MODE_ALLOWED
+        )
+        shadowOf(Looper.getMainLooper()).idle()
+
+        s.onGPSData(45.6, 15.6)
+        val fix = lastGpsFix()
+        assertNotNull(fix)
+        assertEquals(45.6, fix!!.latitude, 1e-9)
     }
 
     @Test
