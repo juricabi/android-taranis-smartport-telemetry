@@ -247,7 +247,11 @@ A flight controller reports height in one of two languages. ArduPilot,
 current Betaflight, and every link over S.Port or MAVLink say metres
 above the sea — a number that stands on its own. iNav over CRSF, and
 older Betaflight once armed, say metres above the launch point — a
-number that means nothing until you know how high the launch was.
+number that means nothing until you know how high the launch was. iNav
+over LTM never carries an absolute height directly — but its origin
+frame broadcasts where home is and how high it stands, and home's own
+altitude turns the relative heights into absolute ones, mid-air joins
+included, straight off the wire.
 
 The app tells the two apart with one rule: **a flight cannot fly below
 the ground.** It compares the reported heights against the terrain under

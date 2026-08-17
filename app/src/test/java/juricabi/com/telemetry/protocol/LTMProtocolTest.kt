@@ -40,6 +40,35 @@ class LTMProtocolTest {
     }
 
     @Test
+    fun theOriginFrameSaysWhereHomeStandsAndHowHigh() {
+        // the one protocol that tells the zero outright: home's own
+        // altitude is what turns LTM's relative heights into absolute ones
+        var homeLat = Double.NaN
+        var homeLon = Double.NaN
+        var homeAlt = Float.NaN
+        val protocol = LTMProtocol(object : DataDecoder.Companion.DefaultDecodeListener() {
+            override fun onHomeData(latitude: Double, longitude: Double, altitudeMsl: Float) {
+                homeLat = latitude
+                homeLon = longitude
+                homeAlt = altitudeMsl
+            }
+        })
+        val payload = ByteBuffer.allocate(14).order(ByteOrder.LITTLE_ENDIAN)
+            .putInt(448_000_000)
+            .putInt(150_000_000)
+            .putInt(159_400) // home's altitude, centimetres: 1594 m
+            .put(1)          // OSD on
+            .put(1)          // fix
+            .array()
+
+        ltmFrame('O', payload).forEach { protocol.process(it.toInt() and 0xFF) }
+
+        assertEquals(44.8, homeLat, 1e-9)
+        assertEquals(15.0, homeLon, 1e-9)
+        assertEquals(1594f, homeAlt, 1e-3f)
+    }
+
+    @Test
     fun gpsSpeedAndSatelliteCountAreUnsigned() {
         var reportedSpeed = Float.NaN
         var reportedSatellites = -1

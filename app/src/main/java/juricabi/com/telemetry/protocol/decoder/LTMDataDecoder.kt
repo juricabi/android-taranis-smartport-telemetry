@@ -132,6 +132,17 @@ class LTMDataDecoder(listener: Listener) : DataDecoder(listener) {
             Protocol.ORIGIN -> {
                 this.homeLatitude = byteBuffer.int / 10000000.toDouble()
                 this.homeLongitude = byteBuffer.int / 10000000.toDouble()
+                // The one protocol that says where home is also says how
+                // high it stands — GPS_home's own altitude, centimetres.
+                // Together with the relative heights every other frame
+                // carries, that is the absolute altitude this protocol
+                // never sends directly, straight off the wire, no terrain
+                // model owed — and a launch from a roof is measured at the
+                // roof, which no ground map could know.
+                val homeAltitude = byteBuffer.int / 100f
+                if (homeLatitude != 0.0 || homeLongitude != 0.0) {
+                    listener.onHomeData(homeLatitude, homeLongitude, homeAltitude)
+                }
             }
             else -> {
                 decoded = false

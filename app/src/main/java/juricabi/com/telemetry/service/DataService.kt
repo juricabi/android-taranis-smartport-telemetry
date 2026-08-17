@@ -71,6 +71,11 @@ class DataService : Service(), DataDecoder.Listener {
     // NaN until a link says one: the mock fix carries an altitude only once
     // the drone has reported its own, rather than a made-up sea level
     private var lastGPSAltitude: Float = Float.NaN
+    // the working-channel height, NaN until heard: published only when the
+    // flight has PROVEN its heights are measured from the launch, which is
+    // how a link with no absolute altitude at all — LTM — still hands the
+    // tracker a true one
+    private var lastRelativeAltitude: Float = Float.NaN
     private lateinit var preferenceManager: PreferenceManager
     private var settingsPreferences: SharedPreferences? = null
 
@@ -141,6 +146,8 @@ class DataService : Service(), DataDecoder.Listener {
             ifCurrent { this@DataService.onAltitudeData(altitude) }
         override fun onGPSAltitudeData(altitude: Float) =
             ifCurrent { this@DataService.onGPSAltitudeData(altitude) }
+        override fun onHomeData(latitude: Double, longitude: Double, altitudeMsl: Float) =
+            ifCurrent { this@DataService.onHomeData(latitude, longitude, altitudeMsl) }
         override fun onDistanceData(distance: Int) =
             ifCurrent { this@DataService.onDistanceData(distance) }
         override fun onRollData(rollAngle: Float) =
@@ -216,6 +223,7 @@ class DataService : Service(), DataDecoder.Listener {
         isArmed = false
         gotArmedState = false
         lastGPSAltitude = Float.NaN
+        lastRelativeAltitude = Float.NaN
         lastSpeed = 0f
         lastHeading = 0f
         lastFlyModeHeading = false
@@ -783,11 +791,24 @@ class DataService : Service(), DataDecoder.Listener {
         // asked about a height that is really MSL its answer measures the
         // geoid gap, which is enough to go the other way; both fields then
         // agree with the drone under Android's own model, whoever reads which.
+        // The link's absolute claim first; failing that, a relative height
+        // whose zero the flight has PROVEN — LTM says heights above a home
+        // whose ground is known — makes the absolute the wire never sent.
+        // Unproven relative heights stay unpublished: a guess is worse
+        // than an omission.
+        val reported = when {
+            !lastGPSAltitude.isNaN() -> lastGPSAltitude
+            !lastRelativeAltitude.isNaN() &&
+                juricabi.com.telemetry.gl.AltitudeFrame.aboveLaunch(
+                    juricabi.com.telemetry.gl.AltitudeFrame.currentEpoch()) ->
+                lastRelativeAltitude
+            else -> Float.NaN
+        }
         // A disarmed reading's datum cannot be known — old Betaflight says
         // sea level disarmed and above-launch once armed — so it is left
         // out here exactly as the 3D view leaves it out of the flight: the
         // position still goes, the height waits for arming.
-        if (!lastGPSAltitude.isNaN() && !(gotArmedState && !isArmed)) {
+        if (!reported.isNaN() && !(gotArmedState && !isArmed)) {
             // The flight being watched may have proven its heights are
             // measured from the launch — iNav over CRSF, old Betaflight
             // armed — and the scene publishes the ground it found under the
@@ -797,7 +818,7 @@ class DataService : Service(), DataDecoder.Listener {
             // publishes what the link said.
             val lift = juricabi.com.telemetry.gl.AltitudeFrame
                 .lift(juricabi.com.telemetry.gl.AltitudeFrame.currentEpoch()) ?: 0f
-            val msl = lastGPSAltitude.toDouble() + lift
+            val msl = reported.toDouble() + lift
             fix.altitude = msl
             if (Build.VERSION.SDK_INT >= 34) try {
                 val probe = Location(fix)
@@ -1127,8 +1148,14 @@ class DataService : Service(), DataDecoder.Listener {
 
     override fun onAltitudeData(altitude: Float) {
         lastAltitude = altitude
+        lastRelativeAltitude = altitude
         dataListener?.onAltitudeData(altitude)
         logListener?.onAltitudeData(altitude)
+    }
+
+    override fun onHomeData(latitude: Double, longitude: Double, altitudeMsl: Float) {
+        dataListener?.onHomeData(latitude, longitude, altitudeMsl)
+        logListener?.onHomeData(latitude, longitude, altitudeMsl)
     }
 
     override fun onGPSAltitudeData(altitude: Float) {

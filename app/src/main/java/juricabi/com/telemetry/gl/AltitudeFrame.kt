@@ -68,6 +68,11 @@ object AltitudeFrame {
     @Synchronized
     fun lift(forEpoch: Long): Float? = if (forEpoch == epoch) settled?.lift else null
 
+    /** Whether this flight's heights are proven measured from the launch. */
+    @Synchronized
+    fun aboveLaunch(forEpoch: Long): Boolean =
+        forEpoch == epoch && settled?.aboveLaunch == true
+
     // A dead flight's answer deliberately does not survive it — not even
     // for a reconnect to the same aircraft moments later. A disconnect
     // asked for by hand is the person drawing a line, and state that

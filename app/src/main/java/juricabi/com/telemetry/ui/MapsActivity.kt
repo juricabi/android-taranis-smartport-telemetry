@@ -3471,6 +3471,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         flightAltitude.clear()
         isArmed = false
         gotArmedState = false
+        homeAltitudeMsl = Float.NaN
         lastRememberedHeight = Float.NaN
         forgetModel()
     }
@@ -3814,6 +3815,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             else juricabi.com.telemetry.gl.AltitudeFrame
                 .lift(juricabi.com.telemetry.gl.AltitudeFrame.currentEpoch()) ?: 0f
         showAltitude(altitude + lift, true)
+    }
+
+    /** How high the aircraft's home stands; only iNav over LTM says it. */
+    @Volatile private var homeAltitudeMsl = Float.NaN
+
+    override fun onHomeData(latitude: Double, longitude: Double, altitudeMsl: Float) {
+        homeAltitudeMsl = altitudeMsl
     }
 
     override fun onDistanceData(distance: Int) {
@@ -4308,9 +4316,21 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val now = android.os.SystemClock.elapsedRealtime()
         if (now < heightQuestionAskAt) return
         heightQuestionAskAt = now + 5_000
+        juricabi.com.telemetry.utils.Elevation.init(this)
+        // The one link that tells the zero outright — iNav over LTM says
+        // where home is and how high it stands — proves the lift straight
+        // off the wire: exact, pad or no pad, mid-air joins included, no
+        // terrain model owed. Only LTM: on any other link the reported
+        // heights may already be sea level, and lifting truth is the one
+        // mistake this machinery must never make.
+        if (!homeAltitudeMsl.isNaN() && detectedProtocol == "LTM") {
+            juricabi.com.telemetry.gl.AltitudeFrame.settle(
+                juricabi.com.telemetry.gl.TerrainScene.Companion.Reference(
+                    true, homeAltitudeMsl),
+                juricabi.com.telemetry.gl.AltitudeFrame.currentEpoch())
+        }
         val path = flightPath
         if (path.size < 2) return
-        juricabi.com.telemetry.utils.Elevation.init(this)
         // the ground under the flight, fired and not waited for — the same
         // warm the 3D view runs before it judges
         var s = path[0].lat; var n = path[0].lat

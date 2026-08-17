@@ -642,6 +642,12 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
         originalListener.onAltitudeData(altitude)
     }
 
+    override fun onHomeData(latitude: Double, longitude: Double, altitudeMsl: Float) {
+        // forwarded, not defaulted away: a replayed LTM log must prove its
+        // altitude from the same home the live flight did
+        originalListener.onHomeData(latitude, longitude, altitudeMsl)
+    }
+
     override fun onGPSAltitudeData(altitude: Float) {
         originalListener.onGPSAltitudeData(altitude)
         if ( launchPointMSLAltitude == 0 && altitude != 0.0f) {

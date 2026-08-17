@@ -176,6 +176,34 @@ class DataServiceMockLocationTest {
     }
 
     @Test
+    fun aProvenRelativeHeightMakesTheAbsoluteTheWireNeverSent() {
+        setMocking(true)
+        // LTM: no absolute altitude on the wire at all, but home's ground
+        // is known, and the frame holds the proof
+        AltitudeFrame.settle(
+            TerrainScene.Companion.Reference(true, 1594f), AltitudeFrame.currentEpoch())
+        val s = service()
+        s.onConnected()
+        s.onGPSState(10, true)
+        s.onAltitudeData(120f) // a hundred and twenty metres above the launch
+        s.onGPSData(45.5, 15.5)
+        assertEquals(1714.0, lastGpsFix()!!.altitude, 1e-6)
+    }
+
+    @Test
+    fun anUnprovenRelativeHeightStaysUnpublished() {
+        setMocking(true)
+        val s = service()
+        s.onConnected()
+        s.onGPSState(10, true)
+        s.onAltitudeData(120f) // datum unknown: nothing settled, no claim
+        s.onGPSData(45.5, 15.5)
+        val fix = lastGpsFix()
+        assertNotNull(fix)
+        assertFalse(fix!!.hasAltitude())
+    }
+
+    @Test
     fun publishesNoAltitudeWhileKnownDisarmed() {
         setMocking(true)
         val s = service()

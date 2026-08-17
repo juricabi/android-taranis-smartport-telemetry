@@ -178,6 +178,14 @@ abstract class DataDecoder(protected val listener: Listener) {
         fun onAltitudeData(altitude: Float)
         fun onGPSAltitudeData(altitude: Float)
         fun onDistanceData(distance: Int)
+        /**
+         * Where the aircraft's home stands and how high, from the links
+         * that say it. Defaulted empty: only iNav over LTM speaks it
+         * today (ArduPilot's LTM has no origin frame at all), and only
+         * the screen listens — home's own altitude is what turns that
+         * protocol's relative heights into absolute ones.
+         */
+        fun onHomeData(latitude: Double, longitude: Double, altitudeMsl: Float) {}
         fun onRollData(rollAngle: Float)
         fun onPitchData(pitchAngle: Float)
         fun onGSpeedData(speed: Float)
