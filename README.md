@@ -233,10 +233,13 @@ The published altitude speaks both of Android's languages: the raw field
 carries height above the WGS84 ellipsoid — lifted from sea level with the
 system's own geoid model, so it matches what a real GPS fix reports — and
 on Android 14+ the MSL field carries the drone's number outright. It is
-only as absolute as the firmware makes it: Betaflight and ArduPilot send
-true sea-level altitude; iNav over CRSF sends height above the launch
-point in the same field, and no receiver can restore a zero the sender
-never named — over MAVLink or S.Port, iNav hands over the absolute one.
+only as absolute as the firmware makes it: ArduPilot and current
+Betaflight send true sea-level altitude, but iNav over CRSF — and the
+Betaflight releases still flying everywhere, once armed — put height
+above the launch point in the same field; over MAVLink or S.Port the
+absolute one comes through. The 3D view detects the difference against
+the terrain under the flight; the published phone position carries what
+the link said.
 
 ### Simulator
 
