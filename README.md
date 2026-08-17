@@ -241,6 +241,35 @@ absolute one comes through. The 3D view detects the difference against
 the terrain under the flight; the published phone position carries what
 the link said.
 
+### How altitude works
+
+A flight controller reports height in one of two languages. ArduPilot,
+current Betaflight, and every link over S.Port or MAVLink say metres
+above the sea — a number that stands on its own. iNav over CRSF, and
+older Betaflight once armed, say metres above the launch point — a
+number that means nothing until you know how high the launch was.
+
+The app tells the two apart with one rule: **a flight cannot fly below
+the ground.** It compares the reported heights against the terrain under
+the flight; if they dive well below it, they are measured from the
+launch, and the flight is raised by the deepest such burial — for a
+normal take-off that is exactly the ground under the launch point. One
+wild reading cannot move the flight (a lift needs at least two distinct
+reports behind it), the answer can only grow more certain during a
+flight, never flip back, and it is worked out once and shared by
+everything: the 3D view, the altitude profile, the "above MSL" readout,
+and the position handed to tracker apps.
+
+Heights sent while disarmed are left out of the drawing — the craft is
+standing on ground the terrain already shows, and old Betaflight changes
+what its numbers mean at the moment of arming. A replay carries
+everything the answer needs, so a recording always draws exactly as the
+flight did. A deliberate disconnect starts the question fresh; a
+reconnect after a dropped link continues the flight, its log, and its
+answer as one. And where nothing proves the heights are launch-relative,
+they pass through untouched — a firmware that says sea level is believed
+to the metre.
+
 ### Simulator
 
 `tools/simflight.py` sends a realistic CRSF flight over UDP:
