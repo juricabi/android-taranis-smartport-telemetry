@@ -632,12 +632,20 @@ class TerrainScene {
      * still a flight, and dropping them left the map bare. Laid along the
      * ground they say exactly what is known and claim nothing that is not.
      */
-    fun heightOf(p: TrackPoint): Float =
-        if (p.altitudeMsl.isNaN()) {
-            (groundAt(p.lat, p.lon) ?: originAltitude) - originAltitude
-        } else {
-            aboveSeaLevel(p.altitudeMsl) - originAltitude
-        }
+    fun heightOf(p: TrackPoint): Float {
+        val ground = groundAt(p.lat, p.lon)
+        if (p.altitudeMsl.isNaN()) return (ground ?: originAltitude) - originAltitude
+        val h = aboveSeaLevel(p.altitudeMsl) - originAltitude
+        // And never under the terrain it stands on. The whole detection is
+        // built on "a model cannot fly below the ground", and the drawing
+        // holds to the same axiom: the moments this catches are real —
+        // fixes landed before the first fly-mode frame keep their relative
+        // heights, and an unresolved or still-ratcheting lift is only a
+        // bound — and drawing them inside the hill claimed something
+        // impossible instead of the nearest thing known.
+        val floor = if (ground == null) null else ground - originAltitude
+        return if (floor != null && h < floor) floor else h
+    }
 
     fun setTrack(points: List<TrackPoint>): Boolean {
         if (points.size < 2) return false
