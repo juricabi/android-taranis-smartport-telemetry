@@ -178,6 +178,15 @@ class TerrainPager(
     @Volatile private var publishedCover: Set<Long>? = null
 
     /**
+     * Bumped each time the drawn cover changes, so a draped overlay can re-lay
+     * itself onto the surface as it refines — the flight plans ride this the
+     * way the rings ride the ground in their own key. A plain counter: a
+     * reader only asks whether it moved, never by how much.
+     */
+    @Volatile var coverStamp: Int = 0
+        private set
+
+    /**
      * The height of the ground as currently drawn over a spot, or null while
      * nothing drawn covers it. Read from the drawn tile's own vertex grid,
      * because no level of the data agrees with the surface on screen: a
@@ -515,6 +524,7 @@ class TerrainPager(
         // the k this cut was selected under rides with it, so the morph
         // bands belong to the cut they guard, not to this frame's surface
         publishedCover = newCover
+        coverStamp++
         renderer.setDrawSet(newCover, newMasks, k)
         onProgress?.invoke(dressedInCut, cutSet.size)
         wantTextures(cutSet, eyeX, eyeY, eyeZ, k)

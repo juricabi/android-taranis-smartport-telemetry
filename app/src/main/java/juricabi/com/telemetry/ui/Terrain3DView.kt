@@ -155,8 +155,6 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         val points: FloatArray,
         val color: FloatArray
     ) {
-        val known = BooleanArray(lats.size)
-        var unknown = lats.size
         var set = TerrainRenderer.LineSet(
             points.copyOf(), color[0], color[1], color[2], color[3], true, 4f, true)
     }
@@ -165,16 +163,25 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
     private val drapedPlans =
         HashMap<Pair<List<juricabi.com.telemetry.maps.Position>, Int>, DrapedPlan>()
 
-    /** Settle onto ground any point of the plan still waiting for it. */
-    private fun settleDrape(draped: DrapedPlan) {
+    /**
+     * Lay the plan onto the ground the eye actually sees, and re-lay it as
+     * that ground refines — the way the rings do. Its height comes from the
+     * drawn mesh (drawnGroundAt), not the data (groundAt): a plan settled once
+     * on a coarse mesh sat buried the moment a finer one was drawn over it at
+     * a close zoom. drawnGroundAt is null only where nothing is drawn yet, so
+     * the data height and then the height the point already had are the
+     * fallbacks — a point never drops to the datum under a passing gap.
+     */
+    private fun drapePlan(draped: DrapedPlan) {
         var changed = false
         for (i in draped.lats.indices) {
-            if (draped.known[i]) continue
-            val ground = scene.groundAt(draped.lats[i], draped.lons[i]) ?: continue
-            draped.points[i * 3 + 1] = ground - scene.originAltitude
-            draped.known[i] = true
-            draped.unknown--
-            changed = true
+            val h = pager.drawnGroundAt(draped.lats[i], draped.lons[i])
+                ?: scene.groundAt(draped.lats[i], draped.lons[i]) ?: continue
+            val y = h - scene.originAltitude
+            if (draped.points[i * 3 + 1] != y) {
+                draped.points[i * 3 + 1] = y
+                changed = true
+            }
         }
         // a copy, because the renderer reads the one it holds on its own thread
         if (changed) {
@@ -198,6 +205,9 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
 
     /** Bumped when the ground under the rings changes, forcing a re-drape. */
     private var ringEpoch = 0
+
+    /** The pager cover stamp the plans were last re-draped against. */
+    private var lastPlanStamp = -1
 
     /** The same four things again, for the arrow that says where it was. */
     private var loggedLat = Double.NaN
@@ -256,6 +266,14 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             // ground in their key actually moves.
             placeMyArrow()
             placeLoggedArrow()
+            // the plans re-drape onto the drawn surface as it refines, the
+            // way the rings do — a plan settled on a coarse mesh sat buried
+            // once a finer one drew over it. Only when the drawn ground has
+            // actually moved, and only when there is a plan to re-lay.
+            if (flightPlans.isNotEmpty() && pager.coverStamp != lastPlanStamp) {
+                lastPlanStamp = pager.coverStamp
+                rebuildOverlays()
+            }
             if (!released) ticker.postDelayed(this, FOLLOW_INTERVAL_MS)
         }
     }
@@ -1007,7 +1025,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
             if (plan.size < 2) continue
             val already = drapedPlans[entry]
             if (already != null) {
-                if (already.unknown > 0) settleDrape(already)
+                drapePlan(already)
                 sets.add(already.set)
                 continue
             }
@@ -1046,7 +1064,7 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
                 points,
                 colorOf(entry.second)
             )
-            settleDrape(draped)
+            drapePlan(draped)
             drapedPlans[entry] = draped
             sets.add(draped.set)
         }
