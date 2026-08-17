@@ -373,8 +373,9 @@ def main():
                              "tight turns, dives and climbs, and a roll rate to "
                              "match")
     parser.add_argument("--above-launch", action="store_true",
-                        help="report height above the launch point, as an armed "
-                             "Betaflight does, instead of above sea level")
+                        help="report height above the launch point, as iNav "
+                             "over CRSF (and old Betaflight) does, instead of "
+                             "above sea level")
     parser.add_argument("--passthrough", action="store_true",
                         help="weave ArduPilot passthrough frames into the CRSF "
                              "stream, as ArduPilot over ELRS sends them")
