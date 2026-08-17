@@ -126,11 +126,21 @@ class RtspSource(
                 // buffering — jump to live.
                 val lag = System.currentTimeMillis() - p.currentPosition
                 if (liveBase == 0L) {
+                    // A fresh run starts wherever the server hands it — the
+                    // Orqa's broadcast endpoint handed sessions born seconds
+                    // behind its camera, and this guard only ever measured
+                    // growth from that inherited backlog: a whole afternoon
+                    // of goggle flying never fired it once. Jump to the
+                    // newest the server has first; measure from there.
+                    DebugLog.note("Video", "rtsp new run, catching up to the newest")
+                    p.seekToDefaultPosition()
+                    liveBase = -1L
+                } else if (liveBase == -1L) {
                     liveBase = lag
                 } else if (lag - liveBase > 1500) {
                     DebugLog.note("Video", "rtsp ${lag - liveBase}ms behind the camera, catching up")
-                    liveBase = 0L
                     p.seekToDefaultPosition()
+                    liveBase = -1L
                 }
                 val rendered = p.videoDecoderCounters?.renderedOutputBufferCount ?: -1
                 val gained = rendered - lastRendered
