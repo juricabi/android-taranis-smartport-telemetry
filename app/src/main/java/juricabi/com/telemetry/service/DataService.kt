@@ -16,6 +16,7 @@ import android.location.Criteria
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.location.altitude.AltitudeConverter
 import android.hardware.usb.UsbDeviceConnection
 import android.os.*
 import android.widget.Toast
@@ -731,6 +732,9 @@ class DataService : Service(), DataDecoder.Listener {
         refreshNotification()
     }
 
+    // built once; the first question loads the system's geoid table
+    private val altitudeConverter by lazy { AltitudeConverter() }
+
     /** On the poller's thread, like every other decode callback. */
     private fun publishMockFix(latitude: Double, longitude: Double) {
         if (!mockActive) return
@@ -746,7 +750,27 @@ class DataService : Service(), DataDecoder.Listener {
         // without an accuracy is refused as incomplete. Five metres is an
         // ordinary satellite answer, inside the filters tracker apps apply.
         fix.accuracy = 5f
-        if (!lastGPSAltitude.isNaN()) fix.altitude = lastGPSAltitude.toDouble()
+        // The link says altitude above the sea, which is what pilots and
+        // trackers read; Android defines the field as height above the WGS84
+        // ellipsoid, and since 14 derives an MSL of its own by subtracting
+        // the geoid — fed sea-level metres over Velebit it filed the drone
+        // 45 m low. The system's converter only answers ellipsoidal→MSL, but
+        // asked about a height that is really MSL its answer measures the
+        // geoid gap, which is enough to go the other way; both fields then
+        // agree with the drone under Android's own model, whoever reads which.
+        if (!lastGPSAltitude.isNaN()) {
+            val msl = lastGPSAltitude.toDouble()
+            fix.altitude = msl
+            if (Build.VERSION.SDK_INT >= 34) try {
+                val probe = Location(fix)
+                altitudeConverter.addMslAltitudeToLocation(this, probe)
+                fix.altitude = msl + (msl - probe.mslAltitudeMeters)
+                fix.mslAltitudeMeters = msl
+            } catch (e: Exception) {
+                // no geoid answer on this phone: sea-level metres stay in the
+                // raw field, which is how every tracker reads it anyway
+            }
+        }
         fix.speed = lastSpeed / 3.6f // decoders deliver km/h; Location wants m/s
         fix.bearing = lastHeading
         try {

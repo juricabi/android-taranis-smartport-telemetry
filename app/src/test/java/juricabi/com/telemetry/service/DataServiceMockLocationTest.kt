@@ -64,15 +64,35 @@ class ShadowTestProviderLocationManager : ShadowLocationManager() {
     @Implementation
     protected fun setTestProviderLocation(name: String, location: Location) {
         if (name !in testProviders) throw IllegalArgumentException("no test provider $name")
-        ReflectionHelpers.callInstanceMethod<Void>(
-            location, "setIsFromMockProvider", ClassParameter.from(Boolean::class.java, true)
-        )
+        try {
+            ReflectionHelpers.callInstanceMethod<Void>(
+                location, "setIsFromMockProvider", ClassParameter.from(Boolean::class.java, true)
+            )
+        } catch (e: RuntimeException) {
+            // the hidden setter was renamed on the way to 34
+            ReflectionHelpers.callInstanceMethod<Void>(
+                location, "setMock", ClassParameter.from(Boolean::class.java, true)
+            )
+        }
         simulateLocation(location)
     }
 
     @Implementation
     protected fun removeTestProvider(name: String) {
         testProviders.remove(name)
+    }
+}
+
+/**
+ * The platform converter needs the system's geoid table, which the test JVM
+ * does not carry; a flat 45.2 m gap — the Velebit number — stands in for it,
+ * so what the test actually checks is the inversion arithmetic.
+ */
+@Implements(android.location.altitude.AltitudeConverter::class, minSdk = 34)
+class ShadowFlatGeoidConverter {
+    @Implementation
+    protected fun addMslAltitudeToLocation(context: android.content.Context, location: Location) {
+        location.mslAltitudeMeters = location.altitude - 45.2
     }
 }
 
@@ -129,6 +149,25 @@ class DataServiceMockLocationTest {
         assertEquals(10f, fix.speed, 1e-3f) // 36 km/h, said in m/s
         assertEquals(90f, fix.bearing, 1e-3f)
         assertTrue(fix.isFromMockProvider)
+    }
+
+    @Test
+    @Config(sdk = [34], shadows = [ShadowFlatGeoidConverter::class])
+    fun theSeaLevelAltitudeIsLiftedOntoTheEllipsoid() {
+        setMocking(true)
+        val s = service()
+        s.onConnected()
+        s.onGPSState(10, true)
+        s.onGPSAltitudeData(120f)
+        s.onGPSData(45.5, 15.5)
+
+        val fix = lastGpsFix()
+        assertNotNull(fix)
+        // the raw field carries true ellipsoidal height: MSL plus the gap
+        assertEquals(165.2, fix!!.altitude, 1e-6)
+        // and the MSL field carries the drone's own number, underived
+        assertTrue(fix.hasMslAltitude())
+        assertEquals(120.0, fix.mslAltitudeMeters, 1e-6)
     }
 
     @Test
