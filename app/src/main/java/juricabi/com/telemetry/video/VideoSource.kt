@@ -1,7 +1,8 @@
 package juricabi.com.telemetry.video
 
-import android.graphics.Matrix
-import android.view.TextureView
+import android.view.SurfaceView
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import juricabi.com.telemetry.manager.PreferenceManager
 
 /**
@@ -42,7 +43,7 @@ interface VideoSource {
         fun onAudioLost() {}
     }
 
-    fun start(view: TextureView)
+    fun start(view: SurfaceView)
     fun stop()
 
     /**
@@ -60,17 +61,28 @@ interface VideoSource {
 }
 
 /**
- * Lay the picture into the view instead of stretching it over it — a
- * TextureView's own idea of fitting is to fill, and a 4:3 receiver frame
- * pulled over a 20:9 phone screen is not a picture anyone can fly by.
+ * Lay the picture into its half instead of stretching it over the whole
+ * pane — a 4:3 receiver frame pulled over a 20:9 phone screen is not a
+ * picture anyone can fly by.
  *
- * The two remembered choices are read here, the one place the transform is
- * made: letterbox or fill the view (cropping the overflow), and an extra
- * quarter-turn for a camera mounted sideways. Every source funnels every
- * size and layout change through this.
+ * A SurfaceView cannot take a content matrix the way a TextureView could,
+ * so the same three choices are made by moving the view itself: the surface
+ * is sized to the picture's on-screen box and centred in its half, and the
+ * turn is the view's own rotation. Letterbox sizes the surface inside the
+ * half; fill sizes it to overflow and the half clips the surplus. Every
+ * source funnels every size and layout change through this, on the UI
+ * thread — layout params and rotation belong to it.
+ *
+ * The half's size is read from the parent, since the surface is now smaller
+ * than the pane and cannot report it. Rotation follows the view (API 24+);
+ * below that the surface does not turn, an accepted graceful loss for a
+ * device population that has all but vanished.
  */
-internal fun TextureView.fitPicture(videoWidth: Int, videoHeight: Int) {
-    if (videoWidth <= 0 || videoHeight <= 0 || width == 0 || height == 0) return
+internal fun SurfaceView.fitPicture(videoWidth: Int, videoHeight: Int) {
+    val half = parent as? ViewGroup ?: return
+    val paneWidth = half.width
+    val paneHeight = half.height
+    if (videoWidth <= 0 || videoHeight <= 0 || paneWidth == 0 || paneHeight == 0) return
     val preferences = PreferenceManager(context)
     val rotation = preferences.getVideoRotation()
     val fill = preferences.isVideoFillEnabled()
@@ -79,19 +91,25 @@ internal fun TextureView.fitPicture(videoWidth: Int, videoHeight: Int) {
     val shownWidth = if (sideways) videoHeight else videoWidth
     val shownHeight = if (sideways) videoWidth else videoHeight
     val scale =
-        if (fill) maxOf(width.toFloat() / shownWidth, height.toFloat() / shownHeight)
-        else minOf(width.toFloat() / shownWidth, height.toFloat() / shownHeight)
-    val onScreenWidth = shownWidth * scale
-    val onScreenHeight = shownHeight * scale
-    // The content starts as the video stretched over the whole view; scale
-    // it so that after the rotation its extents land at the on-screen size.
-    // A quarter-turn swaps which pre-rotation extent becomes which.
-    val matrix = Matrix()
-    matrix.postScale(
-        (if (sideways) onScreenHeight else onScreenWidth) / width,
-        (if (sideways) onScreenWidth else onScreenHeight) / height,
-        width / 2f, height / 2f
-    )
-    matrix.postRotate(rotation.toFloat(), width / 2f, height / 2f)
-    setTransform(matrix)
+        if (fill) maxOf(paneWidth.toFloat() / shownWidth, paneHeight.toFloat() / shownHeight)
+        else minOf(paneWidth.toFloat() / shownWidth, paneHeight.toFloat() / shownHeight)
+    // The box as it lies on screen, then un-turned back to how the surface
+    // is laid out before its own rotation swings it there: a quarter-turn
+    // rotates around the centre, so the pre-rotation box has the sides
+    // swapped.
+    val onScreenWidth = Math.round(shownWidth * scale)
+    val onScreenHeight = Math.round(shownHeight * scale)
+    val boxWidth = if (sideways) onScreenHeight else onScreenWidth
+    val boxHeight = if (sideways) onScreenWidth else onScreenHeight
+    rotation.toFloat().let { if (this.rotation != it) this.rotation = it }
+    val params = layoutParams as? FrameLayout.LayoutParams
+        ?: FrameLayout.LayoutParams(boxWidth, boxHeight)
+    if (params.width != boxWidth || params.height != boxHeight ||
+        params.gravity != android.view.Gravity.CENTER
+    ) {
+        params.width = boxWidth
+        params.height = boxHeight
+        params.gravity = android.view.Gravity.CENTER
+        layoutParams = params
+    }
 }

@@ -28,10 +28,20 @@
                 android:background="#303030"
                 android:visibility="gone">
 
-            <TextureView
+            <!-- A SurfaceView, not a TextureView: the decoder writes straight
+                 to a hardware overlay the compositor shows, with no per-frame
+                 GPU copy into the view tree — the fast path Orqa's own app
+                 rides. It frees the GPU the map and 3D terrain share the pane
+                 with, so the whole screen gains, not only the picture. It
+                 cannot take a content matrix, so fit, fill and the turn are
+                 done by sizing and rotating the view itself — see
+                 fitPicture. Sized and centred in code; starts wrap so an
+                 unsized surface never flashes full-bleed. -->
+            <SurfaceView
                     android:id="@+id/video_view"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"/>
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"/>
 
             <juricabi.com.telemetry.ui.TextViewOutline
                     android:id="@+id/video_waiting"

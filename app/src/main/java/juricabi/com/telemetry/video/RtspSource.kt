@@ -3,7 +3,7 @@ package juricabi.com.telemetry.video
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import android.view.TextureView
+import android.view.SurfaceView
 import android.view.View
 import androidx.annotation.OptIn
 import androidx.media3.common.C
@@ -45,7 +45,7 @@ class RtspSource(
 ) : VideoSource {
 
     private var player: ExoPlayer? = null
-    private var view: TextureView? = null
+    private var view: SurfaceView? = null
     private var recoveries = 0
     private var audioOn = false
     private var playedSinceChange = false
@@ -204,7 +204,7 @@ class RtspSource(
         p.prepare()
     }
 
-    override fun start(view: TextureView) {
+    override fun start(view: SurfaceView) {
         DebugLog.note("Video", "rtsp start $said")
         this.view = view
         view.addOnLayoutChangeListener(refitOnLayout)
@@ -230,7 +230,7 @@ class RtspSource(
             .build()
         this.player = player
         applyAudio(player)
-        player.setVideoTextureView(view)
+        player.setVideoSurfaceView(view)
         player.setMediaSource(mediaSource())
         player.addListener(object : Player.Listener {
             override fun onVideoSizeChanged(videoSize: VideoSize) {

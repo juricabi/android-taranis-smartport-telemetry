@@ -29,7 +29,7 @@ import android.text.method.LinkMovementMethod
 import android.text.style.StyleSpan
 import android.util.TypedValue
 import android.view.MotionEvent
-import android.view.TextureView
+import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -331,7 +331,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private lateinit var videoFillButton: ImageView
     private lateinit var videoRotateButton: ImageView
     private lateinit var videoDivider: View
-    private lateinit var videoView: TextureView
+    private lateinit var videoView: SurfaceView
     private lateinit var videoHalf: FrameLayout
     private lateinit var videoWaiting: TextViewOutline
     private lateinit var flightPane: LinearLayout
@@ -2480,13 +2480,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     private fun startVideo(retrying: Boolean = false) {
-        // One canvas draw ties a surface to the CPU for good — MJPEG paints
-        // every frame that way — and a decoder can never attach to it after:
-        // MJPEG then RTSP on the same texture failed every decoder init until
-        // the screen was rebuilt. Passing the view through the window hands
-        // each source a texture with no history, and retires the previous
-        // stream's stale last frame — before every branch, so the camera-
-        // permission card below never stands on a dead picture either.
+        // Each source gets a surface with no history: removing and re-adding
+        // the SurfaceView destroys its surface and creates a fresh one, so a
+        // decoder or a canvas from the previous source can never draw the
+        // wrong picture into the next — and the dead stream's last frame is
+        // retired with the old surface. Done before every branch, so the
+        // camera-permission card below never stands on a stale picture.
         (videoView.parent as ViewGroup).let { parent ->
             val at = parent.indexOfChild(videoView)
             parent.removeViewAt(at)

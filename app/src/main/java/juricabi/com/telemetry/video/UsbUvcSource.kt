@@ -1,10 +1,10 @@
 package juricabi.com.telemetry.video
 
 import android.content.Context
-import android.graphics.SurfaceTexture
 import android.hardware.usb.UsbDevice
 import android.view.Surface
-import android.view.TextureView
+import android.view.SurfaceHolder
+import android.view.SurfaceView
 import com.herohan.uvcapp.CameraException
 import com.herohan.uvcapp.CameraHelper
 import com.herohan.uvcapp.ICameraHelper
@@ -53,7 +53,9 @@ class UsbUvcSource(
     }
 
     private var helper: ICameraHelper? = null
-    private var view: TextureView? = null
+    private var view: SurfaceView? = null
+    // the holder's own Surface — held to hand the camera, never released
+    // here, since the SurfaceView owns it and frees it with its window
     private var surface: Surface? = null
 
     private val refitOnLayout = android.view.View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
@@ -116,12 +118,12 @@ class UsbUvcSource(
 
         override fun onCameraClose(device: UsbDevice) {
             DebugLog.note("Video", "uvc camera close ${said(device)}")
-            surface?.let { helper?.removeSurface(it) }
             // The surface must go with the camera: the view outlives a
             // replug, so a kept surface made attachSurfaceIfReady believe
             // the reopened camera was already served — frames flowed to the
             // callback, onLive took the card down, and the half stayed black.
-            surface?.release()
+            // Dropped, not released: the holder owns it and frees it itself.
+            surface?.let { helper?.removeSurface(it) }
             surface = null
             // the half folds away until frames flow again — a replugged
             // camera re-earns it through the next first frame
@@ -159,34 +161,31 @@ class UsbUvcSource(
         }
     }
 
-    override fun start(view: TextureView) {
+    private val holderCallback = object : SurfaceHolder.Callback {
+        override fun surfaceCreated(holder: SurfaceHolder) {
+            if (!sawSurfaceDraw) {
+                sawSurfaceDraw = true
+                DebugLog.note("Video", "uvc surface up")
+            }
+            attachSurfaceIfReady()
+        }
+
+        override fun surfaceChanged(holder: SurfaceHolder, f: Int, w: Int, h: Int) {}
+
+        override fun surfaceDestroyed(holder: SurfaceHolder) {
+            surface?.let { helper?.removeSurface(it) }
+            surface = null
+        }
+    }
+
+    override fun start(view: SurfaceView) {
         DebugLog.note("Video", "uvc start")
         this.view = view
         view.addOnLayoutChangeListener(refitOnLayout)
-        view.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-            override fun onSurfaceTextureAvailable(t: SurfaceTexture, w: Int, h: Int) {
-                attachSurfaceIfReady()
-            }
-
-            override fun onSurfaceTextureSizeChanged(t: SurfaceTexture, w: Int, h: Int) {}
-
-            override fun onSurfaceTextureDestroyed(t: SurfaceTexture): Boolean {
-                surface?.let { helper?.removeSurface(it) }
-                surface?.release()
-                surface = null
-                return true
-            }
-
-            override fun onSurfaceTextureUpdated(t: SurfaceTexture) {
-                // not a signal of anything: the renderer's clear lands here
-                // too. Noted once, for telling a drawn-black half from a
-                // never-drawn one in the log.
-                if (!sawSurfaceDraw) {
-                    sawSurfaceDraw = true
-                    DebugLog.note("Video", "uvc surface first drawn")
-                }
-            }
-        }
+        view.holder.addCallback(holderCallback)
+        // addCallback does not replay surfaceCreated, so a surface already
+        // standing when a camera is plugged into a running pane is taken now
+        if (view.holder.surface?.isValid == true) attachSurfaceIfReady()
         val helper = CameraHelper()
         this.helper = helper
         helper.setStateCallback(stateCallback)
@@ -202,21 +201,19 @@ class UsbUvcSource(
     private fun attachSurfaceIfReady() {
         val h = helper ?: return
         if (!h.isCameraOpened || surface != null) return
-        val texture = view?.surfaceTexture ?: return
-        val s = Surface(texture)
+        val s = view?.holder?.surface?.takeIf { it.isValid } ?: return
         surface = s
         h.addSurface(s, false)
     }
 
     override fun stop() {
         DebugLog.note("Video", "uvc stop")
-        view?.surfaceTextureListener = null
+        view?.holder?.removeCallback(holderCallback)
         view?.removeOnLayoutChangeListener(refitOnLayout)
         view = null
-        // taken from the helper before release — the preview must not render
-        // into a surface already gone
+        // taken from the helper before its release — the preview must not
+        // render into a surface about to go; the holder frees the surface
         surface?.let { helper?.removeSurface(it) }
-        surface?.release()
         surface = null
         helper?.release()
         helper = null

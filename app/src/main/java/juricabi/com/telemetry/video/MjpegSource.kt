@@ -2,7 +2,7 @@ package juricabi.com.telemetry.video
 
 import android.graphics.BitmapFactory
 import android.graphics.Rect
-import android.view.TextureView
+import android.view.SurfaceView
 import android.view.View
 import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
@@ -75,7 +75,7 @@ class MjpegSource(
     // sent the field re-tapping at a wrong path
     @Volatile private var answer: String? = null
     @Volatile private var connection: HttpURLConnection? = null
-    @Volatile private var view: TextureView? = null
+    @Volatile private var view: SurfaceView? = null
 
     // The newest complete frame, waiting on the decoder — one slot, newest
     // wins. Reading the wire is the cheap half and decoding the dear one;
@@ -97,7 +97,7 @@ class MjpegSource(
         view?.fitPicture(frameWidth, frameHeight)
     }
 
-    override fun start(view: TextureView) {
+    override fun start(view: SurfaceView) {
         DebugLog.note("Video", "mjpeg start")
         this.view = view
         view.addOnLayoutChangeListener(refitOnLayout)
@@ -171,7 +171,7 @@ class MjpegSource(
      * cannot show. The longer sides are compared so a filled or quarter-
      * turned picture stays sharp; a pane not yet laid out decodes whole.
      */
-    private fun sampleFor(frameLong: Int, view: TextureView): Int {
+    private fun sampleFor(frameLong: Int, view: SurfaceView): Int {
         val paneLong = maxOf(view.width, view.height)
         if (paneLong == 0) return 1
         var sample = 1
@@ -204,20 +204,20 @@ class MjpegSource(
             // setTransform belongs to the UI thread; the frames do not
             view.post { view.fitPicture(frameWidth, frameHeight) }
         }
-        // Re-read both before touching the canvas: the decode above took
-        // tens of milliseconds, long enough for a stop-and-restart to hand
-        // this same TextureView a fresh texture for the next source — and
-        // one stale canvas draw would tie that texture to the CPU and fail
-        // the successor's decoder for good.
+        // Re-read the view before touching the canvas: the decode above took
+        // tens of milliseconds, long enough for a stop-and-restart to swap
+        // the source under us, and a draw into the successor's surface would
+        // be the wrong picture at best.
         val target = this.view ?: return
         if (!running) return
-        // null while the view is not yet available; the stream keeps going
-        // and the next frame after it appears lands
-        val canvas = target.lockCanvas() ?: return
+        val holder = target.holder
+        // null while the surface is not yet created or already gone; the
+        // stream keeps going and the next frame after it returns lands
+        val canvas = holder.lockCanvas() ?: return
         try {
             canvas.drawBitmap(bitmap, null, Rect(0, 0, canvas.width, canvas.height), null)
         } finally {
-            target.unlockCanvasAndPost(canvas)
+            holder.unlockCanvasAndPost(canvas)
         }
         if (!live) {
             live = true

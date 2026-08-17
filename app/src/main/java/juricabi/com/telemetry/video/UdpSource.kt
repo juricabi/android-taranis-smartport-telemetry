@@ -5,7 +5,8 @@ import android.media.MediaFormat
 import android.os.Handler
 import android.os.HandlerThread
 import android.view.Surface
-import android.view.TextureView
+import android.view.SurfaceHolder
+import android.view.SurfaceView
 import java.io.ByteArrayOutputStream
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -223,8 +224,10 @@ class UdpSource(
     @Volatile private var running = false
     @Volatile private var live = false
     @Volatile private var socket: DatagramSocket? = null
+    // the holder's own Surface — the decoder renders into it; not released
+    // here, since the SurfaceView owns it and frees it with its window
     @Volatile private var surface: Surface? = null
-    @Volatile private var view: TextureView? = null
+    @Volatile private var view: SurfaceView? = null
     @Volatile private var pictureWidth = 0
     @Volatile private var pictureHeight = 0
 
@@ -252,25 +255,26 @@ class UdpSource(
         view?.fitPicture(pictureWidth, pictureHeight)
     }
 
-    override fun start(view: TextureView) {
+    private val holderCallback = object : SurfaceHolder.Callback {
+        override fun surfaceCreated(holder: SurfaceHolder) {
+            DebugLog.note("Video", "udp surface up")
+            // the receive loop builds the decoder on its next packet once it
+            // sees a surface to draw into — milliseconds away on a live stream
+            surface = holder.surface
+        }
+        override fun surfaceChanged(holder: SurfaceHolder, f: Int, w: Int, h: Int) {}
+        override fun surfaceDestroyed(holder: SurfaceHolder) {
+            DebugLog.note("Video", "udp surface gone")
+            surface = null
+        }
+    }
+
+    override fun start(view: SurfaceView) {
         DebugLog.note("Video", "udp listen :$port")
         this.view = view
         view.addOnLayoutChangeListener(refitOnLayout)
-        view.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-            override fun onSurfaceTextureAvailable(t: android.graphics.SurfaceTexture, w: Int, h: Int) {
-                DebugLog.note("Video", "udp surface up ${w}x$h")
-                surface = Surface(t)
-            }
-            override fun onSurfaceTextureSizeChanged(t: android.graphics.SurfaceTexture, w: Int, h: Int) {}
-            override fun onSurfaceTextureDestroyed(t: android.graphics.SurfaceTexture): Boolean {
-                DebugLog.note("Video", "udp surface gone")
-                surface?.release()
-                surface = null
-                return true
-            }
-            override fun onSurfaceTextureUpdated(t: android.graphics.SurfaceTexture) {}
-        }
-        view.surfaceTexture?.let { surface = Surface(it) }
+        view.holder.addCallback(holderCallback)
+        view.holder.surface?.takeIf { it.isValid }?.let { surface = it }
         running = true
         Thread({ receive() }, "udp-video").start()
     }
@@ -619,10 +623,10 @@ class UdpSource(
         DebugLog.note("Video", "udp stop")
         running = false
         socket?.close() // unblocks the receiver mid-wait
-        view?.surfaceTextureListener = null
+        view?.holder?.removeCallback(holderCallback)
         view?.removeOnLayoutChangeListener(refitOnLayout)
         view = null
-        surface?.release()
+        // dropped, not released: the holder owns the surface and frees it
         surface = null
     }
 }
