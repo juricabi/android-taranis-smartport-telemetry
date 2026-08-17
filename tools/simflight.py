@@ -65,12 +65,15 @@ def frame(frame_type, payload):
 
 
 def gps_frame(lat, lon, speed_kmh, heading_deg, altitude_m, satellites):
+    # the frame's altitude floor is -1000 m; below it the unsigned pack
+    # raises mid-flight, the battery packer's lesson all over again — a
+    # route descending far under its launch reaches it with --above-launch
     return frame(GPS, struct.pack(
         ">iiHHHB",
         int(round(lat * 1e7)), int(round(lon * 1e7)),
         int(round(speed_kmh * 10)) & 0xFFFF,
         int(round(heading_deg % 360 * 100)) & 0xFFFF,
-        int(round(altitude_m)) + 1000, satellites))
+        min(0xFFFF, max(0, int(round(altitude_m)) + 1000)), satellites))
 
 
 def battery_frame(volts, amps, used_mah, remaining_pct):
@@ -364,8 +367,9 @@ def main():
                                         "Try tools/velebit-surf.csv")
     parser.add_argument("--speed", type=float, default=30.0,
                         help="metres per second along a --route")
-    parser.add_argument("--ground", type=float, default=120.0,
-                        help="height of the field above sea level, metres")
+    parser.add_argument("--ground", type=float, default=None,
+                        help="height of the field above sea level, metres; "
+                             "120 unless a --route sets it from its first point")
     parser.add_argument("--radius", type=float, default=220.0)
     parser.add_argument("--minutes", type=float, default=8.0)
     parser.add_argument("--style", choices=("eight", "acro"), default="eight",
@@ -410,6 +414,12 @@ def main():
     if (args.dump is None and args.host is None
             and not args.wait_enable and not args.tcp):
         parser.error("--host is required unless --dump or --tcp is given")
+    if args.above_launch and args.protocol == "mavlink-hl":
+        # the printout used to promise relative heights the wire never
+        # carried: HIGH_LATENCY2's altitude is sea level by specification,
+        # and this sim tells only lies that some firmware actually tells
+        parser.error("--above-launch models the CRSF estimator; "
+                     "HIGH_LATENCY2 always carries sea-level altitude")
 
     route = None
     route_cache = None
@@ -419,8 +429,16 @@ def main():
         # launch is the start of the ridge unless said otherwise
         if args.lat is None:
             args.lat, args.lon = route[0][0], route[0][1]
+        # and so is the launch ground: subtracting the flat-field default
+        # from ridge altitudes made --above-launch report numbers that read
+        # as slightly-low sea-level heights — a lie no firmware tells, and
+        # one the app's underground test rightly refused to call relative
+        if args.ground is None:
+            args.ground = route[0][2]
     elif args.lat is None or args.lon is None:
         parser.error("--lat and --lon are required without --route")
+    if args.ground is None:
+        args.ground = 120.0
 
     dump = open(args.dump, "wb") if args.dump else None
     sock = None
@@ -516,15 +534,19 @@ def main():
             break
 
         if route is not None:
-            # Surfing the ridge: along the route at a soaring pace, close over
-            # the crests with a breathing clearance, banking falls out of the
-            # frame-to-frame motion like everywhere else.
+            # Surfing the ridge: along the route at a soaring pace, over the
+            # crests with a breathing clearance, banking falls out of the
+            # frame-to-frame motion like everywhere else. The clearance is
+            # generous on purpose: the route corner-cuts between nineteen
+            # waypoints over sixty kilometres, real summits rise above those
+            # straight lines, and a sim that truly flies through a mountain
+            # files false bug reports against the app that drew it honestly.
             legs, total = route_cache
             rlat, rlon, ralt = route_position(legs, total, t * args.speed)
             north = (rlat - args.lat) * metres_per_deg_lat
             east = (rlon - args.lon) * metres_per_deg_lon
             phase = 2 * math.pi * t / 60.0
-            climb = (ralt - args.ground) + 70 + 45 * math.sin(2 * math.pi * t / 23.0)
+            climb = (ralt - args.ground) + 160 + 45 * math.sin(2 * math.pi * t / 23.0)
         elif args.style == "acro":
             # A racer rather than a tourist: a lap every eighteen seconds, the
             # track wandering as three turns of different rates beat against
