@@ -2399,6 +2399,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val networkButton = content.findViewById<RadioButton>(R.id.video_settings_network)
         val addressGroup = content.findViewById<View>(R.id.video_settings_address_group)
         val input = content.findViewById<EditText>(R.id.video_settings_url)
+        val udpToggle = content.findViewById<CompoundButton>(R.id.video_settings_rtsp_udp)
         val recents = content.findViewById<LinearLayout>(R.id.video_settings_recents)
 
         when (preferenceManager.getVideoSource()) {
@@ -2406,9 +2407,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             "network" -> networkButton.isChecked = true
             else -> content.findViewById<RadioButton>(R.id.video_settings_off).isChecked = true
         }
+        udpToggle.isChecked = preferenceManager.getRtspUdp()
         input.setText(preferenceManager.getVideoStreamUrl())
         input.setSelection(input.text.length)
-        // the address only belongs to a network stream
+        // the address and the transport it rides both belong to a network
+        // stream, and fold away together under the other sources
         addressGroup.visibility = if (networkButton.isChecked) View.VISIBLE else View.GONE
         group.setOnCheckedChangeListener { _, _ ->
             addressGroup.visibility = if (networkButton.isChecked) View.VISIBLE else View.GONE
@@ -2450,6 +2453,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                         val typed = input.text.toString().trim()
                         preferenceManager.setVideoStreamUrl(typed)
                         if (typed.isNotBlank()) preferenceManager.rememberVideoUrl(typed)
+                        preferenceManager.setRtspUdp(udpToggle.isChecked)
                     }
                     applyVideoSource(chosen)
                 }
@@ -2495,7 +2499,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 val trouble = when {
                     url.isBlank() -> "No stream address set — enter one under Settings, Video"
                     url.startsWith("rtsp://", ignoreCase = true) ->
-                        return RtspSource(this, url, events)
+                        return RtspSource(this, url, preferenceManager.getRtspUdp(), events)
                     url.startsWith("http://", ignoreCase = true) ||
                         url.startsWith("https://", ignoreCase = true) ->
                         return MjpegSource(url, events)

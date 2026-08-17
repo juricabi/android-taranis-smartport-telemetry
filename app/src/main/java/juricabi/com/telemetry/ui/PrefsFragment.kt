@@ -468,10 +468,13 @@ class PrefsFragment : PreferenceFragmentCompat() {
         // not use it, rather than hidden — what was typed is kept, and comes
         // back with the source.
         val streamUrl = prefManager.getVideoStreamUrl()
+        val networkSource = prefManager.getVideoSource() == "network"
         findPreference("video_stream_url")?.let {
             it.summary =
                 if (streamUrl.isBlank()) getString(R.string.video_stream_url_hint) else streamUrl
-            it.isEnabled = prefManager.getVideoSource() == "network"
+            it.isEnabled = networkSource
         }
+        // the transport belongs to a network stream too — greyed under the rest
+        findPreference("video_rtsp_udp")?.isEnabled = networkSource
     }
 }

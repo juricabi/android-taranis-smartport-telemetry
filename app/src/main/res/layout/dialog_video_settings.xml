@@ -67,6 +67,21 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginTop="16dp"
+                android:background="?android:attr/listDivider" />
+
+            <!-- RTSP RTP transport, at the foot of the network settings it
+                 belongs to; hidden with them when the source is not a stream -->
+            <Switch
+                android:id="@+id/video_settings_rtsp_udp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="12dp"
+                android:text="RTSP over UDP — lower latency, smears on a weak link. Off = TCP (steadier)." />
+
         </LinearLayout>
 
     </LinearLayout>

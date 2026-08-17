@@ -41,13 +41,14 @@ import juricabi.com.telemetry.utils.DebugLog
  * stone. Sound is therefore joined only when asked for (the speaker button),
  * and if the stream cannot start with it, it is dropped again and said so —
  * the picture always wins. Stalls and errors rejoin the live stream, running
- * forgives, and only three failures in a row give up. The stream rides TCP
- * from the first frame — see mediaSource for what UDP cost.
+ * forgives, and only three failures in a row give up. The RTP rides TCP or
+ * UDP by the flyer's choice ([useUdp]) — see mediaSource for what each costs.
  */
 @OptIn(UnstableApi::class)
 class RtspSource(
     private val context: Context,
     private val url: String,
+    private val useUdp: Boolean,
     private val events: VideoSource.Events
 ) : VideoSource {
 
@@ -55,7 +56,15 @@ class RtspSource(
     private var view: SurfaceView? = null
     private var recoveries = 0
     private var audioOn = false
+    // Two played-flags with two jobs. playedSinceChange: has anything played
+    // since the last DELIBERATE change (start, a turn, the sound switch) — the
+    // phantom-audio drop keys on it, so a recovery rebuild must not reset it or
+    // a plain outage with sound on reads as "the audio track froze the start"
+    // and mutes the stream with the wrong toast. playedThisSession: has THIS
+    // player played — the stall watchdog keys on it, so every fresh session,
+    // recovery rebuilds included, gets the long connect grace.
     private var playedSinceChange = false
+    private var playedThisSession = false
     private val handler = Handler(Looper.getMainLooper())
 
     // the address with any credentials kept out of the notes
@@ -82,8 +91,11 @@ class RtspSource(
         events.onCovered(true)
         handler.removeCallbacks(starving)
         handler.removeCallbacks(stalled)
-        player?.release()
+        // nulled before the release, as in rejoin — a hung release's late
+        // error must find no player, not re-enter rejoin against this one
+        val dying = player
         player = null
+        dying?.release()
         openPlayer()
     }
 
@@ -132,8 +144,10 @@ class RtspSource(
                 events.onCovered(true)
                 handler.removeCallbacks(starving)
                 handler.removeCallbacks(stalled)
-                player?.release()
+                // nulled before the release, as in rejoin
+                val dying = player
                 player = null
+                dying?.release()
                 val (w, h) = turnedSides(videoWidth, videoHeight, rotation)
                 v.fitPicture(w, h)
                 openPlayer()
@@ -144,9 +158,11 @@ class RtspSource(
         v.fitPicture(w, h)
     }
 
-    // Past the player's own UDP-to-TCP fallback, which runs at eight
-    // seconds — a rejoin before that would start a fresh UDP session and
-    // keep a TCP-only camera from ever being reached.
+    // Still buffering when this fires is a dead session, not a hiccup —
+    // ExoPlayer climbs out of a real rebuffer on its own, back to READY, which
+    // cancels this. The wait before it fires is set where it is posted: short
+    // once the stream has played, a longer grace for a first connect that has
+    // not shown a frame yet.
     private val stalled = Runnable {
         if (player?.playbackState == Player.STATE_BUFFERING) rejoin("the stream stalled")
     }
@@ -166,14 +182,6 @@ class RtspSource(
         override fun run() {
             val p = player ?: return
             if (p.playbackState == Player.STATE_READY) {
-                // No chasing the live edge here any more. Seeking a live RTSP
-                // broadcast to "the newest" dropped the Orqa feed into a
-                // buffering it never climbed out of — twelve seconds frozen
-                // until the stalled watchdog rejoined it, then another
-                // catch-up, a cycle that ate a whole goggle flight (the field
-                // log was unmistakable). Orqa's own app does not chase it
-                // either; it plays and wears the odd stutter. What is left is
-                // only the frozen-picture check the comment above describes.
                 val rendered = p.videoDecoderCounters?.renderedOutputBufferCount ?: -1
                 val gained = rendered - lastRendered
                 when {
@@ -188,7 +196,11 @@ class RtspSource(
                             events.onTrouble("$said stopped sending pictures")
                             return
                         }
+                        // the rebuild reopen schedules re-posts this watchdog;
+                        // returning here so the fall-through below does not post
+                        // a second, a duplicate 4s poll leaked per starve-recover
                         rejoin("no pictures arriving")
+                        return
                     }
                     else -> lastRendered = rendered
                 }
@@ -197,17 +209,20 @@ class RtspSource(
         }
     }
 
-    // Always TCP, interleaved on the RTSP connection itself. UDP was tried
-    // first for latency's sake and cost a smeared first second on every
-    // address it had not yet failed on: a torn FU-A fragment decodes as a
-    // garbage NAL type instead of raising an error — the field logs read
-    // "packetization mode [25..31] not supported", a different number every
-    // second, from a camera that only ever sends FU-A — and the player's own
-    // UDP-to-TCP fallback needs silence, which torn packets are not. The
-    // transport carries the same frames either way; the latency lives in the
-    // buffers, not here.
+    // TCP or UDP for the RTP, the flyer's choice (the Video settings switch),
+    // TCP the default. TCP interleaves the video on the RTSP connection itself:
+    // reliable — never a torn frame — but the video shares the one pipe with
+    // the control channel, and a server that mishandles a mid-stream request
+    // stalls on its own keep-alive (the Orqa goggle drops its video ~0.2s after
+    // every OPTIONS media3 sends; cracked from the protocol log). UDP keeps the
+    // video off that pipe, so the keep-alive never touches it — the goggle then
+    // plays smooth as its own app — but a lost packet tears an FU-A fragment
+    // into a garbage NAL that decodes as a smear ("packetization mode [25..31]
+    // not supported" in the field logs). A clean direct link wants UDP; a lossy
+    // one wants TCP. The frames are the same either way; the latency lives in
+    // the buffers, not here.
     private fun mediaSource() = RtspMediaSource.Factory()
-        .setForceUseRtpTcp(true)
+        .setForceUseRtpTcp(!useUdp)
         .createMediaSource(MediaItem.fromUri(url))
 
     /**
@@ -215,14 +230,14 @@ class RtspSource(
      * session.
      */
     private fun rejoin(why: String) {
-        val p = player ?: return
+        if (player == null) return
         DebugLog.note("Video", "rtsp rejoin ($why), recoveries=$recoveries")
         if (!playedSinceChange && audioOn) {
             // It cannot start with the sound it was just asked for — the
-            // likeliest trap is an advertised audio track nothing feeds.
-            // The picture wins; the screen is told so its button agrees.
+            // likeliest trap is an advertised audio track nothing feeds. The
+            // picture wins; the fresh player below starts without it (openPlayer
+            // applies the selection), and the screen is told so its button agrees.
             audioOn = false
-            applyAudio(p)
             DebugLog.note("Video", "rtsp dropped audio to start at all")
             events.onAudioLost()
         } else if (++recoveries > 3) {
@@ -231,10 +246,29 @@ class RtspSource(
             events.onTrouble("$said — $why")
             return
         }
-        p.stop()
-        p.setMediaSource(mediaSource())
-        p.prepare()
+        // Recover the way Orqa's own app does: recreate the player whole, not
+        // re-prepare the kept one — the last place a re-prepare reused a player.
+        // Released now, rebuilt after a short wait, so a blink-length outage
+        // costs one rebuild rather than the four-in-60ms storm that burned the
+        // whole recovery budget and flashed the trouble card on a blip. The
+        // recovery tally is kept (resetRecoveries=false) so the give-up budget
+        // still counts down across the paced attempts.
+        handler.removeCallbacks(starving)
+        handler.removeCallbacks(stalled)
+        handler.removeCallbacks(reopen)
+        // Cleared before the release, not after: a hung socket makes release
+        // time out and fire a late error at this same player's listener, which
+        // would re-enter rejoin and count the recovery twice (the field log's
+        // paired "stream stalled" then "Player release timed out"). With the
+        // field already null, that re-entrant rejoin finds no player and returns.
+        val dying = player
+        player = null
+        dying?.release()
+        handler.postDelayed(reopen, 1000L)
     }
+
+    // the paced recovery rebuild rejoin schedules; keeps the recovery tally
+    private val reopen = Runnable { openPlayer(resetRecoveries = false) }
 
     override fun start(view: SurfaceView) {
         DebugLog.note("Video", "rtsp start $said")
@@ -244,18 +278,29 @@ class RtspSource(
     }
 
     /**
-     * Builds a fresh player on the view and starts it — to begin, and again
-     * for every turn. A rotate releases the running player and calls this
-     * rather than re-preparing the old one, which slowed with each re-prepare
-     * until it stalled outright (see refit).
+     * Builds a fresh player on the view and starts it — to begin, for every
+     * turn, for the sound switch, and for a recovery. Everything that once
+     * re-prepared the kept player now rebuilds instead: re-preparing slowed
+     * with each call until it stalled (see refit), and rebuilding is how Orqa's
+     * own app recovers too.
      */
-    private fun openPlayer() {
+    private fun openPlayer(resetRecoveries: Boolean = true) {
         val view = this.view ?: return
-        // a fresh player is a fresh run: forget the last one's recovery tally,
-        // or the watchdogs misjudge the new session
-        recoveries = 0
-        playedSinceChange = false
-        frozenRejoins = 0
+        // this build supersedes any recovery rebuild the last drop had queued
+        handler.removeCallbacks(reopen)
+        // a fresh player is a fresh run: forget the last one's frame counts —
+        // lastRendered always, the decoder counter being per-player. BOTH
+        // give-up tallies are kept for a recovery rebuild so their budgets
+        // count down across attempts (each rebuild renders anew, so a tally
+        // reset by its own recovery could never reach its ceiling — a camera
+        // sending one frame then freezing looped forever on exactly that); a
+        // deliberate open — start, a turn, the sound switch — clears them.
+        if (resetRecoveries) {
+            recoveries = 0
+            frozenRejoins = 0
+            playedSinceChange = false
+        }
+        playedThisSession = false
         lastRendered = 0
         val player = ExoPlayer.Builder(context, RotatingRenderersFactory(context) { rotation })
             .setLoadControl(
@@ -276,6 +321,12 @@ class RtspSource(
                     .setPrioritizeTimeOverSizeThresholds(true)
                     .build()
             )
+            // A dead RTSP socket makes ExoPlayer wait out its release timeout
+            // on this (the app) thread — half a second of frozen UI on every
+            // rejoin, rotate or sound rebuild over a hung session (the field
+            // log's "Player release timed out"). A healthy release is a few
+            // ms, so capping it only shortens the stuck one.
+            .setReleaseTimeoutMs(200)
             .build()
         this.player = player
         applyAudio(player)
@@ -323,9 +374,18 @@ class RtspSource(
                     // running is what forgives earlier recoveries
                     Player.STATE_READY -> {
                         playedSinceChange = true
+                        playedThisSession = true
                         recoveries = 0
                     }
-                    Player.STATE_BUFFERING -> handler.postDelayed(stalled, 12000)
+                    // A stall mid-session is a lapsed stream — the goggle's,
+                    // say, whose server never resumes — so rejoin quickly
+                    // (~2.5s) instead of leaving a long freeze. A session still
+                    // connecting gets twelve: on UDP the player's own
+                    // UDP-to-TCP fallback runs at eight seconds, and a rejoin
+                    // before that starts a fresh UDP session and keeps a
+                    // TCP-only camera from ever being reached.
+                    Player.STATE_BUFFERING ->
+                        handler.postDelayed(stalled, if (playedThisSession) 2500 else 12000)
                     // a clean end-of-stream — the server restarting, say —
                     // raises no error and starves no watchdog; without this
                     // it left the last frame standing forever
@@ -350,10 +410,13 @@ class RtspSource(
         DebugLog.note("Video", "rtsp stop")
         handler.removeCallbacks(stalled)
         handler.removeCallbacks(starving)
+        handler.removeCallbacks(reopen)
         view?.removeOnLayoutChangeListener(refitOnLayout)
         view = null
-        player?.release()
+        // nulled before the release, as in rejoin
+        val dying = player
         player = null
+        dying?.release()
     }
 }
 

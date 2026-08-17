@@ -395,6 +395,13 @@
                 android:defaultValue=""
                 android:key="video_stream_url"/>
 
+        <SwitchPreference
+            app:iconSpaceReserved="false"
+                android:title="RTSP over UDP"
+                android:summary="Off (default) is TCP — steadier, no torn frames. On is UDP — lower latency, smears on a weak link. rtsp:// only."
+                android:defaultValue="false"
+                android:key="video_rtsp_udp"/>
+
     </PreferenceCategory>
 
     <PreferenceCategory

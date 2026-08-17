@@ -152,6 +152,22 @@ class PreferenceManager(context: Context) {
     }
 
     /**
+     * How an RTSP stream carries its RTP: UDP when true, TCP (interleaved on
+     * the RTSP connection) otherwise. TCP is the default — it never tears a
+     * frame on a lossy link; UDP is lower-latency and keeps the video off the
+     * control channel (which some servers, the Orqa goggle among them, stall on
+     * their own keep-alive over), at the cost of a torn frame when a packet
+     * drops. Only touches rtsp:// — http/udp sources speak their own scheme.
+     */
+    fun getRtspUdp(): Boolean {
+        return sharedPreferences.getBoolean("video_rtsp_udp", false)
+    }
+
+    fun setRtspUdp(value: Boolean) {
+        sharedPreferences.edit().putBoolean("video_rtsp_udp", value).apply()
+    }
+
+    /**
      * The last few stream addresses entered, newest first — a flying day
      * moves between the bench camera, the goggles and the ground station,
      * and each move cost retyping the whole address. Newline-separated in
