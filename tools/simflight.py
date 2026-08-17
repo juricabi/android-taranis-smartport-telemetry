@@ -27,6 +27,7 @@ Two additions ride on the same flight model:
 """
 import argparse
 import math
+import os
 import socket
 import struct
 import time
@@ -38,6 +39,10 @@ BATTERY = 0x08
 LINK = 0x14
 ATTITUDE = 0x1E
 FLIGHT_MODE = 0x21
+
+# a route flight stands disarmed on its launch this long before arming —
+# long enough to connect the app and watch a first start from the pad
+ROUTE_ARMS_AT = 30.0
 DEVICE_INFO = 0x29
 # ArduPilot passthrough over CRSF: 0x80 on ELRS and new TBS firmware, 0x7F on
 # old TBS firmware; identical payload, little-endian inside a big-endian
@@ -394,6 +399,12 @@ def main():
                              "the port, stay silent until "
                              "MAV_CMD_CONTROL_HIGH_LATENCY arrives, stop when "
                              "asked to; the stream goes to whoever asked")
+    parser.add_argument("--mute-file", help="while this file exists, send "
+                                            "nothing: a link loss the flight "
+                                            "keeps flying through")
+    parser.add_argument("--kick-file", help="with --tcp: when this file "
+                                            "appears, drop the phone once so "
+                                            "it walks its real reconnect road")
     parser.add_argument("--dump", help="write the byte stream to this file "
                                        "instead of the network, on a fixed clock")
     parser.add_argument("--seconds", type=float, default=20.0,
@@ -475,9 +486,25 @@ def main():
 
     def send(data):
         nonlocal conn
+        # The link switch: while the mute file exists the radio is dead but
+        # the aircraft flies on — its clock is the wall's, so on unmute it
+        # reappears down the route, which is what a real link loss looks
+        # like. Restarting the sim is a new flight; this is not.
+        if dump is None and args.mute_file and os.path.isfile(args.mute_file):
+            return
         if dump is not None:
             dump.write(data)
         elif args.tcp:
+            # The kick switch: close the living link once, so the phone
+            # walks its real reconnect road — the one UDP cannot show,
+            # because a connectionless link has nothing to die — while the
+            # flight flies on and is further along when the phone returns.
+            if args.kick_file and os.path.isfile(args.kick_file):
+                os.remove(args.kick_file)
+                try:
+                    conn.close()
+                except OSError:
+                    pass
             # a TCP peer can drop and dial back in; wait for it and go on
             while True:
                 try:
@@ -541,12 +568,20 @@ def main():
             # waypoints over sixty kilometres, real summits rise above those
             # straight lines, and a sim that truly flies through a mountain
             # files false bug reports against the app that drew it honestly.
+            #
+            # And it begins the way a real aircraft does: half a minute
+            # standing disarmed on the launch, then arming and a climb-out.
+            # The pad is what proves a relative-altitude flight's zero — a
+            # sim born flying could only ever be bounded, never placed.
             legs, total = route_cache
-            rlat, rlon, ralt = route_position(legs, total, t * args.speed)
+            flown = max(0.0, t - ROUTE_ARMS_AT) * args.speed
+            rlat, rlon, ralt = route_position(legs, total, flown)
             north = (rlat - args.lat) * metres_per_deg_lat
             east = (rlon - args.lon) * metres_per_deg_lon
             phase = 2 * math.pi * t / 60.0
-            climb = (ralt - args.ground) + 160 + 45 * math.sin(2 * math.pi * t / 23.0)
+            takeoff = min(1.0, max(0.0, (t - ROUTE_ARMS_AT) / 25.0))
+            climb = ((ralt - args.ground) + 160
+                     + 45 * math.sin(2 * math.pi * t / 23.0)) * takeoff
         elif args.style == "acro":
             # A racer rather than a tourist: a lap every eighteen seconds, the
             # track wandering as three turns of different rates beat against
@@ -667,7 +702,8 @@ def main():
             send(link_frame(up_rssi, up_lq, 12, 2, 3, up_rssi - 6, up_lq - 4, 9))
         if now - last["mode"] >= 1.0:
             last["mode"] = now
-            send(mode_frame("ACRO" if t > 8 else "ACRO*"))
+            arms_at = ROUTE_ARMS_AT if route is not None else 8
+            send(mode_frame("ACRO" if t > arms_at else "ACRO*"))
         if now - last["info"] >= 5.0:
             last["info"] = now
             # so the app can tell it is a Crossfire and use its rate table
