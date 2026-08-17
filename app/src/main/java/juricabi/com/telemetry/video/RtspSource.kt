@@ -211,15 +211,17 @@ class RtspSource(
         val player = ExoPlayer.Builder(context)
             .setLoadControl(
                 DefaultLoadControl.Builder()
-                    // Start on 150ms — a pilot's compromise: half the
-                    // standing latency, still enough to soak one jitter
-                    // spike. After a rebuffer the link has proven it stalls,
-                    // and restarting on the same thin cushion thrashed; that
-                    // case alone waits for 300ms. The first number must be at
-                    // least the last — the player enforces it at runtime, and
-                    // 150 there crashed the field; it only says when loading
-                    // may rest, so it does not set the latency floor.
-                    .setBufferDurationsMs(300, 1000, 150, 300)
+                    // Start on 100ms — the number Orqa's own app starts its
+                    // goggle stream on, read from its decompiled player: same
+                    // ExoPlayer, same RTP-over-TCP, and this is where it lets
+                    // the picture begin. After a rebuffer the link has proven
+                    // it stalls, and restarting on that thin a cushion
+                    // thrashed in the field — Orqa dodges it by recreating the
+                    // player whole, we keep a thicker 300ms recovery instead.
+                    // The first number must be at least the last, enforced at
+                    // runtime; it only says when loading may rest, so it does
+                    // not set the latency floor.
+                    .setBufferDurationsMs(300, 1000, 100, 300)
                     // start on time held, not bytes held — for a live
                     // picture the clock is the constraint that matters
                     .setPrioritizeTimeOverSizeThresholds(true)
