@@ -55,6 +55,14 @@ interface VideoSource {
     /** Whether this source could play the stream's sound at all. */
     val hasAudio: Boolean get() = false
 
+    /**
+     * Whether the picture can be turned for a sideways camera. True for the
+     * analog roads (a receiver dongle can be mounted any way up); false for
+     * RTSP, the digital goggle feed that only ever comes upright and which a
+     * SurfaceView cannot turn without squishing.
+     */
+    val canRotate: Boolean get() = true
+
     /** The stream's sound, on or off. A no-op unless hasAudio. */
     fun setAudio(on: Boolean) {}
 }

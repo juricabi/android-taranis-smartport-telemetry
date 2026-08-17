@@ -2532,8 +2532,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         videoSoundButton.visibility = if (source.hasAudio) View.VISIBLE else View.GONE
         videoSoundButton.imageAlpha = if (videoAudioOn) 255 else 128
         if (videoAudioOn) source.setAudio(true)
-        // the remembered turn, for a camera mounted sideways
-        videoRotateButton.visibility = View.VISIBLE
+        // the remembered turn, for a camera mounted sideways — not on RTSP,
+        // whose digital feed comes upright and cannot be turned on the overlay
+        videoRotateButton.visibility = if (source.canRotate) View.VISIBLE else View.GONE
         videoRotateButton.imageAlpha = if (preferenceManager.getVideoRotation() != 0) 255 else 128
         source.start(videoView)
     }

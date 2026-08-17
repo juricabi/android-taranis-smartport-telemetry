@@ -84,37 +84,22 @@ class RtspSource(
         refit()
     }
 
-    // the turn last applied to the player's effects, to change it only when
-    // the preference moves
-    private var appliedRotation = -1
+    // the video's own size, from the selected track's format — the player's
+    // videoSize could read 0×0, and then the surface was never fitted and
+    // the picture ran on over the map
+    private var videoWidth = 0
+    private var videoHeight = 0
+
+    // RTSP is the digital goggle/VRX road, and those cameras face forward —
+    // the turn is for a sideways-mounted analog receiver, which is UDP, MJPEG
+    // or UVC. A SurfaceView will not turn at the view and the player's GL
+    // rotate only squished, so the button is not offered here.
+    override val canRotate get() = false
 
     override fun refit() {
         val v = view ?: return
-        val size = player?.videoSize ?: return
-        val rotation = juricabi.com.telemetry.manager.PreferenceManager(v.context)
-            .getVideoRotation()
-        applyRotation(rotation)
-        val (w, h) = turnedSides(size.width, size.height, rotation)
-        v.fitPicture(w, h)
-    }
-
-    /**
-     * The turn, through the player's GL effects — a SurfaceView will not
-     * rotate at the view. Engaged only at a non-zero turn: an upright feed
-     * keeps the plain overlay path, its frames never touched by GL.
-     */
-    private fun applyRotation(rotation: Int) {
-        val p = player ?: return
-        if (rotation == appliedRotation) return
-        appliedRotation = rotation
-        p.setVideoEffects(
-            if (rotation == 0) emptyList()
-            else listOf(
-                androidx.media3.effect.ScaleAndRotateTransformation.Builder()
-                    .setRotationDegrees(-rotation.toFloat())
-                    .build()
-            )
-        )
+        if (videoWidth <= 0 || videoHeight <= 0) return
+        v.fitPicture(videoWidth, videoHeight)
     }
 
     // Past the player's own UDP-to-TCP fallback, which runs at eight
@@ -280,6 +265,15 @@ class RtspSource(
                             "rtsp track ${f.sampleMimeType} ${f.width}x${f.height} " +
                                 "${f.frameRate}fps selected=${group.isTrackSelected(i)}"
                         )
+                        // the selected picture track's own size, for fitting
+                        // the half — the effects path hides it from videoSize
+                        if (group.isTrackSelected(i) && f.width > 0 &&
+                            f.sampleMimeType?.startsWith("video/") == true
+                        ) {
+                            videoWidth = f.width
+                            videoHeight = f.height
+                            view?.let { it.post { refit() } }
+                        }
                     }
                 }
             }
