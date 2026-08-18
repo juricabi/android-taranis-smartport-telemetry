@@ -214,14 +214,59 @@ class NetworkBinder(context: Context) {
         } catch (e: Exception) {
             Log.w(TAG, "cannot enumerate networks: " + e.message)
         }
-        if (best != null) return best
+        if (best != null) return if (bindable(best)) best else null
         // A private address nothing specifically routes to — a module one
         // subnet behind the Wi-Fi gateway, say — can only be meant for the
         // local link: cellular never carries one, so the local network's own
-        // default route is the answer. A public address stays unpinned; the
-        // phone's preferred network reaches the internet best.
-        return if (address.isSiteLocalAddress || address.isLinkLocalAddress)
-            localNetwork() else null
+        // default route is the answer. Unless a VPN is up: a private address
+        // may then live across the tunnel — a camera at home dialled through
+        // WireGuard — and the tunnel is the default road; grabbing the socket
+        // onto the local link would send it where that subnet does not exist.
+        // Unbound, the system's own routing hands it to the tunnel. (A target
+        // the local link specifically routes to, the goggle on its Wi-Fi, is
+        // matched above and stays pinned even with a VPN running.) A public
+        // address stays unpinned always; the phone's preferred network
+        // reaches the internet best.
+        return if (!vpnActive() && (address.isSiteLocalAddress || address.isLinkLocalAddress))
+            localNetwork()?.takeIf { bindable(it) } else null
+    }
+
+    /**
+     * Whether the system will let this app bind to [network] at all, asked
+     * with a throwaway socket. A VPN that captures this app's traffic refuses
+     * binds around itself — EPERM — and a network mid-vanish refuses too.
+     * Handing media3 a factory it cannot bind fails every connect with
+     * "operation not permitted", where surrendering the pin lets the stream
+     * ride the tunnel, which reaches even a local subnet by hairpinning
+     * through the VPN's own server — the working road the pilot on their
+     * home Wi-Fi with the VPN still up actually has.
+     */
+    private fun bindable(network: Network): Boolean {
+        return try {
+            val probe = DatagramSocket()
+            try {
+                network.bindSocket(probe)
+                true
+            } finally {
+                probe.close()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "network refuses binds, leaving unpinned: " + e.message)
+            false
+        }
+    }
+
+    private fun vpnActive(): Boolean {
+        val manager = connectivity ?: return false
+        try {
+            for (network in manager.allNetworks) {
+                val caps = manager.getNetworkCapabilities(network) ?: continue
+                if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) return true
+            }
+        } catch (e: Exception) {
+            // fall through
+        }
+        return false
     }
 
     /**
