@@ -179,7 +179,11 @@ class ArduPassthroughDecoder(private val listener: DataDecoder.Listener) {
         val Roll = bitExtracted(word, 11, 1)
         val Pitch = bitExtracted(word, 10, 12)
         listener.onRollData((Roll - 900) * 0.2f)
-        listener.onPitchData((Pitch - 450) * 0.2f)
+        // Negated: ArduPilot packs pitch positive-nose-UP (get_osd_roll_pitch_rad in
+        // AP_Frsky_SPort_Passthrough), the opposite of this app's positive-nose-DOWN
+        // convention that the horizon draws and the CRSF/FrSky paths feed. The MAVLink
+        // path negates the very same ArduPilot value; this passthrough has to as well.
+        listener.onPitchData(-((Pitch - 450) * 0.2f))
         return true
     }
 }

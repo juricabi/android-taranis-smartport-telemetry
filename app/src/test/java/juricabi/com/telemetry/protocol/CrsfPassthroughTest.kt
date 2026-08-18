@@ -132,7 +132,8 @@ class CrsfPassthroughTest {
     fun multiPacketCarriesSeveralWords() {
         // 0x5001 ap status: mode word 12 (plane RTL plus one), armed, 38%
         val status = (12L) or (1L shl 8) or ((38L * 63 / 100) shl 19)
-        // 0x5006 attitude: roll +20, pitch -10
+        // 0x5006 attitude: roll +20, ArduPilot pitch -10 (nose-up-positive) — the
+        // app flips pitch to its nose-down-positive convention, so +10 comes out
         val attitude = ((20L * 5 + 900)) or ((-10L * 5 + 450) shl 11)
         val b = ByteBuffer.allocate(2 + 6 * 3).order(ByteOrder.LITTLE_ENDIAN)
         b.put(0xF2.toByte()).put(3)
@@ -146,7 +147,7 @@ class CrsfPassthroughTest {
         assertEquals(38 * 63 / 100 * 100 / 63, captor.throttle)
         assertEquals(25.2f, captor.vbat, 0.01f)
         assertEquals(20f, captor.roll, 0.01f)
-        assertEquals(-10f, captor.pitch, 0.01f)
+        assertEquals(10f, captor.pitch, 0.01f)
     }
 
     @Test

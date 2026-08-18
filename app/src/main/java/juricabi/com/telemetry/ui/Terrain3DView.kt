@@ -1191,7 +1191,12 @@ class Terrain3DView(context: Context) : FrameLayout(context) {
         }
         hasAttitude = true
         modelHeading = heading
-        modelPitch = pitch
+        // Negated: the decoders feed pitch as positive-when-nose-DOWN (the horizon
+        // draws it that way, and it was measured from a CRSF log — forward flight,
+        // physically nose-down, comes through positive). The renderer rotates the
+        // model the other way (positive = nose-up), so it disagreed with both the
+        // horizon and the flight. Flip it here; roll already agrees.
+        modelPitch = -pitch
         modelRoll = roll
     }
 
