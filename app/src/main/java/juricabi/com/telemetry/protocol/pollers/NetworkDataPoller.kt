@@ -6,7 +6,7 @@ import juricabi.com.telemetry.protocol.Protocol
 import juricabi.com.telemetry.protocol.ProtocolDetector
 import juricabi.com.telemetry.protocol.ProtocolFactory
 import juricabi.com.telemetry.protocol.decoder.DataDecoder
-import juricabi.com.telemetry.utils.WifiNetworkBinder
+import juricabi.com.telemetry.utils.NetworkBinder
 import java.io.FileOutputStream
 import java.io.IOException
 import java.net.DatagramPacket
@@ -40,7 +40,7 @@ class NetworkDataPoller(
     private val port: Int,
     private val listener: DataDecoder.Listener,
     logFile: FileOutputStream?,
-    private val binder: WifiNetworkBinder?,
+    private val binder: NetworkBinder?,
     /**
      * MAVLink High Latency: the protocol is pinned to MAVLink 2 rather than
      * detected — detection needs two decodes, which at one message per five
@@ -219,10 +219,10 @@ class NetworkDataPoller(
     private fun runTcp() {
         val socket = Socket()
         tcpSocket = socket
-        // Pinning to Wi-Fi is right for a module on its own access point and
-        // wrong for anything reachable on this device: a loopback target has no
-        // route over the Wi-Fi network, so binding it there fails the connect.
-        if (!isLoopback(host)) binder?.bind(socket)
+        // The binder routes by the target: the network that specifically
+        // reaches this host carries the stream — Wi-Fi, hotspot, USB-ethernet
+        // alike — and loopback or an internet host is left on the default.
+        binder?.bind(socket, host)
         socket.tcpNoDelay = true
         socket.connect(InetSocketAddress(host, port), TCP_CONNECT_TIMEOUT_MS)
 
@@ -292,7 +292,7 @@ class NetworkDataPoller(
     private fun runWebSocket() {
         val socket = Socket()
         tcpSocket = socket
-        if (!isLoopback(host)) binder?.bind(socket)
+        binder?.bind(socket, host)
         socket.tcpNoDelay = true
         socket.connect(InetSocketAddress(host, port), TCP_CONNECT_TIMEOUT_MS)
 
@@ -475,7 +475,7 @@ class NetworkDataPoller(
         udpSocket = socket
         socket.reuseAddress = true
         socket.broadcast = true
-        if (!isLoopback(host)) binder?.bind(socket)
+        binder?.bind(socket, host)
         socket.bind(InetSocketAddress(port))
 
         // Room for a burst to sit in while we are busy decoding the last one.

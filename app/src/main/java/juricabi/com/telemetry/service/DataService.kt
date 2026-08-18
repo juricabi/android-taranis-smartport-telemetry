@@ -33,7 +33,7 @@ import juricabi.com.telemetry.protocol.decoder.DataDecoder
 import juricabi.com.telemetry.protocol.pollers.DataPoller
 import juricabi.com.telemetry.protocol.pollers.NetworkDataPoller
 import juricabi.com.telemetry.protocol.pollers.UsbDataPoller
-import juricabi.com.telemetry.utils.WifiNetworkBinder
+import juricabi.com.telemetry.utils.NetworkBinder
 import juricabi.com.telemetry.ui.MapsActivity
 import java.io.File
 import juricabi.com.telemetry.logger.CountingLog
@@ -884,17 +884,13 @@ class DataService : Service(), DataDecoder.Listener {
         val logFile = createLogFile(append)
         createLogger(append)
 
-        // Pinning to Wi-Fi and holding the multicast lock: without these a
-        // transmitter's own access point, which has no internet, loses to
-        // mobile data and the broadcast never arrives.
-        // Always taken, whatever network was chosen: the multicast lock is
+        // The binder pins each socket to the network that routes to its
+        // target — see NetworkBinder — and holds the multicast lock, which is
         // what stops Wi-Fi power saving from quietly dropping broadcast
-        // telemetry, and an ExpressLRS backpack and a TBS module in UDP
-        // mode both broadcast. Only the socket *pinning* is conditional —
-        // forcing Wi-Fi is wrong when the module is a client of this
-        // phone's own hotspot.
-        val binder = WifiNetworkBinder(this)
-        binder.acquire(preferenceManager.getNetworkPinWifi())
+        // telemetry: an ExpressLRS backpack and a TBS module in UDP mode
+        // both broadcast.
+        val binder = NetworkBinder(this)
+        binder.acquire()
 
         val poller = NetworkDataPoller(
             mode,

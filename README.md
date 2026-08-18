@@ -99,9 +99,19 @@ Network presets cover ExpressLRS backpack, Crossfire/Tracer, MAVLink routers,
 serial-to-Wi-Fi bridges, localhost and MAVLink High Latency. The High Latency
 preset listens over UDP and sends `MAV_CMD_CONTROL_HIGH_LATENCY` to the typed
 modem address until the stream answers, since an autopilot boots with that
-stream off; sensor timeouts stretch to match the five-second cadence. Wi-Fi
-sockets are bound to Wi-Fi so a telemetry access point without internet does
-not lose to mobile data.
+stream off; sensor timeouts stretch to match the five-second cadence.
+
+Telemetry and video streams are pinned to whichever network actually routes
+to their target — Wi-Fi, this phone's own hotspot, a USB-ethernet adapter —
+so a module's access point without internet does not lose to mobile data.
+Internet traffic is never captured by the pin and keeps to the phone's
+preferred network. In practice that means one phone setting covers
+everything: set this app to **mobile data preferred** (Android's per-app
+allowed-networks setting) and the goggle or VRX link still carries its
+streams while the map tiles stay online over mobile. The pin works on a
+numeric local address (`192.168.1.1`, the module's own IP); it does not
+resolve `.local` / mDNS names, so dial modules by IP — the **Find** button
+in the network dialog scans the subnet and fills the address in for you.
 
 ## Maps, 3D and replay
 

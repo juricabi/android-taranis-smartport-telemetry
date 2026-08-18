@@ -41,7 +41,7 @@ something.** Fix the machine.
 
 ## What the toolchain will not accept
 
-- **targetSdk 28** against **compileSdk 35**, minSdk 21. The gap is deliberate:
+- **targetSdk 28** against **compileSdk 35**, minSdk 23. The gap is deliberate:
   compiling against 35 is what the newer AndroidX libraries need, targeting it
   would drag in scoped storage for the logs, a foreground service type for
   `DataService`, and the notification permission. Do not raise targetSdk without

@@ -180,6 +180,7 @@
     <string name="network_no_wifi">Not connected to Wi-Fi. Join the module&#8217;s network first.</string>
     <string name="network_on_wifi">Wi-Fi: %1$s</string>
     <string name="network_on_wifi_unknown">Connected to Wi-Fi</string>
+    <string name="network_pin_tip">This app may be set to mobile data preferred (phone settings): telemetry and video still reach the module by its local IP, and the maps keep updating over mobile.</string>
     <string name="network_host_unused">Address (not needed for UDP)</string>
     <string name="network_host_hint_udp">not needed when listening</string>
     <string name="network_host_hl">Address (for the enable command)</string>

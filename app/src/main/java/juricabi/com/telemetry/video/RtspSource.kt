@@ -49,6 +49,12 @@ class RtspSource(
     private val context: Context,
     private val url: String,
     private val useUdp: Boolean,
+    // The network that reaches the camera, when one specifically does — a
+    // goggle's Wi-Fi loses the default route to preferred mobile data, and
+    // every connect then leaves over cellular and hangs (see NetworkBinder).
+    // Asked afresh on every player build: a recovery may be the moment the
+    // right network finally exists, or the one the last answer named is dead.
+    private val socketFactory: () -> javax.net.SocketFactory?,
     private val events: VideoSource.Events
 ) : VideoSource {
 
@@ -223,6 +229,11 @@ class RtspSource(
     // the buffers, not here.
     private fun mediaSource() = RtspMediaSource.Factory()
         .setForceUseRtpTcp(!useUdp)
+        // The pinned road to the camera, when there is one. It carries the
+        // RTSP connection and the interleaved TCP video; UDP mode's RTP
+        // sockets are the player's own and stay on the default route, so on
+        // preferred mobile data the UDP switch may still need Wi-Fi preferred.
+        .apply { socketFactory()?.let { setSocketFactory(it) } }
         .createMediaSource(MediaItem.fromUri(url))
 
     /**

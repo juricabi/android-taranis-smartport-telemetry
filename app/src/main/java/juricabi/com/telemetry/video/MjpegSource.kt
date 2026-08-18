@@ -59,6 +59,9 @@ internal fun scanMjpegFrames(input: InputStream, onFrame: (ByteArray) -> Boolean
  */
 class MjpegSource(
     private val url: String,
+    // the network that reaches the camera, when one specifically does — see
+    // NetworkBinder; null leaves the connection on the phone's default route
+    private val network: android.net.Network?,
     private val events: VideoSource.Events
 ) : VideoSource {
 
@@ -139,7 +142,9 @@ class MjpegSource(
     }
 
     private fun stream() {
-        val conn = URL(url).openConnection() as HttpURLConnection
+        val target = URL(url)
+        val conn =
+            (network?.openConnection(target) ?: target.openConnection()) as HttpURLConnection
         connection = conn
         // stop() disconnects whatever it finds here; found nothing yet, its
         // half of the handshake is this flag

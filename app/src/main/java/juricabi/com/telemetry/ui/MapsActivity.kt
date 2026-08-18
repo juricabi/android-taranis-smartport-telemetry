@@ -69,7 +69,7 @@ import juricabi.com.telemetry.protocol.decoder.DataDecoder
 import juricabi.com.telemetry.protocol.pollers.NetworkDataPoller
 import juricabi.com.telemetry.protocol.pollers.LogPlayer
 import juricabi.com.telemetry.utils.LocalNetworks
-import juricabi.com.telemetry.utils.WifiNetworkBinder
+import juricabi.com.telemetry.utils.NetworkBinder
 import juricabi.com.telemetry.service.DataService
 import uk.co.deanwild.materialshowcaseview.IShowcaseListener
 import uk.co.deanwild.materialshowcaseview.MaterialShowcaseView
@@ -1357,10 +1357,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
         // from where the model is drawn, not where the fix was, so the line
         // stays joined to it as it moves — and with no model there is nothing
-        // for it to start from. Cleared rather than left: bare returns here
-        // let a line survive the flight it was drawn for, and one end of it
-        // then pointed at a model that is not on the screen.
-        val drone = if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) {
+        // for it to start from. Keyed on the model itself, not on a position:
+        // a receiver still hunting satellites forwards its last remembered
+        // spot, non-zero with no fix, and a line drawn to it hung there
+        // pointing at a model the fix-gated marker had rightly withheld — the
+        // "GPS wait" line with no model. Cleared rather than left, or one end
+        // survives the flight it was drawn for.
+        val drone = if (marker != null) {
             displayedDrone ?: presentedPosition()
         } else {
             line.clear()
@@ -1390,7 +1393,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             return
         }
         // and no model is the same answer as no record, for the same reason
-        val drone = if (lastGPS.lat != 0.0 || lastGPS.lon != 0.0) {
+        val drone = if (marker != null) {
             displayedDrone ?: presentedPosition()
         } else {
             line.clear()
@@ -2510,13 +2513,27 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 // trimmed, because a keyboard's autocomplete space made a
                 // right address fail with a toast insisting it was wrong
                 val url = preferenceManager.getVideoStreamUrl().trim()
+                // The road to the camera, chosen by who routes to it — the
+                // goggle's Wi-Fi, a USB adapter — so preferred mobile data
+                // cannot swallow the stream while the maps keep riding it.
+                // The same pin the telemetry link has. RTSP resolves it anew
+                // through the lambda on every rebuild, because a recovery may
+                // be the moment the right network finally exists — the pane
+                // opened before the goggle's Wi-Fi was joined, or a Wi-Fi
+                // blip mid-flight replaced the network the factory was born
+                // on. MJPEG re-resolves by rebuilding the source per retry.
+                val binder = NetworkBinder(this)
+                val streamHost = android.net.Uri.parse(url).host ?: ""
                 val trouble = when {
                     url.isBlank() -> "No stream address set — enter one under Settings, Video"
                     url.startsWith("rtsp://", ignoreCase = true) ->
-                        return RtspSource(this, url, preferenceManager.getRtspUdp(), events)
+                        return RtspSource(
+                            this, url, preferenceManager.getRtspUdp(),
+                            { binder.networkTo(streamHost)?.socketFactory }, events
+                        )
                     url.startsWith("http://", ignoreCase = true) ||
                         url.startsWith("https://", ignoreCase = true) ->
-                        return MjpegSource(url, events)
+                        return MjpegSource(url, binder.networkTo(streamHost), events)
                     url.startsWith("udp://", ignoreCase = true) -> {
                         // a pushed stream has no address to dial, only the
                         // port here to listen on — udp://5600 and
@@ -3279,7 +3296,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             if (!requestWritePermission(RequestWritePermissionSequenceType.CONNECT)) return
         }
 
-        val binder = WifiNetworkBinder(this)
+        val binder = NetworkBinder(this)
         val view = layoutInflater.inflate(R.layout.dialog_network, null)
         var dialogOpen = true
 
@@ -3322,15 +3339,27 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // would put a wrong warning in front of someone whose setup is fine.
         val ssid = binder.ssid()
         val hotspot = interfaces.firstOrNull { it.likelyHotspot }
-        wifiStatus.text = when {
+        // a wired way in — a USB-ethernet adapter — is as good as Wi-Fi now
+        // that the pin routes by target, so it must not be told to "join
+        // Wi-Fi first" over a link that already works
+        val wired = interfaces.firstOrNull {
+            !it.loopback && !it.likelyHotspot && !it.name.startsWith("wlan")
+        }
+        val standing = when {
             // A hotspot is not a Network as far as ConnectivityManager is
             // concerned, so asking it whether we are "on Wi-Fi" says no even
             // though the module is happily connected to this phone.
             hotspot != null -> "Sharing a hotspot on " + hotspot.address
-            !binder.hasWifi() -> getString(R.string.network_no_wifi)
-            ssid != null -> getString(R.string.network_on_wifi, ssid)
-            else -> getString(R.string.network_on_wifi_unknown)
+            binder.hasWifi() && ssid != null -> getString(R.string.network_on_wifi, ssid)
+            binder.hasWifi() -> getString(R.string.network_on_wifi_unknown)
+            wired != null -> "On " + wired.label()
+            else -> getString(R.string.network_no_wifi)
         }
+        // The streams pin themselves to the network that reaches the module,
+        // so the phone's per-app network preference is free for the maps —
+        // said here, where whoever stands on an internet-less module Wi-Fi
+        // wonders how the tiles will load.
+        wifiStatus.text = standing + "\n" + getString(R.string.network_pin_tip)
 
         // A UDP listen binds a local port and never needs the module's address,
         // which is the whole reason the UDP presets are offered first.
@@ -3408,11 +3437,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         hostField.setText(if (savedHost.isEmpty()) (binder.gatewayAddress() ?: "") else savedHost)
         val savedPosition = networkPresets.indexOfFirst { it.key == savedPreset }
         if (savedPosition >= 0) presetSpinner.setSelection(savedPosition)
-        if (!preferenceManager.getNetworkPinWifi() && interfaces.isNotEmpty()) {
-            // reopen on the interface the user picked last time, where it still exists
-            val hotspotIndex = interfaces.indexOfFirst { it.likelyHotspot }
-            if (hotspotIndex >= 0) interfaceSpinner.setSelection(hotspotIndex + 1)
-        }
         updateHostEnabled()
 
         // A Spinner delivers its current selection to a newly attached listener,
@@ -3567,13 +3591,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                         return@setPositiveButton
                     }
 
-                    // "Automatic" is position 0; anything else is an explicit
-                    // interface, which means do not force the socket onto Wi-Fi
                     // stored under the preset's key, not its list position:
                     // the list is ordered for the eye and may be reordered
                     val chosenPreset = networkPresets[presetSpinner.selectedItemPosition]
-                    preferenceManager.setNetworkPinWifi(
-                        interfaceSpinner.selectedItemPosition == 0)
                     preferenceManager.setNetworkPreset(chosenPreset.key)
                     preferenceManager.setNetworkUseTcp(useTcp)
                     preferenceManager.setNetworkMode(mode)
@@ -5173,7 +5193,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         displayedHeading: Float = Float.NaN
     ) {
         if (turnMap) applyHeadingUp()
-        if (lastGPS.lat != 0.0 && lastGPS.lon != 0.0) {
+        // Pinned to the model like the home line beside it: no model, no line —
+        // before the first fix, or while a receiver reports a remembered spot
+        // with none, the heading line no longer stands over an empty map.
+        if (marker != null) {
             val from = displayedDrone ?: presentedPosition()
             // and pointing the way the marker is pointing: drawn to the last
             // heading while the marker eased towards it, the line swung ahead
@@ -5194,6 +5217,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 // guarded against and this one never did.
                 headingLine.setPoints(listOf(from, ahead))
             }
+        } else {
+            headingPolyline?.clear()
         }
     }
 
@@ -5877,12 +5902,21 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                         this.lastGPS.lat, this.lastGPS.lon, latitude, longitude
                     )
                 }
-                lastGPS = Position(latitude, longitude)
-                // live link only: a replayed log comes through here too, and
-                // would overwrite where the model was actually last seen
-                if ((latitude != 0.0 || longitude != 0.0) && logPlayer == null) {
-                    lastKnownGPS = lastGPS
-                    lastKnownGPSAt = System.currentTimeMillis()
+                // Only a fix is a real position — for lastGPS as for the model.
+                // A receiver still hunting satellites forwards a remembered, and
+                // sometimes wildly wrong, spot: trusted, it put the last-known
+                // thousands of km off (the "Find my quad" in the Arctic) and
+                // swung both the 2D and 3D camera to it on the next open. Left
+                // at 0,0 without a fix, every framing here already reads it as
+                // "no position yet" and opens on the operator instead.
+                if (hasGPSFix && (latitude != 0.0 || longitude != 0.0)) {
+                    lastGPS = Position(latitude, longitude)
+                    // live link only: a replayed log comes through here too, and
+                    // would overwrite where the model was actually last seen
+                    if (logPlayer == null) {
+                        lastKnownGPS = lastGPS
+                        lastKnownGPSAt = System.currentTimeMillis()
+                    }
                 }
                 // Only with a fix, as the map's own line has always been. A
                 // receiver reports its last position while it is still looking

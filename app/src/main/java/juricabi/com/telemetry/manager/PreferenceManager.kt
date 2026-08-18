@@ -469,14 +469,6 @@ class PreferenceManager(context: Context) {
      * over the local subnet, and pinning to a joined Wi-Fi network would send
      * the traffic somewhere it can never arrive.
      */
-    fun getNetworkPinWifi(): Boolean {
-        return sharedPreferences.getBoolean("network_pin_wifi", true)
-    }
-
-    fun setNetworkPinWifi(pin: Boolean) {
-        sharedPreferences.edit().putBoolean("network_pin_wifi", pin).apply()
-    }
-
     /**
      * The port for one preset, remembered separately from the others.
      *
