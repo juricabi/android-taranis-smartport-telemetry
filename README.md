@@ -388,10 +388,6 @@ first. Ghost telemetry mirror uses **115200 baud**.
 - Live video (Settings → Video) is a USB UVC receiver or goggles over OTG, or
   a network stream — RTSP at roughly half-a-second ground-station latency, or
   MJPEG over HTTP; it is not a sub-150 ms FPV feed.
-- Network transports and RTSP recovery have been flown against real hardware;
-  Bluetooth reconnection has not been made to happen in the air yet — a
-  flight's worth of link held without one — so it rests on the bench and the
-  simulator, which test the network and decoder path.
 - `.local` / mDNS names are not resolved: modules are dialled by IP, which the
   network dialog's **Find** button will search out.
 
