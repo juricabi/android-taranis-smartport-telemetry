@@ -20,6 +20,20 @@ behaved — and the drone's GPS republished as the phone's own position
 for tracker apps. On the 2.4 ground and map, with the flight ending when
 you say so and one camera across both views.
 
+- **The recordings have a manager, not a list**: flights grouped by the
+  day they were flown, opened with a tap or marked several at a time —
+  drag down the rows to take a run — then deleted, renamed, or exported
+  as one zip to a place you choose. Import that zip back on another phone
+  and a name clash is taken in beside the old flight, never over it.
+- **The model pitches the way the drone flew**: the 3D model drew CRSF
+  attitude nose-up where the horizon and the flight said nose-down —
+  measured from a recording and corrected — and ArduPilot's passthrough,
+  sent the opposite way round, is put right against its own source. Roll
+  and yaw were already true.
+- **The rate reads under the right table**: long-press the rate tile to
+  set ExpressLRS, Crossfire or Tracer by hand, for a Bluetooth mirror
+  that carries no device-name frame and so read a Crossfire's rate under
+  the ExpressLRS numbers.
 - **Every stream finds its own way out**, so one phone setting covers a
   flying day: telemetry and video ride whichever network reaches the
   module — the goggles' Wi-Fi, this phone's hotspot, a USB-ethernet

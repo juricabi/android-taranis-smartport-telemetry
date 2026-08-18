@@ -40,7 +40,7 @@ android {
         // service rather than the screen — and none of that is owed while
         // this is handed out as an APK rather than through a store.
         targetSdk 28
-        versionCode 70
+        versionCode 71
         versionName "2.5.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         ndk {
