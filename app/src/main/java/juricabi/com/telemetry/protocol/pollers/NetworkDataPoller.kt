@@ -53,6 +53,17 @@ class NetworkDataPoller(
 
     private val log = BestEffortLog(logFile)
 
+    /**
+     * The address this transport actually speaks to. A UDP listen and a TCP
+     * server dial nobody — the dialog greys the field and says as much — so an
+     * address left in it by an earlier TCP session must not go on to choose the
+     * network the socket is pinned to, nor collect a ground station heartbeat
+     * every second at whatever answers there now. High latency is the exception
+     * the dialog also makes: its enable command needs somewhere to go.
+     */
+    private val reach =
+        if ((mode == MODE_UDP && !highLatency) || mode == MODE_TCP_SERVER) "" else host
+
     companion object {
         private const val TCP_CONNECT_TIMEOUT_MS = 8000
         private const val BUFFER = 2048
@@ -475,7 +486,7 @@ class NetworkDataPoller(
         udpSocket = socket
         socket.reuseAddress = true
         socket.broadcast = true
-        binder?.bind(socket, host)
+        binder?.bind(socket, reach)
         socket.bind(InetSocketAddress(port))
 
         // Room for a burst to sit in while we are busy decoding the last one.
@@ -583,11 +594,11 @@ class NetworkDataPoller(
     /** Everyone worth talking to: the typed address, then whoever spoke to us. */
     private fun targets(): List<Pair<InetAddress, Int>> {
         val targets = ArrayList<Pair<InetAddress, Int>>()
-        if (host.isNotEmpty() && !isLoopback(host)) {
+        if (reach.isNotEmpty() && !isLoopback(reach)) {
             if (!announceHostResolved) {
                 announceHostResolved = true
                 announceHost = try {
-                    InetAddress.getByName(host)
+                    InetAddress.getByName(reach)
                 } catch (e: IOException) {
                     // an unresolvable address is not worth failing the connection
                     null

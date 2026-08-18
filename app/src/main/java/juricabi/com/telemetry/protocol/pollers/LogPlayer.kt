@@ -95,6 +95,8 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
     private var statusTextExpire : Int = 0;
 
     private var fireGPSState = false;
+    /** Inside a seek's second pass, re-firing the frames that changed the fix. */
+    private var refiringState = false;
 
     private var mTimer: Timer? = null
 
@@ -312,10 +314,20 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
                 var prevFix = this.hasGPSFix
                 var prevSatellites = this.satellites;
                 if ( protocol.dataDecoder.isGPSOrImageData( cachedData[i].telemetryType )) {
+                    // Where this packet's own position will land, taken before
+                    // it is decoded: a protocol whose frame carries the fix
+                    // state and a position together — LTM's G frame, MAVLink's
+                    // high latency — has already appended that position by the
+                    // time the decode returns, and the state was then filed one
+                    // coordinate late. It governs its own position: a frame
+                    // that says "no fix" had its garbage position drawn before
+                    // the word arrived, and the first position of a new fix was
+                    // dropped as unfixed. Split-packet protocols carry no
+                    // position in the state frame, so nothing moves for them.
+                    var index = decodedCoordinates.size;
                     protocol.dataDecoder.decodeData(cachedData[i])
                     if ( (prevFix != this.hasGPSFix) || (prevSatellites != this.satellites))
                     {
-                        var index = decodedCoordinates.size;
                         if ( outUniqueData[index] == null) {
                             outUniqueData[index] = ArrayList<Int>();
                         }
@@ -344,10 +356,11 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
                 var prevFix = this.hasGPSFix
                 var prevSatellites = this.satellites;
                 if ( protocol.dataDecoder.isGPSOrImageData( cachedData[i].telemetryType )) {
+                    // before the decode, as in the forward walk above
+                    var index = decodedCoordinates.size;
                     protocol.dataDecoder.decodeData(cachedData[i])
                     if ( (prevFix != this.hasGPSFix) || (prevSatellites != this.satellites))
                     {
-                        var index = decodedCoordinates.size;
                         if ( outUniqueData[index] == null) {
                             outUniqueData[index] = ArrayList<Int>();
                         }
@@ -395,7 +408,16 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
                     outDecodedCoordinates.clear();
                 }
                 uids.forEach({
-                    protocol.dataDecoder.decodeData(cachedData[it])
+                    // The list being walked here is the one onGPSData appends
+                    // to, and a state frame that carries its own position
+                    // would add it a second time — a duplicate point at the
+                    // tail, since the walk's bound was fixed before it grew.
+                    refiringState = true
+                    try {
+                        protocol.dataDecoder.decodeData(cachedData[it])
+                    } finally {
+                        refiringState = false
+                    }
                 })
             }
             if ( index < decodedCoordinates.size )
@@ -568,6 +590,10 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
     }
 
     override fun onGPSData(latitude: Double, longitude: Double) {
+        // Not while a seek re-fires the fix-state frames: their positions are
+        // already in the list from the walk that recorded them, and this is
+        // the list that walk's second pass is reading out.
+        if (refiringState) return
         if (latitude != 0.0 && longitude != 0.0) {
             decodedCoordinates.add(Position(latitude, longitude))
         }

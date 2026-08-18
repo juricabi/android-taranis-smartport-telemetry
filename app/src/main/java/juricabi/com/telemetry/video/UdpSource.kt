@@ -222,6 +222,8 @@ class UdpSource(
 ) : VideoSource {
 
     @Volatile private var running = false
+    // the multicast lock this listener holds while it runs, released with it
+    private var lock: juricabi.com.telemetry.utils.NetworkBinder? = null
     @Volatile private var live = false
     @Volatile private var socket: DatagramSocket? = null
     // the holder's own Surface — the decoder renders into it; not released
@@ -288,6 +290,14 @@ class UdpSource(
 
     override fun start(view: SurfaceView) {
         DebugLog.note("Video", "udp listen :$port")
+        // Wi-Fi power saving drops broadcast frames, and a ground station that
+        // pushes its RTP to the subnet's broadcast address is delivering the
+        // picture in exactly those — the telemetry link holds this same lock
+        // for the same reason, and the video half should not depend on one
+        // being connected. Nothing else here: a listener that never sends
+        // needs no network pinned, and hears every interface unbound.
+        lock = juricabi.com.telemetry.utils.NetworkBinder(view.context)
+            .also { it.acquire() }
         this.view = view
         view.addOnLayoutChangeListener(refitOnLayout)
         view.holder.addCallback(holderCallback)
@@ -673,6 +683,8 @@ class UdpSource(
     override fun stop() {
         DebugLog.note("Video", "udp stop")
         running = false
+        lock?.release()
+        lock = null
         socket?.close() // unblocks the receiver mid-wait
         view?.holder?.removeCallback(holderCallback)
         view?.removeOnLayoutChangeListener(refitOnLayout)
