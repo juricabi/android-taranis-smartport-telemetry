@@ -746,7 +746,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
 
         fullscreenButton.setOnClickListener {
-            updateFullscreenState()
             this.fullscreenWindow = !this.fullscreenWindow
             preferenceManager.setFullscreenWindow(fullscreenWindow)
             updateWindowFullscreenDecoration()
@@ -898,21 +897,40 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         this.registerReceiver(this.batInfoReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED));
     }
 
+    // The one definition of "fullscreen", shared by the window, the dialogs
+    // and the state check, so they can never disagree. STICKY, not plain
+    // IMMERSIVE: a plain-immersive swipe for the notifications cancelled the
+    // flags for good, so peeking at a message quietly ended fullscreen —
+    // sticky shows the bars as a passing overlay and keeps the mode. The
+    // LAYOUT flags hold the layout at full size while those transient bars
+    // come and go, and lay the content into the strip the hidden bars leave.
+    private val fullscreenFlags =
+        View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+        View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+        View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+
     private fun updateWindowFullscreenDecoration() {
-        if (!this.fullscreenWindow) {
-            window.decorView.systemUiVisibility = 0
-        } else {
-            window.decorView.systemUiVisibility =
-                (View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE)
+        window.decorView.systemUiVisibility =
+            if (this.fullscreenWindow) fullscreenFlags else 0
+        // The flags hide the status bar, but a phone with a camera cutout
+        // still keeps the window out of the cutout's strip by default — the
+        // bar went away and a black band stayed, which read as fullscreen
+        // stopping short of the top. Short-edges lets the app own that strip,
+        // and only in fullscreen: the default is restored otherwise, or a side
+        // cutout held landscape would eat into the split view too. Written
+        // through a copy — assigning the window its own attributes object back
+        // compares the values to themselves, sees no change, and applies
+        // nothing (the bug that made the first attempt do nothing).
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            val decorated = WindowManager.LayoutParams()
+            decorated.copyFrom(window.attributes)
+            decorated.layoutInDisplayCutoutMode = if (fullscreenWindow)
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            else
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
+            window.attributes = decorated
         }
     }
-
-    private fun updateFullscreenState() {
-        //user may have brought system ui with a swipe. Update state
-        this.fullscreenWindow = window.decorView.systemUiVisibility ==
-                (View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE)
-    }
-
 
     private fun initMap(simulateLifecycle: Boolean) {
 
@@ -1642,12 +1660,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
             );
             progressDialog.show();
-            if (!this.fullscreenWindow) {
-                progressDialog.window?.decorView?.systemUiVisibility = 0
-            } else {
-                progressDialog.window?.decorView?.systemUiVisibility =
-                    (View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE)
-            }
+            progressDialog.window?.decorView?.systemUiVisibility =
+                if (this.fullscreenWindow) fullscreenFlags else 0
             progressDialog.window?.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
 
             switchToReplayMode()
@@ -2750,7 +2764,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         replayWasPlaying = this.logPlayer?.isPlaying() == true
         this.logPlayer?.stop();
         stopFr24(clear = false)
-        updateFullscreenState()//check if user has brought system ui with swipe
         // The service keeps both location and compass for a connected flight;
         // this only removes callbacks to a screen that is no longer drawing.
         setPhoneWatch(false)
@@ -6137,12 +6150,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
         );
         dialog.show();
-        if (!this.fullscreenWindow) {
-            dialog.window?.decorView?.systemUiVisibility = 0
-        } else {
-            dialog.window?.decorView?.systemUiVisibility =
-                (View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE)
-        }
+        dialog.window?.decorView?.systemUiVisibility =
+            if (this.fullscreenWindow) fullscreenFlags else 0
         dialog.window?.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
     }
 
