@@ -65,7 +65,12 @@ class LTMDataDecoder(listener: Listener) : DataDecoder(listener) {
                 val speed = byteBuffer.get().toInt() and 0xFF
                 val altitude = byteBuffer.int
                 val gpsState = byteBuffer.get().toInt() and 0xFF
-                listener.onGPSState(gpsState ushr 2, (gpsState and 1) != 0)
+                // The low two bits are the fix TYPE, as iNav's ltm.c sends it:
+                // 0 no GPS, 1 GPS but NO fix yet, 2 a 2D fix, 3 a 3D fix.
+                // Testing the low bit alone read "still hunting satellites" as
+                // a fix — the remembered-position state everything downstream
+                // exists to reject — and a genuine 2D fix as none.
+                listener.onGPSState(gpsState ushr 2, (gpsState and 3) >= 2)
                 listener.onGPSData(latitude, longitude)
                 listener.onGSpeedData(speed * (18 / 5f))
                 // Height above home, not above the sea, whatever the frame is

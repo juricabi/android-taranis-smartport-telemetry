@@ -83,12 +83,13 @@ class LTMProtocolTest {
                 hasFix = gpsFix
             }
         })
+        // fix type 3, a 3D fix, in the low two bits; satellites above
         val payload = ByteBuffer.allocate(14).order(ByteOrder.LITTLE_ENDIAN)
             .putInt(450_000_000)
             .putInt(160_000_000)
             .put(200.toByte())
             .putInt(12_345)
-            .put(((40 shl 2) or 1).toByte())
+            .put(((40 shl 2) or 3).toByte())
             .array()
 
         ltmFrame('G', payload).forEach { protocol.process(it.toInt() and 0xFF) }
@@ -96,6 +97,30 @@ class LTMProtocolTest {
         assertEquals(720f, reportedSpeed, 0f)
         assertEquals(40, reportedSatellites)
         assertTrue(hasFix)
+    }
+
+    @Test
+    fun gpsPresentWithoutAFixIsNotAFix() {
+        // Fix type 1 is "GPS present, still hunting" — the state a receiver
+        // forwards its remembered, sometimes continents-wrong, position in.
+        // Reading the low bit alone called this a fix and drew the garbage.
+        var hasFix = true
+        val protocol = LTMProtocol(object : DataDecoder.Companion.DefaultDecodeListener() {
+            override fun onGPSState(satellites: Int, gpsFix: Boolean) {
+                hasFix = gpsFix
+            }
+        })
+        val payload = ByteBuffer.allocate(14).order(ByteOrder.LITTLE_ENDIAN)
+            .putInt(450_000_000)
+            .putInt(160_000_000)
+            .put(0)
+            .putInt(0)
+            .put(((5 shl 2) or 1).toByte())
+            .array()
+
+        ltmFrame('G', payload).forEach { protocol.process(it.toInt() and 0xFF) }
+
+        assertFalse(hasFix)
     }
 
     private fun ltmFrame(type: Char, payload: ByteArray): ByteArray {
