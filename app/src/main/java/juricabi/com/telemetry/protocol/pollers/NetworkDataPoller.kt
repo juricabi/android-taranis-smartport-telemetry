@@ -550,9 +550,14 @@ class NetworkDataPoller(
     }
 
     /** Say hello, for a source that only unicasts back to whoever spoke to it. */
-    /** Resolved once: getByName can block for seconds, and this runs every second. */
-    private var announceHost: InetAddress? = null
-    private var announceHostResolved = false
+    // Resolved once: getByName can block for seconds, and this runs every
+    // second. Volatile because the farewell says goodbye from its own thread:
+    // seeing "resolved" without the address it was resolved to would send the
+    // high-latency stream's stop to learned peers alone — of which there may
+    // be none, leaving the modem talking to nobody, the one thing the farewell
+    // is for.
+    @Volatile private var announceHost: InetAddress? = null
+    @Volatile private var announceHostResolved = false
 
     private fun announce() {
         val socket = udpSocket ?: return

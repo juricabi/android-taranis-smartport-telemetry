@@ -181,12 +181,20 @@ class NetworkBinder(context: Context) {
      */
     private fun networkFor(host: String): Network? {
         val manager = connectivity ?: return null
-        // Numeric literals only. A dotted quad or a colon'd IPv6 parses without
-        // DNS; a hostname would resolve, and this can run on the main thread
-        // where that throws — and a hostname target is an internet one anyway,
-        // which no local route captures. Every module this exists for is
-        // dialled by numeric address.
-        val numeric = host.contains(':') || host.matches(Regex("(\\d{1,3}\\.){3}\\d{1,3}"))
+        // Numeric literals only, and strictly: getByName resolves anything
+        // else, which is a DNS lookup — forbidden on the main thread, where
+        // this runs — and a name is an internet target anyway, which no local
+        // route captures. Octets are range-checked so "999.999.999.999" is a
+        // name, not an address, and an IPv6 literal must carry the two colons
+        // every one of them has, so a stray "192.168.4.1:14550" pasted into
+        // the host field is refused here rather than looked up.
+        val bare = host.trim('[', ']').substringBefore('%')
+        val quad = Regex("(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})")
+        val numeric = when {
+            bare.count { it == ':' } >= 2 -> bare.all { it.isDigit() || it in "abcdefABCDEF:." }
+            else -> quad.matchEntire(bare)
+                ?.groupValues?.drop(1)?.all { (it.toIntOrNull() ?: 256) <= 255 } == true
+        }
         if (!numeric) return null
         val address = try {
             InetAddress.getByName(host)
@@ -215,6 +223,13 @@ class NetworkBinder(context: Context) {
             Log.w(TAG, "cannot enumerate networks: " + e.message)
         }
         if (best != null) return if (bindable(best)) best else null
+        // Directly attached, but on an interface ConnectivityManager does not
+        // model as a network — this phone's own hotspot above all, which it
+        // cannot see at all, and the vendor ap/p2p/tether interfaces beside it.
+        // The system's own local routing delivers to a neighbour on such a
+        // link; pinning instead hands the packet to some other network's
+        // gateway, and the module that Find just listed goes unreachable.
+        if (localPrefixHolds(address)) return null
         // A private address nothing specifically routes to — a module one
         // subnet behind the Wi-Fi gateway, say — can only be meant for the
         // local link: cellular never carries one, so the local network's own
@@ -256,15 +271,52 @@ class NetworkBinder(context: Context) {
         }
     }
 
+    /**
+     * Whether a VPN carries THIS app's traffic — the app's own active network
+     * being the tunnel. A VPN merely running somewhere is not the question: a
+     * split tunnel that excludes this app leaves it on the plain networks, and
+     * treating that as captured would drop the pin a module still needs.
+     */
     private fun vpnActive(): Boolean {
         val manager = connectivity ?: return false
-        try {
-            for (network in manager.allNetworks) {
-                val caps = manager.getNetworkCapabilities(network) ?: continue
-                if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) return true
-            }
+        return try {
+            val active = manager.activeNetwork ?: return false
+            val caps = manager.getNetworkCapabilities(active) ?: return false
+            !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
         } catch (e: Exception) {
-            // fall through
+            false
+        }
+    }
+
+    /**
+     * Whether [address] sits inside one of this phone's own interface prefixes.
+     * Asked of the interfaces directly, because that is the only place a
+     * hotspot appears at all. A network the system models was already matched
+     * by route above, so reaching here means the link is attached but unnamed.
+     */
+    private fun localPrefixHolds(address: InetAddress): Boolean {
+        val target = address.address ?: return false
+        for (iface in LocalNetworks.list()) {
+            val mine = try {
+                InetAddress.getByName(iface.address).address ?: continue
+            } catch (e: Exception) {
+                continue
+            }
+            if (mine.size != target.size) continue
+            if (iface.prefix <= 0 || iface.prefix > mine.size * 8) continue
+            var bits = iface.prefix
+            var same = true
+            for (i in mine.indices) {
+                if (bits <= 0) break
+                val take = if (bits >= 8) 8 else bits
+                val mask = (0xFF shl (8 - take)) and 0xFF
+                if ((mine[i].toInt() and mask) != (target[i].toInt() and mask)) {
+                    same = false
+                    break
+                }
+                bits -= take
+            }
+            if (same) return true
         }
         return false
     }

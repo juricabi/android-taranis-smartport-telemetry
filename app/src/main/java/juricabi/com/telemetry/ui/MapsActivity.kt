@@ -3325,41 +3325,46 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // data plus a hotspot that the module has joined — and in that case the
         // module is a client of this phone, so the gateway is the phone itself
         // and tells us nothing about where the module is.
-        val interfaces = LocalNetworks.list(binder.cellularInterfaceNames())
-        val interfaceLabels = ArrayList<String>()
-        interfaceLabels.add(getString(R.string.network_interface_auto))
-        interfaces.forEach { interfaceLabels.add(it.label()) }
+        var interfaces = LocalNetworks.list(binder.cellularInterfaceNames())
+        fun interfaceLabels(): ArrayList<String> {
+            val labels = ArrayList<String>()
+            labels.add(getString(R.string.network_interface_auto))
+            interfaces.forEach { labels.add(it.label()) }
+            return labels
+        }
         interfaceSpinner.adapter = ArrayAdapter(
-            this, android.R.layout.simple_spinner_dropdown_item, interfaceLabels)
+            this, android.R.layout.simple_spinner_dropdown_item, interfaceLabels())
 
         // Whether we are on Wi-Fi and what it is called are two different
         // questions on a modern Android: the network is visible through
         // ConnectivityManager, but the SSID needs location permission and
         // location switched on. Treating an unreadable name as "no Wi-Fi"
         // would put a wrong warning in front of someone whose setup is fine.
-        val ssid = binder.ssid()
-        val hotspot = interfaces.firstOrNull { it.likelyHotspot }
-        // a wired way in — a USB-ethernet adapter — is as good as Wi-Fi now
-        // that the pin routes by target, so it must not be told to "join
-        // Wi-Fi first" over a link that already works
-        val wired = interfaces.firstOrNull {
-            !it.loopback && !it.likelyHotspot && !it.name.startsWith("wlan")
-        }
-        val standing = when {
-            // A hotspot is not a Network as far as ConnectivityManager is
-            // concerned, so asking it whether we are "on Wi-Fi" says no even
-            // though the module is happily connected to this phone.
-            hotspot != null -> "Sharing a hotspot on " + hotspot.address
-            binder.hasWifi() && ssid != null -> getString(R.string.network_on_wifi, ssid)
-            binder.hasWifi() -> getString(R.string.network_on_wifi_unknown)
-            wired != null -> "On " + wired.label()
-            else -> getString(R.string.network_no_wifi)
+        fun networkStanding(): String {
+            val ssid = binder.ssid()
+            val hotspot = interfaces.firstOrNull { it.likelyHotspot }
+            // a wired way in — a USB-ethernet adapter — is as good as Wi-Fi now
+            // that the pin routes by target, so it must not be told to "join
+            // Wi-Fi first" over a link that already works
+            val wired = interfaces.firstOrNull {
+                !it.loopback && !it.likelyHotspot && !it.name.startsWith("wlan")
+            }
+            return when {
+                // A hotspot is not a Network as far as ConnectivityManager is
+                // concerned, so asking it whether we are "on Wi-Fi" says no even
+                // though the module is happily connected to this phone.
+                hotspot != null -> "Sharing a hotspot on " + hotspot.address
+                binder.hasWifi() && ssid != null -> getString(R.string.network_on_wifi, ssid)
+                binder.hasWifi() -> getString(R.string.network_on_wifi_unknown)
+                wired != null -> "On " + wired.label()
+                else -> getString(R.string.network_no_wifi)
+            }
         }
         // The streams pin themselves to the network that reaches the module,
         // so the phone's per-app network preference is free for the maps —
         // said here, where whoever stands on an internet-less module Wi-Fi
         // wonders how the tiles will load.
-        wifiStatus.text = standing + "\n" + getString(R.string.network_pin_tip)
+        wifiStatus.text = networkStanding() + "\n" + getString(R.string.network_pin_tip)
 
         // A UDP listen binds a local port and never needs the module's address,
         // which is the whole reason the UDP presets are offered first.
@@ -3473,6 +3478,52 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             }
         }
 
+        // The dialog is exactly where somebody stands while joining the
+        // module's Wi-Fi or plugging an adapter in, and it used to describe
+        // the networks of the moment it opened until closed and reopened.
+        // Refreshed on a slow tick instead: the status line always, the
+        // interface list only when it truly changed — swapping the spinner
+        // under a finger for nothing is worse than being a breath late —
+        // and back to Automatic then, since the old choice named a list
+        // that is gone.
+        val refreshNetworks = object : Runnable {
+            override fun run() {
+                if (!dialogOpen || isFinishing) return
+                // Asleep behind another app, this asks the system for every
+                // interface every two seconds for nothing; the tick comes back
+                // with the screen, and the first one then refreshes it anyway.
+                if (!lifecycle.currentState.isAtLeast(
+                        androidx.lifecycle.Lifecycle.State.RESUMED)
+                ) {
+                    view.postDelayed(this, 2000)
+                    return
+                }
+                val fresh = LocalNetworks.list(binder.cellularInterfaceNames())
+                if (fresh.map { it.label() } != interfaces.map { it.label() }) {
+                    // an explicit choice survives the list changing around it —
+                    // an adapter plugged in must not snap a picked hotspot back
+                    // to Automatic; only a vanished choice falls back there
+                    val kept = interfaceSpinner.selectedItemPosition.let { pos ->
+                        if (pos <= 0) null else interfaces.getOrNull(pos - 1)?.label()
+                    }
+                    interfaces = fresh
+                    interfaceSpinner.adapter = ArrayAdapter(
+                        this@MapsActivity,
+                        android.R.layout.simple_spinner_dropdown_item, interfaceLabels()
+                    )
+                    val at = kept?.let { label ->
+                        interfaces.indexOfFirst { it.label() == label }
+                    } ?: -1
+                    appliedIface = if (at >= 0) at + 1 else 0
+                    interfaceSpinner.setSelection(appliedIface)
+                }
+                wifiStatus.text =
+                    networkStanding() + "\n" + getString(R.string.network_pin_tip)
+                view.postDelayed(this, 2000)
+            }
+        }
+        view.postDelayed(refreshNetworks, 2000)
+
         var appliedPreset = presetSpinner.selectedItemPosition
         presetSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onNothingSelected(parent: AdapterView<*>?) {}
@@ -3522,8 +3573,19 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             findButton.text = getString(R.string.network_searching_short)
             hint.text = getString(R.string.network_searching, iface.subnet24() + "x")
 
+            // the probes ride the searched network the way the connect will,
+            // resolved once — every target in the /24 routes the same way, and
+            // a link the system reaches by itself (this phone's hotspot) comes
+            // back unpinned from here, as the connect will find it too
+            val road = binder.networkTo(iface.address)
             AsyncTask.execute {
-                LocalNetworks.scan(iface, port, 300, { done, total ->
+                LocalNetworks.scan(iface, port, 300, { probe ->
+                    try {
+                        road?.bindSocket(probe)
+                    } catch (e: Exception) {
+                        // an unbound probe still searches the default road
+                    }
+                }, { done, total ->
                     runOnUiThread {
                         if (!dialogOpen || isFinishing) return@runOnUiThread
                         hint.text = getString(
@@ -3536,7 +3598,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                         // the scan outlives the dialog, so a late result must
                         // not put a chooser up over the map
                         if (!dialogOpen || isFinishing) return@runOnUiThread
-                        findButton.isEnabled = true
+                        // through the one place that knows whether Find belongs
+                        // to the transport now chosen — it may have changed to
+                        // a UDP listen while the scan ran
+                        updateHostEnabled()
                         findButton.text = findLabel
                         when {
                             hits.isEmpty() -> hint.text = getString(R.string.network_found_none)

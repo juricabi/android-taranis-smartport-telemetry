@@ -107,6 +107,12 @@ object LocalNetworks {
         iface: Iface,
         port: Int,
         timeoutMs: Int,
+        // Puts each probe on the network being searched. Unbound, the probes
+        // leave over the phone's default route — and a module's own access
+        // point has no internet, so with mobile data about, every probe left
+        // over cellular and the search found nothing on the very network the
+        // pinned connect then reached fine.
+        bind: (Socket) -> Unit = {},
         onProgress: (Int, Int) -> Unit,
         onResult: (List<String>) -> Unit
     ) {
@@ -127,6 +133,7 @@ object LocalNetworks {
                 pool.execute {
                     val socket = Socket()
                     try {
+                        bind(socket)
                         socket.connect(InetSocketAddress(target, port), timeoutMs)
                         found.add(target)
                     } catch (e: Exception) {
