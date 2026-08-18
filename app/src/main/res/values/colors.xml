@@ -13,4 +13,6 @@
     <color name="settingsAccent">#0288D1</color>
     <color name="colorPosArrow">#FF29B6F6</color>
     <color name="colorPosArrowLogged">#FFFF9E22</color>
+    <!-- The amber the settings screen already warns in (PrefsFragment 0xFFF9A825). -->
+    <color name="colorWarning">#FFF9A825</color>
 </resources>

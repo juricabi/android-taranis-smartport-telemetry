@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The log manager. One list that changes rather than a screen that opens
+     another: the same rows browse (a tap opens a flight) and select (checkboxes
+     appear on the right, to delete or export). The count and the all/none toggle
+     ride at the top; the actions are one row below, swapped in with the mode. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingTop="12dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minHeight="44dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingLeft="20dp"
+        android:paddingRight="12dp"
+        android:paddingBottom="6dp">
+
+        <TextView
+            android:id="@+id/log_summary"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:singleLine="true"
+            android:ellipsize="end"
+            android:textColor="?android:attr/textColorSecondary"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/log_selected"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingLeft="12dp"
+            android:textStyle="bold"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/log_all"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="12dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:paddingLeft="16dp"
+            android:paddingRight="16dp"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
+            android:background="@drawable/pill_button"
+            android:textColor="?attr/colorAccent"
+            android:textSize="12sp"
+            android:text="All"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="?android:attr/listDivider" />
+
+    <ListView
+        android:id="@+id/log_list"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:divider="@null"
+        android:dividerHeight="0dp"
+        android:scrollbarStyle="outsideOverlay" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="?android:attr/listDivider" />
+
+    <LinearLayout
+        android:id="@+id/log_browse_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minHeight="52dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:divider="@drawable/bar_divider"
+        android:showDividers="middle"
+        android:dividerPadding="12dp">
+
+        <Button
+            android:id="@+id/log_import"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:minWidth="0dp"
+            android:textColor="?attr/colorAccent"
+            android:text="Import" />
+
+        <Button
+            android:id="@+id/log_select"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:minWidth="0dp"
+            android:maxLines="2"
+            android:textSize="13sp"
+            android:textColor="?attr/colorAccent"
+            android:text="Select for actions" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/log_select_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minHeight="52dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:visibility="gone"
+        android:divider="@drawable/bar_divider"
+        android:showDividers="middle"
+        android:dividerPadding="12dp">
+
+        <Button
+            android:id="@+id/log_done"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:minWidth="0dp"
+            android:paddingLeft="4dp"
+            android:paddingRight="4dp"
+            android:textColor="?attr/colorAccent"
+            android:text="Done"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/log_rename"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:minWidth="0dp"
+            android:paddingLeft="4dp"
+            android:paddingRight="4dp"
+            android:textColor="?attr/colorAccent"
+            android:text="Rename" />
+
+        <Button
+            android:id="@+id/log_export"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:minWidth="0dp"
+            android:paddingLeft="4dp"
+            android:paddingRight="4dp"
+            android:textColor="?attr/colorAccent"
+            android:text="Export" />
+
+        <Button
+            android:id="@+id/log_delete"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:minWidth="0dp"
+            android:paddingLeft="4dp"
+            android:paddingRight="4dp"
+            android:textColor="@color/colorWarning"
+            android:text="Delete" />
+    </LinearLayout>
+</LinearLayout>

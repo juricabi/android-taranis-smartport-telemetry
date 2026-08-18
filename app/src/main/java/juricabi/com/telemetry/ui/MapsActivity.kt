@@ -21,6 +21,7 @@ import android.media.SoundPool
 import android.speech.tts.TextToSpeech
 import android.net.Uri
 import android.os.*
+import android.provider.OpenableColumns
 import android.text.Html
 import android.text.InputFilter
 import android.text.InputType
@@ -28,8 +29,11 @@ import android.text.SpannableString
 import android.text.method.LinkMovementMethod
 import android.text.style.StyleSpan
 import android.util.TypedValue
+import android.view.KeyEvent
+import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.SurfaceView
+import android.view.ViewConfiguration
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -74,9 +78,16 @@ import juricabi.com.telemetry.service.DataService
 import uk.co.deanwild.materialshowcaseview.IShowcaseListener
 import uk.co.deanwild.materialshowcaseview.MaterialShowcaseView
 import juricabi.com.telemetry.logger.OperatorTrack
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
 import kotlin.collections.ArrayList
 import kotlin.math.ceil
 import kotlin.math.roundToInt
@@ -405,7 +416,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var followMode = true
     private var chaseMode = false
     private var hasGPSFix = false
-    private var replayFileString: String? = null
+    internal var replayFileString: String? = null
 
     /**
      * A replay held back until there is ground to watch it over.
@@ -480,8 +491,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     private var requestWritePermissionSequence = RequestWritePermissionSequenceType.NONE;
 
-    private var lastFileDialogSelectionIndex = -1;
-    private var lastFileDialogSelection = "";
+    internal var lastFileDialogSelection = "";
+
+    /** The log list, its two modes and its import/export, lifted to their own file. */
+    private val logManager = LogManager(this)
 
     private var lastSelectedDataPooler = "";
     private var lastSelectedBluetoothDeviceAddress = "";
@@ -547,6 +560,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_maps)
+        // Recover a backup mid-flight if a rotation rebuilt us while its save-picker was open.
+        savedInstanceState?.let { logManager.onRestoreInstanceState(it) }
 
         // diagnostics into the file "Copy debug info" copies, so a tester
         // away from the desk can send what logcat would have said — crashes too
@@ -700,6 +715,15 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         upLq = findViewById(R.id.up_lq)
         dnLq = findViewById(R.id.dn_lq)
         elrsRate = findViewById(R.id.elrs_rate)
+        crsfSystemOverride = getPreferences(Context.MODE_PRIVATE).getString("crsf_system", null)
+        elrsRate.setOnLongClickListener {
+            // Only meaningful on CRSF (or before a link, to preset it); on GHST or
+            // any other link the rate is not a CRSF rf_mode, so say so rather than
+            // let the choice do nothing.
+            if (detectedProtocol == null || detectedProtocol == "CRSF") showCrsfSystemDialog()
+            else Toast.makeText(this, "Rate system applies to CRSF links", Toast.LENGTH_SHORT).show()
+            true
+        }
         ant = findViewById(R.id.ant)
         power = findViewById(R.id.power)
         rssiDbm1 = findViewById(R.id.up_rssi_dbm1)
@@ -909,7 +933,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
         View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
 
-    private fun updateWindowFullscreenDecoration() {
+    internal fun updateWindowFullscreenDecoration() {
         window.decorView.systemUiVisibility =
             if (this.fullscreenWindow) fullscreenFlags else 0
         // The flags hide the status bar, but a phone with a camera cutout
@@ -1557,7 +1581,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         return !isInReplayMode() && !(dataService?.isConnected() ?: false)
     }
 
-    private fun replay() {
+    internal fun replay() {
         if (dataService?.isConnected() != true) {
             if (ContextCompat.checkSelfPermission(
                     this,
@@ -1569,72 +1593,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     REQUEST_READ_PERMISSION
                 )
             } else {
-                val dir = Environment.getExternalStoragePublicDirectory("TelemetryLogs")
-                val listed = if (dir.exists()) {
-                    dir.listFiles { file ->
-                        ((file.extension == "log") || (file.extension == "tlm")) && (file.length() > 0)
-                    }
-                } else {
-                    null
-                }
-                if (listed == null || listed.isEmpty()) {
-                    Toast.makeText(this, "No logs available", Toast.LENGTH_SHORT).show()
-                } else {
-                    val files = listed.sorted().reversed()
-
-                    if ( lastFileDialogSelectionIndex >= files.size) {
-                        lastFileDialogSelectionIndex = files.size-1;
-                    }
-
-                    val dialog = AlertDialog.Builder(this)
-                        .setAdapter(
-                            ArrayAdapter(
-                                this,
-                                android.R.layout.simple_list_item_1,
-                                files.map { i ->
-                                    if ( i.name == lastFileDialogSelection ) {
-                                        val b = "${i.nameWithoutExtension} (${ceil(i.length() / 102.4) / 10} Kb)"
-                                        val boldOption = SpannableString(b)
-                                        boldOption.setSpan(StyleSpan(Typeface.BOLD), 0, b.length, 0)
-                                        boldOption
-                                    } else {
-                                        "${i.nameWithoutExtension} (${ceil(i.length() / 102.4) / 10} Kb)"
-                                    }
-                                })
-                        ) { _, i ->
-                            updateWindowFullscreenDecoration()
-                            lastFileDialogSelectionIndex = i;
-                            lastFileDialogSelection = files[i].name
-                            startReplay(files[i])
-                        }
-                        .setNegativeButton("Delete all") { d, _ ->
-                            d.dismiss()
-                            showDeleteAllLogsDialog(files)
-                        }
-                        .create();
-
-                    dialog.setOnShowListener {
-                        val alertDialog = it as AlertDialog
-                        alertDialog.listView.setOnItemLongClickListener { _, _, position, _ ->
-                            dialog.dismiss()
-                            showLogActionsDialog(files[position])
-                            true
-                        }
-                        if ( lastFileDialogSelectionIndex != -1) {
-                            val centerY = alertDialog.listView.height / 2 // Calculate the center position vertically
-                            alertDialog.listView.smoothScrollToPositionFromTop(lastFileDialogSelectionIndex, centerY)
-                        }
-                    }
-
-                    this.showDialog(dialog);
-                }
+                logManager.open()
             }
         } else {
             Toast.makeText(this, "You need to disconnect first", Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun startReplay(file: File?, resumePosition: Int = -1, resumePlaying: Boolean = false) {
+    internal fun startReplay(file: File?, resumePosition: Int = -1, resumePlaying: Boolean = false) {
         // A hold belonging to the replay being closed. Left set, tearing down
         // the old 3D view below released it — onto a player just disposed.
         replayWaitingForGround = false
@@ -2041,6 +2007,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
+        logManager.onSaveInstanceState(outState)
         map?.onSaveInstanceState(outState)
         outState?.putBoolean("follow_mode", followMode)
         // Turning the phone round builds this screen again from nothing, and an
@@ -3993,6 +3960,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (logManager.onActivityResult(requestCode, resultCode, data)) return
         if (requestCode == REQUEST_ENABLE_BT && resultCode == Activity.RESULT_OK) {
             connectBluetooth()
         }
@@ -4921,6 +4889,16 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private var crsfSystem: String? = null
 
+    /**
+     * A manual fallback for the CRSF system, for links whose module name never
+     * identifies it — a Bluetooth telemetry mirror carries no device-name frame,
+     * so a Crossfire link is read under the ExpressLRS table. Long-press the rate
+     * tile to set it. A real name always wins over it, so a properly-identified
+     * link (WebSocket, USB) is never mislabelled by a stale override.
+     */
+    private var crsfSystemOverride: String? = null
+    private fun effectiveCrsfSystem(): String? = crsfSystem ?: crsfSystemOverride
+
     override fun onDeviceName(name: String) {
         val lower = name.lowercase(java.util.Locale.US)
         val system = when {
@@ -4951,6 +4929,32 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         return if (mode in rates.indices) rates[mode].toString() + "Hz" else mode.toString()
     }
 
+    /**
+     * Long-press the rate tile to say which CRSF system the link is, for when the
+     * name never did — a Crossfire over Bluetooth reads under the ExpressLRS table
+     * otherwise, and mode 2 is 50 Hz there but 150 Hz on a Crossfire. Auto hands it
+     * back to the module name; the choice is remembered.
+     */
+    private fun showCrsfSystemDialog() {
+        val labels = arrayOf("Auto (from name)", "ExpressLRS", "Crossfire", "Tracer")
+        val values = arrayOf<String?>(null, "ELRS", "XF", "TRACER")
+        val current = values.indexOf(crsfSystemOverride).let { if (it < 0) 0 else it }
+        this.showDialog(
+            AlertDialog.Builder(this)
+                .setTitle("Rate system")
+                .setSingleChoiceItems(labels, current) { d, which ->
+                    crsfSystemOverride = values[which]
+                    getPreferences(Context.MODE_PRIVATE).edit()
+                        .putString("crsf_system", crsfSystemOverride).apply()
+                    applyRateIcon()
+                    lastRfMode?.let { renderRate(it) }
+                    d.dismiss()
+                }
+                .setNegativeButton("Cancel") { d, _ -> d.dismiss() }
+                .create()
+        )
+    }
+
     override fun onElrsModeModeData(mode: Int) {
         this.sensorTimeoutManager.onElrsModeModeData(mode);
         lastRfMode = mode
@@ -4968,7 +4972,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // A Crossfire or Tracer numbers these differently, so use its own table.
         // The icon beside it is what says which system it is, so the number does
         // not repeat it — there is little enough room on the bar as it is.
-        val system = crsfSystem
+        val system = effectiveCrsfSystem()
         if (system == "XF" || system == "TRACER") {
             this.elrsRate.text = crossfireRate(mode)
             return
@@ -5415,7 +5419,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         hasGPSFix = false;
     }
 
-    private fun switchToIdleState() {
+    internal fun switchToIdleState() {
         this.logPlayer?.dispose();
         this.logPlayer = null;
         // out of the replay, so the sky is worth watching again
@@ -5462,7 +5466,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         logPlayer?.startPlayback()
     }
 
-    private fun closeReplay() {
+    internal fun closeReplay() {
         // first, so that everything asking whether this is a replay is answered
         // truthfully by the time it is asked — the live arrow is switched on by
         // one of those answers, and was being switched on while the replay was
@@ -5773,7 +5777,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * the icon is the fastest way to see which table is in use.
      */
     private fun rateIconRes(): Int {
-        val system = crsfSystem
+        val system = effectiveCrsfSystem()
         return when {
             detectedProtocol == "GHST" -> R.drawable.ic_ghst_rate
             system == "XF" || system == "TRACER" -> R.drawable.ic_xf_rate
@@ -6243,7 +6247,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
-    private fun showDialog(dialog: AlertDialog) {
+    internal fun showDialog(dialog: AlertDialog) {
         dialog.window?.setFlags(
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
@@ -6812,10 +6816,27 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val editText = EditText(this)
         editText.setText(if (dot > 0) currentFileName.substring(0, dot) else currentFileName)
         editText.setSelection(editText.text.length)
+        // One line, and not endless: the name is a file's, shown in a row that
+        // ellipsizes, so a runaway name serves nobody.
+        editText.isSingleLine = true
+        editText.filters = arrayOf(InputFilter.LengthFilter(60))
+        // In a padded frame, so the field — and the line beneath it — is inset
+        // from the dialog's edges instead of running the whole width.
+        val d = resources.displayMetrics.density
+        val frame = FrameLayout(this).apply {
+            setPadding((20 * d).toInt(), (8 * d).toInt(), (20 * d).toInt(), 0)
+            addView(
+                editText,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
 
         this.showDialog( AlertDialog.Builder(this)
         .setTitle("Rename Log")
-        .setView(editText)
+        .setView(frame)
         .setPositiveButton("Rename") { dialog: DialogInterface, which: Int ->
             val typed = editText.text.toString().trim()
             if (typed.isEmpty()) {
@@ -6834,6 +6855,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val currentFile = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), currentFileName)
         val newFile = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), newFileName)
 
+        // renameTo replaces the destination silently — refuse a name another
+        // recording already holds rather than delete that flight.
+        if (newFileName != currentFileName && newFile.exists()) {
+            Toast.makeText(this, "A log named that already exists.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
         if (currentFile.renameTo(newFile)) {
             Toast.makeText(this, "Log renamed successfully.", Toast.LENGTH_SHORT).show()
 
@@ -6846,88 +6874,20 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             if (currentFileName == replayFileString) {
                 replayFileString = newFileName;
             }
+            // The bold marks the last flight opened. This is not it under a new
+            // name — it was never opened as this — so drop the mark rather than
+            // leave it pointing at a name that is gone.
+            if (currentFileName == lastFileDialogSelection) {
+                lastFileDialogSelection = ""
+            }
         } else {
             Toast.makeText(this, "Failed to rename log.", Toast.LENGTH_SHORT).show()
         }
+        // If the manager opened this rename, refresh it in place (select mode kept,
+        // nothing marked); a no-op when the rename came from the replay screen.
+        logManager.filesChanged()
     }
 
-
-    /** Long press a log in the picker: what can be done to that one log. */
-    private fun showLogActionsDialog(file: File) {
-        val actions = arrayOf("Rename", "Delete")
-        this.showDialog(
-            AlertDialog.Builder(this)
-                .setTitle(file.nameWithoutExtension)
-                .setItems(actions) { d, which ->
-                    d.dismiss()
-                    when (which) {
-                        0 -> showRenameLogDialog(file.name)
-                        1 -> showDeleteLogDialog(file.name)
-                    }
-                }
-                .create()
-        )
-    }
-
-    /**
-     * Clear out the recordings. Named with the count and the space they take,
-     * because "delete all" on its own is not enough to decide by, and this
-     * cannot be undone.
-     */
-    private fun showDeleteAllLogsDialog(files: List<File>) {
-        if (files.isEmpty()) {
-            Toast.makeText(this, "No logs to delete", Toast.LENGTH_SHORT).show()
-            return
-        }
-        if (!requestWritePermission(RequestWritePermissionSequenceType.LOG_PICKER)) return
-
-        val megabytes = files.sumByDouble { it.length().toDouble() } / (1024 * 1024)
-        this.showDialog(
-            AlertDialog.Builder(this)
-                .setTitle("Delete all logs")
-                .setMessage(
-                    "Delete all " + files.size + " logs (" + "%.1f".format(megabytes) +
-                        " MB)?" + 10.toChar() + 10.toChar() +
-                        "This cannot be undone. Any CSV files recorded alongside them go too."
-                )
-                .setPositiveButton("Delete all") { d, _ ->
-                    deleteAllLogs(files)
-                    d.dismiss()
-                }
-                .setNegativeButton("Cancel") { d, _ -> d.dismiss() }
-                .create()
-        )
-    }
-
-    private fun deleteAllLogs(files: List<File>) {
-        var deleted = 0
-        for (file in files) {
-            if (file.delete()) {
-                deleted++
-                // the CSV recorded alongside it, as deleting one log does
-                File(file.parentFile, replaceExtension(file.name, ".csv")).delete()
-            }
-        }
-        val failed = files.size - deleted
-        val message = if (failed == 0) {
-            "Deleted " + deleted + " logs"
-        } else {
-            "Deleted " + deleted + " logs, " + failed + " could not be removed"
-        }
-        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-
-        lastFileDialogSelection = ""
-        lastFileDialogSelectionIndex = -1
-        if (replayFileString != null) {
-            // closeReplay first, by the same doctrine the close button
-            // follows: everything the idle switch asks — is this still a
-            // replay? — must be answered truthfully by the time it is asked,
-            // or startFr24 declines and the sky stays empty until the next
-            // pause.
-            closeReplay()
-            switchToIdleState()
-        }
-    }
 
     fun showDeleteLogDialog(fileName: String? = null) {
         if (!requestWritePermission(RequestWritePermissionSequenceType.DELETE)) return;

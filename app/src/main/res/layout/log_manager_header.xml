@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The heading for a day's flights, with a rule above it to part it from the
+     day before. The day label sits hard left; its whole-day checkbox — select
+     mode only — is on the right, so the label never moves. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="?android:attr/selectableItemBackground">
+
+    <View
+        android:id="@+id/day_divider"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="?android:attr/listDivider" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingLeft="20dp"
+        android:paddingRight="12dp">
+
+        <TextView
+            android:id="@+id/day_label"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textStyle="bold"
+            android:textColor="?android:attr/textColorSecondary"
+            android:textSize="13sp" />
+
+        <CheckBox
+            android:id="@+id/day_check"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_vertical"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:layout_marginLeft="24dp"
+            android:clickable="false"
+            android:focusable="false"
+            android:visibility="gone" />
+    </LinearLayout>
+</LinearLayout>
