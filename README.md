@@ -1,4 +1,4 @@
-# Android Telemetry Viewer 2.5.0
+# Android Telemetry Viewer 2.5.1
 
 Live and recorded RC telemetry on a smooth 2D map or real 3D terrain.
 
@@ -14,12 +14,22 @@ Bluetooth, BLE, USB serial and network connections.
 
 ## Current state
 
-Version 2.5.0: live video beside the map — USB goggles and receivers,
+Version 2.5.1: live video beside the map — USB goggles and receivers,
 RTSP, MJPEG, and raw RTP pushed at the phone, each flown until it
 behaved — and the drone's GPS republished as the phone's own position
 for tracker apps. On the 2.4 ground and map, with the flight ending when
 you say so and one camera across both views.
 
+- **Every stream finds its own way out**, so one phone setting covers a
+  flying day: telemetry and video ride whichever network reaches the
+  module — the goggles' Wi-Fi, this phone's hotspot, a USB-ethernet
+  adapter — while the maps keep loading over mobile data. RTSP carries
+  its video over TCP or UDP by a switch beside the address, because a
+  goggle that stalls on its own keep-alive needs one and a weak link
+  needs the other.
+- **Nothing is drawn from a position the receiver has not fixed yet.**
+  A receiver still hunting satellites forwards where it last was, which
+  could be a continent away; both views wait, and open on you instead.
 - **Live video in half the screen**, the flight in the other: a USB (UVC)
   receiver or goggles over OTG — UVC 1.5 action cameras included — or a
   network stream: RTSP, MJPEG, or raw RTP at a port (H.264/H.265). The
@@ -172,8 +182,12 @@ The network address says what the stream is:
 - **`rtsp://…`** — RTSP, H.264 through the phone's hardware decoder.
   IP cameras, mediamtx/go2rtc relays, the IP Webcam app's RTSP mode.
   **Orqa FPV.Connect** broadcasts here too: join the goggles' own WiFi
-  and enter `rtsp://192.168.1.1:5004/orqabroadcast`. The stream rides
-  TCP from the first frame, so it starts clean on a lossy link. H.265
+  and enter `rtsp://192.168.1.1:5004/orqabroadcast`. The video rides TCP
+  by default, which never tears a frame on a lossy link; the **RTSP over
+  UDP** switch beside the address is lower latency and keeps the video
+  off the control channel, which some goggles need — theirs stall on
+  their own keep-alive otherwise — at the cost of a smeared frame when a
+  packet drops. A clean direct link wants UDP, a weak one TCP. H.265
   over RTSP does not play — the player library's H.265 RTP reader is
   unfinished upstream — send H.265 as a raw `udp://` push instead,
   where it works.
@@ -374,8 +388,12 @@ first. Ghost telemetry mirror uses **115200 baud**.
 - Live video (Settings → Video) is a USB UVC receiver or goggles over OTG, or
   a network stream — RTSP at roughly half-a-second ground-station latency, or
   MJPEG over HTTP; it is not a sub-150 ms FPV feed.
-- Real transport reconnection still needs verification with the corresponding
-  physical radio/module; the simulator tests the network and decoder path.
+- Network transports and RTSP recovery have been flown against real hardware;
+  Bluetooth reconnection has not been made to happen in the air yet — a
+  flight's worth of link held without one — so it rests on the bench and the
+  simulator, which test the network and decoder path.
+- `.local` / mDNS names are not resolved: modules are dialled by IP, which the
+  network dialog's **Find** button will search out.
 
 ## Lineage
 
