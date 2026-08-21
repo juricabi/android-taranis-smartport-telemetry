@@ -20,6 +20,11 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 (`gradlew.bat` on Windows; the same lines otherwise.)
 
+The unit tests are CI's gate: `./gradlew :app:testDebugUnitTest` — JUnit
+and Robolectric over the decoders, the geo and altitude maths, the bus,
+the replay hold and the permission funnel (192 at last count). Green
+before every push.
+
 Package ids: release `juricabi.com.telemetry`, debug
 `juricabi.com.telemetry.debug`. Both install side by side, so the debug build can
 be tried without losing the settings of the one being flown with.
@@ -93,6 +98,14 @@ In the app: **Connect → Network → TBS Crossfire / Tracer (UDP)**, same port.
 map, the track, the horizon, the battery and rate readouts, and the 3D view with
 the model at its true attitude.
 
+The rig has switches for the awkward cases: `--tcp` for the TCP road, with
+`--kick-file <path>` to drop the phone once when that file appears (the real
+reconnect drill); `--no-name` to withhold DEVICE_INFO like a Bluetooth mirror
+does (the link the manual rate-system override exists for); `--mute-file
+<path>` to send nothing while that file exists (sensor greying, and the silent
+resume a UDP link makes). `--protocol mavlink-hl` with `--wait-enable` plays an
+ArduPilot high-latency port.
+
 ## How this gets built
 
 These are the instructions that come up again and again here. They are not
@@ -145,6 +158,19 @@ was left, and why.
 
 **Release in place.** Adding to something already published means moving the tag
 and letting CI rebuild it — same number, same notes. Older releases stay up.
+
+## Where things live
+
+`CONTEXT.md` names every module; start there. The short of it: tiles,
+their icons and their greying are TelemetryPanel's; video is VideoPane
+and the sources; choosing a link is ConnectFlow, while connecting and
+the reconnect policy stay in MapsActivity; the log list and its dialogs
+are LogManager's; replay resume/autostart authority is ReplayHold; the
+overlays both views draw are FlightOverlays. The bus forwards
+structurally — a new `DataDecoder.Listener` callback is added to
+ForwardingListener AND MulticastListener, and the compiler holds the
+door until both have it. A new telemetry value touches a decoder and the
+panel, nothing else.
 
 ## Before changing how a flight is drawn
 
