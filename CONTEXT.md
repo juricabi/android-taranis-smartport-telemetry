@@ -55,6 +55,10 @@ issues and reviews use these terms as written here.
   chooser, the Bluetooth/BLE lists and pairing, the USB probe, the network
   dialog with presets and Find. It ends where a device, address or port has
   been chosen; connecting and the reconnect policy stay the activity's.
+  That policy: an unasked drop is retried for one minute, every transport
+  alike, and every ending of the retry is announced. USB's retry is an
+  event, not a timer — the attach broadcast fires it, and the replug
+  resumes the same flight and log.
 - **PermissionFunnel** (`ui/PermissionFunnel.kt`) — one permission dialog at
   a time; a request fired under a standing dialog is cancelled unseen, so
   asks take turns and repeats are dropped.
