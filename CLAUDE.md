@@ -170,3 +170,20 @@ position while the screen is away.
 what it cost. Keep that — a comment explaining a line that could be read from the
 line is noise, and one explaining why a line is not the obvious thing is the most
 valuable text in the file.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as local markdown under `.scratch/<feature>/` in this repo. See
+`docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical roles, each label string equal to its name. See
+`docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` at the repo root, ADRs in `docs/adr/`. See
+`docs/agents/domain.md`.
