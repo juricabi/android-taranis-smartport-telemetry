@@ -50,15 +50,15 @@
 
     <SwitchPreference
             app:iconSpaceReserved="false"
-            android:title="Automatically reconnect lost Bluetooth connection"
-            android:summary="Try to reconnect if Bluetooth/BLE connection has failed"
+            android:title="Automatically reconnect a lost radio link"
+            android:summary="Keep trying for a minute after a Bluetooth, BLE or USB serial link drops. A USB link waits for the cable to return and resumes the same flight and log."
             android:defaultValue="true"
             android:key="connection_reconnect"/>
 
     <SwitchPreference
             app:iconSpaceReserved="false"
             android:title="Automatically reconnect lost network connection"
-            android:summary="Try to reconnect if a Wi-Fi (TCP/UDP) telemetry connection has failed"
+            android:summary="Keep trying for a minute after a Wi-Fi (TCP/UDP) telemetry link drops"
             android:defaultValue="true"
             android:key="network_reconnect"/>
 

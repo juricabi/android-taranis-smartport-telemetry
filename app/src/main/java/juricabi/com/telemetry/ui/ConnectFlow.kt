@@ -112,7 +112,14 @@ class ConnectFlow(
         }
     }
 
-    private fun connectUSB() {
+    /** Whether anything serial is attached at all — the reconnect's quiet probe. */
+    fun hasSerialDevice(): Boolean {
+        val usbManager = host.getSystemService(Context.USB_SERVICE) as UsbManager
+        return UsbSerialProber.getDefaultProber().findAllDrivers(usbManager).isNotEmpty()
+    }
+
+    /** [newSession] false continues a dropped link's flight and log. */
+    internal fun connectUSB(newSession: Boolean = true) {
         val usbManager = host.getSystemService(Context.USB_SERVICE) as UsbManager
         val drivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager)
         val driver = drivers.firstOrNull()
@@ -148,7 +155,7 @@ class ConnectFlow(
                     Toast.makeText(host, "No valid usb port has been found", Toast.LENGTH_SHORT)
                         .show()
                 } else {
-                    host.connectToUSBDevice(port, connection)
+                    host.connectToUSBDevice(port, connection, newSession)
                 }
             } else {
                 val pendingIntent =
@@ -171,7 +178,7 @@ class ConnectFlow(
                                     )
                                 ) {
                                     device?.apply {
-                                        connectUSB()
+                                        connectUSB(newSession)
                                     }
                                 } else {
                                     Toast.makeText(

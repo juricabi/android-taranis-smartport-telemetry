@@ -85,8 +85,17 @@ you say so and one camera across both views.
 - One camera contract across both views, live or replayed: a flight is
   framed the moment it appears in every mode, a replay opens in the mode
   last chosen, the mode is remembered between runs, and with no mode
-  keeping up zoom reaches the ground and pan keeps pace. A dropped link's
-  reconnect lets go the moment you connect or open a replay.
+  keeping up zoom reaches the ground and pan keeps pace.
+- A link that drops unasked is retried for one minute — Bluetooth, BLE,
+  network and USB serial alike — and a reconnect continues the flight,
+  its log, and its altitude answer as one. USB has nothing to poll, so
+  its retry waits for the cable: the replug (or picking USB Serial on
+  the radio) is what fires it, and the button reads Reconnecting… for
+  as long as the intent stands. However it ends — timing out, or called
+  off by a deliberate connect or replay — it says so. And when USB drops
+  and returns twice in quick succession, the app names the likely cause
+  once: the radio charging from the phone harder than the phone can
+  feed it, cured by a USB-A adapter or a powered OTG hub.
 
 ## Supported telemetry
 

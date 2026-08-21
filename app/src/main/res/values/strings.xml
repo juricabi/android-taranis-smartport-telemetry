@@ -6,6 +6,10 @@
     <string name="title_activity_maps">Map</string>
     <string name="connecting">Connecting…</string>
     <string name="reconnecting">Reconnecting…</string>
+    <!-- shown once per run, on the second USB auto-reconnect in quick
+         succession: that rhythm is the radio drinking charge from the phone
+         faster than the phone can feed it, not a loose plug -->
+    <string name="usb_power_hint">USB keeps dropping — the radio charges from the phone over this cable, and the link resets when the phone cannot keep up. A USB-A adapter or a powered OTG hub usually cures it.</string>
     <string name="connect">Connect</string>
     <string name="disconnect">Disconnect</string>
     <string name="disconnecting">Disconnecting…</string>
