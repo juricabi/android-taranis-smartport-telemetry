@@ -120,6 +120,15 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), Fr24Manager.Lis
         private const val CONNTYPE_BLE = 2
         private const val CONNTYPE_USB = 3
         private const val CONNTYPE_NET = 4
+
+        // How long a dropped link may claim the next reconnect as the same
+        // flight; past it, the next link is honestly a new one. One minute,
+        // every transport: the network earned it first — a rebooting
+        // transmitter, and the phone re-associating with its access point.
+        // USB spends it on the radio's USB-mode chooser between the plug and
+        // the port. Bluetooth had 21 seconds and was raised to match: a
+        // radio that browned out and rebooted got no time.
+        private const val RECONNECT_WINDOW_MS = 60000L
     }
 
     enum class RequestWritePermissionSequenceType {
@@ -417,9 +426,16 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), Fr24Manager.Lis
     // One USB drop is a cable coming out. Two auto-reconnects in quick
     // succession are a rhythm: the radio drinking charge from the phone
     // faster than the phone can feed it, resetting the bus. Nothing on
-    // screen distinguishes that from a loose plug, so it gets said once.
+    // screen distinguishes that from a loose plug, so it gets said once
+    // per screen — deliberately not carried across rotation, so a bar
+    // waved off returns on a later screen if the churn is still real.
     private var lastUsbAutoReconnect = 0L
     private var usbPowerHintShown = false
+
+    // The USB wait's one pending retirement: replaced on each (re)arm and
+    // cancelled on destroy, so no stale timer fires and no dead screen is
+    // held for the tail of the window.
+    private var usbRetire: Runnable? = null
 
     // what a network reconnect needs to repeat; there is no device object to
     // hold on to as there is for Bluetooth
@@ -2105,6 +2121,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), Fr24Manager.Lis
         map = null;
         this.unregisterReceiver(this.batInfoReceiver)
         this.unregisterReceiver(this.usbAttached)
+        usbRetire?.let { connectButton.removeCallbacks(it) }
         if (dataServiceBound) {
             unbindService(serviceConnection)
             dataServiceBound = false
@@ -2952,15 +2969,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), Fr24Manager.Lis
                     reconnectionStartTime = System.currentTimeMillis()
                 }
 
-                // One minute, every transport. The network earned it first — a
-                // rebooting transmitter, and the phone re-associating with its
-                // access point, before anything can be reached at all. USB
-                // spends it on the radio's USB-mode chooser between the plug
-                // and the port. Bluetooth had 21 seconds and was raised to
-                // match: a radio that browned out and rebooted got no time.
-                val window = 60000
-
-                if ((System.currentTimeMillis() - reconnectionStartTime) < window) {
+                if ((System.currentTimeMillis() - reconnectionStartTime)
+                    < RECONNECT_WINDOW_MS) {
                     if (isUsb) {
                         // Nothing to poll: the cable that left took the port
                         // with it, and its return announces itself — the
@@ -2972,22 +2982,23 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), Fr24Manager.Lis
                         connectButton.text = getString(R.string.reconnecting)
                         // No attach may ever come, and nothing else runs at
                         // the window's end to take the label down — this
-                        // does, unless a newer drop owns a fresh window or
-                        // a link is already up.
-                        connectButton.postDelayed({
-                            if (isFinishing || isDestroyed) return@postDelayed
+                        // does, unless the wait ended another way first: a
+                        // disarmed retry, or a link already up in the moment
+                        // before onConnected clears the flag.
+                        usbRetire?.let { connectButton.removeCallbacks(it) }
+                        val retire = Runnable {
                             if (!reconnectOnFailure ||
-                                lastConnectionType != CONNTYPE_USB) return@postDelayed
-                            if (dataService?.isConnected() == true) return@postDelayed
-                            if (reconnectionStartTime == 0L ||
-                                (System.currentTimeMillis() - reconnectionStartTime) < window
-                            ) return@postDelayed
+                                lastConnectionType != CONNTYPE_USB) return@Runnable
+                            if (dataService?.isConnected() == true) return@Runnable
                             reconnectOnFailure = false
                             reconnectionStartTime = 0L
                             connectButton.text = getString(R.string.connect)
                             Toast.makeText(this@MapsActivity,
                                 "Reconnect timed out", Toast.LENGTH_SHORT).show()
-                        }, window - (System.currentTimeMillis() - reconnectionStartTime) + 500)
+                        }
+                        usbRetire = retire
+                        connectButton.postDelayed(retire, RECONNECT_WINDOW_MS -
+                            (System.currentTimeMillis() - reconnectionStartTime) + 500)
                         return@runOnUiThread
                     }
                     AsyncTask.execute {
@@ -3039,7 +3050,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), Fr24Manager.Lis
         if (dataService?.isConnected() == true) return
         if (!preferenceManager.getReconnectionEnabled()) return
         if (reconnectionStartTime != 0L &&
-            (System.currentTimeMillis() - reconnectionStartTime) >= 60000
+            (System.currentTimeMillis() - reconnectionStartTime) >= RECONNECT_WINDOW_MS
         ) {
             // the window ran out waiting; the next plug is a fresh connect —
             // said at the plug that arrived too late, in case the timed
