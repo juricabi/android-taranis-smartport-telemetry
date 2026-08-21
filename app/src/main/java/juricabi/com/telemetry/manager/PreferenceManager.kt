@@ -1,12 +1,13 @@
 package juricabi.com.telemetry.manager
 
 import android.content.Context
+import android.content.SharedPreferences
 import juricabi.com.telemetry.R
 import juricabi.com.telemetry.maps.maplibre.MapLibreStyles
 
 class PreferenceManager(context: Context) {
 
-    private val sharedPreferences = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    private val sharedPreferences = context.getSharedPreferences(STORE, Context.MODE_PRIVATE)
 
     private val defaultHeadlineColor = context.resources.getColor(R.color.colorHeadline)
     private val defaultPlaneColor = context.resources.getColor(R.color.colorPlane)
@@ -26,6 +27,21 @@ class PreferenceManager(context: Context) {
                 sharedPreferences.getBoolean("show_home_line", true)
             ).apply()
         }
+        // The rate-system override once lived in an activity-private file
+        // (whose name the platform derives differently per applicationId).
+        // Read through once, or a pinned "Crossfire" reverts to Auto on
+        // update — the exact mislabeling the pin shipped to fix.
+        if (!sharedPreferences.contains("crsf_system")) {
+            for (oldStore in arrayOf(
+                    "ui.MapsActivity", "juricabi.com.telemetry.ui.MapsActivity")) {
+                val old = context.getSharedPreferences(oldStore, Context.MODE_PRIVATE)
+                    .getString("crsf_system", null)
+                if (old != null) {
+                    sharedPreferences.edit().putString("crsf_system", old).apply()
+                    break
+                }
+            }
+        }
     }
 
     /**
@@ -42,6 +58,18 @@ class PreferenceManager(context: Context) {
         sharedPreferences.edit().putBoolean("follow_mode", on).apply()
 
     companion object {
+        // The one store every setting lives in. PrefsFragment points the
+        // preference framework here, so the settings screen and the code
+        // write the same file — the name existing anywhere else is drift
+        // waiting to happen.
+        const val STORE = "settings"
+
+        // Keys watched from outside this class. A key string only leaves
+        // this file as one of these constants, so a rename cannot silently
+        // orphan a watcher.
+        const val KEY_BACKGROUND_COMPASS = "background_compass"
+        const val KEY_MOCK_LOCATION_ENABLED = "mock_location_enabled"
+
         val sensors = setOf(
             SensorSetting("Satellites", 1),
             SensorSetting("Battery", 2),
@@ -112,12 +140,25 @@ class PreferenceManager(context: Context) {
     }
 
     fun isBackgroundCompassEnabled(): Boolean {
-        return sharedPreferences.getBoolean("background_compass", true)
+        return sharedPreferences.getBoolean(KEY_BACKGROUND_COMPASS, true)
     }
 
     /** Republish the drone's GPS as this phone's own position (mock location). */
     fun isMockLocationEnabled(): Boolean {
-        return sharedPreferences.getBoolean("mock_location_enabled", false)
+        return sharedPreferences.getBoolean(KEY_MOCK_LOCATION_ENABLED, false)
+    }
+
+    /**
+     * Watch the store for changes. Handed out here so a watcher never has to
+     * open the store by name — the KEY_ constants above are what a watcher
+     * matches against.
+     */
+    fun watch(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
+        sharedPreferences.registerOnSharedPreferenceChangeListener(listener)
+    }
+
+    fun unwatch(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
+        sharedPreferences.unregisterOnSharedPreferenceChangeListener(listener)
     }
 
     /** Whether the start-of-app storage ask has been made, ever. Once is polite. */
@@ -319,6 +360,21 @@ class PreferenceManager(context: Context) {
 
     fun getUsbSerialBaudrate() : Int {
        return sharedPreferences.getString("usb_serial_baudrate", "57600")?.toInt() ?: 57600
+    }
+
+    /**
+     * Which CRSF system the rate table belongs to, chosen by long-pressing the
+     * rate tile: "ELRS", "XF" or "TRACER", or null for auto (from the module
+     * name). Lives here with every other setting — this used to be the one
+     * value kept in an activity-private store of its own.
+     */
+    fun getCrsfSystemOverride(): String? {
+        return sharedPreferences.getString("crsf_system", null)
+    }
+
+    fun setCrsfSystemOverride(system: String?) {
+        if (system == null) sharedPreferences.edit().remove("crsf_system").apply()
+        else sharedPreferences.edit().putString("crsf_system", system).apply()
     }
 
 	data class SensorSetting(

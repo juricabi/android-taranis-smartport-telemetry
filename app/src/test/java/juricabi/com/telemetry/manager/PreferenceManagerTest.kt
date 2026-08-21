@@ -1,6 +1,7 @@
 package juricabi.com.telemetry.manager
 
 import androidx.test.core.app.ApplicationProvider
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -51,5 +52,15 @@ class PreferenceManagerTest {
         // so both read the same stored answer rather than the checkbox guessing.
         val pm = fresh()
         assertTrue(pm.isOperatorLineEnabled())
+    }
+
+    @Test
+    fun crsfSystemOverrideRoundTripsAndAutoClears() {
+        assertEquals(null, fresh().getCrsfSystemOverride())
+        fresh().setCrsfSystemOverride("XF")
+        assertEquals("XF", fresh().getCrsfSystemOverride())
+        // Auto is the absence of an override, not a fourth value.
+        fresh().setCrsfSystemOverride(null)
+        assertEquals(null, fresh().getCrsfSystemOverride())
     }
 }

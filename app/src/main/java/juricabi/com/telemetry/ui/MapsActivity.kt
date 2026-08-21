@@ -1,39 +1,19 @@
 package juricabi.com.telemetry.ui
 
 import android.app.Activity
-import android.app.PendingIntent
 import android.app.ProgressDialog
-import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.content.*
 import android.content.pm.ActivityInfo
 import android.location.Location
 import android.location.LocationManager
 import android.content.pm.PackageManager
-import android.content.res.Configuration
-import android.graphics.Color
-import android.graphics.Typeface
-import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbDeviceConnection
-import android.hardware.usb.UsbManager
 import android.media.AudioManager
 import android.media.SoundPool
-import android.speech.tts.TextToSpeech
 import android.net.Uri
 import android.os.*
-import android.provider.OpenableColumns
-import android.text.Html
-import android.text.InputFilter
-import android.text.InputType
-import android.text.SpannableString
-import android.text.method.LinkMovementMethod
-import android.text.style.StyleSpan
 import android.util.TypedValue
-import android.view.KeyEvent
-import android.view.LayoutInflater
-import android.view.MotionEvent
-import android.view.SurfaceView
-import android.view.ViewConfiguration
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -41,14 +21,10 @@ import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.SwitchCompat
 import androidx.coordinatorlayout.widget.CoordinatorLayout
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.hoho.android.usbserial.driver.UsbSerialPort
-import com.hoho.android.usbserial.driver.UsbSerialProber
-import com.nex3z.flowlayout.FlowLayout
 import juricabi.com.telemetry.R
-import juricabi.com.telemetry.converter.Converter
 import juricabi.com.telemetry.manager.FlightPlanManager
 import juricabi.com.telemetry.protocol.GhstProtocol
 import juricabi.com.telemetry.manager.Fr24Manager
@@ -64,38 +40,19 @@ import juricabi.com.telemetry.maps.maplibre.MapLibreStyles
 import org.maplibre.android.MapLibre
 import juricabi.com.telemetry.utils.GeoUtils
 import juricabi.com.telemetry.utils.PlusCode
-import juricabi.com.telemetry.video.MjpegSource
-import juricabi.com.telemetry.video.RtspSource
-import juricabi.com.telemetry.video.UdpSource
-import juricabi.com.telemetry.video.UsbUvcSource
-import juricabi.com.telemetry.video.VideoSource
 import juricabi.com.telemetry.protocol.decoder.DataDecoder
-import juricabi.com.telemetry.protocol.pollers.NetworkDataPoller
 import juricabi.com.telemetry.protocol.pollers.LogPlayer
-import juricabi.com.telemetry.utils.LocalNetworks
-import juricabi.com.telemetry.utils.NetworkBinder
 import juricabi.com.telemetry.service.DataService
-import uk.co.deanwild.materialshowcaseview.IShowcaseListener
-import uk.co.deanwild.materialshowcaseview.MaterialShowcaseView
 import juricabi.com.telemetry.logger.OperatorTrack
-import java.io.BufferedInputStream
-import java.io.BufferedOutputStream
 import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
-import java.util.zip.ZipEntry
-import java.util.zip.ZipInputStream
-import java.util.zip.ZipOutputStream
 import kotlin.collections.ArrayList
-import kotlin.math.ceil
 import kotlin.math.roundToInt
 
 //class MapsActivity : AppCompatActivity(), DataDecoder.Listener {
-class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Listener, SensorTimeoutManager.Listener, Fr24Manager.Listener {
+class MapsActivity : androidx.appcompat.app.AppCompatActivity(), Fr24Manager.Listener {
 
-    @Volatile private var detectedProtocol: String = ""
     /**
      * The flight as flown: position with height above sea level, which is what
      * the profile and the 3D view need and neither the map nor the polyline
@@ -105,17 +62,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         get() = juricabi.com.telemetry.gl.LiveFlightPath.snapshot()
     private val flightAltitude = juricabi.com.telemetry.gl.FlightAltitude()
 
-    @Volatile private var detectedCells = 0
-    @Volatile private var highestPackVoltage = 0f
-    private var cellsAsked = false
-    private var cellsAnswered = false
-
     companion object {
 
-        // Ghost RF profiles, matching EdgeTX ghstRfProfileValue
-        private val GHST_RF_PROFILES = arrayOf(
-            "Auto", "Norm", "Race", "Pure", "Long", "Unused", "Race2", "Pure2"
-        )
         /**
          * The speed slider's stops: 3x slower to 10x faster, in halves both
          * ways. One list, because the two sides mean different arithmetic —
@@ -141,13 +89,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
          * speed slider is the correction.
          */
         private const val TELEMETRY_PACKETS_PER_SECOND = 50
-        private const val REQUEST_ENABLE_BT: Int = 0
+        internal const val REQUEST_ENABLE_BT: Int = 0
         private const val REQUEST_LOCATION_PERMISSION: Int = 1
         private const val REQUEST_WRITE_PERMISSION: Int = 2
         private const val REQUEST_READ_PERMISSION: Int = 3
         private const val REQUEST_CAMERA_PERMISSION: Int = 4
         private const val REQUEST_RECORD_AUDIO_PERMISSION: Int = 5
-        private const val ACTION_USB_DEVICE = "action_usb_device"
+        internal const val ACTION_USB_DEVICE = "action_usb_device"
         private val MAP_TYPE_ITEMS = arrayOf(
             "OpenStreetMap (can be cached)",
             "OpenTopoMap (can be cached)",
@@ -187,9 +135,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var marker: MapMarker? = null
     private var polyLine: MapLine? = null
     private var fr24Manager: Fr24Manager? = null
-    private val airplaneMarkers = mutableMapOf<Int, MapMarker>()
-    private var tts: TextToSpeech? = null
-    private var ttsReady = false
+    /** The overlays both views draw, said once — see FlightOverlays. */
+    private val flightOverlays = FlightOverlays(
+        map = { map }, terrain = { terrain3D },
+        describeAirplane = { it.displayName to airplaneSummary(it) }
+    )
+    /** The traffic toast and voice, and the speech engine behind them. */
+    private var trafficWarnings: TrafficWarnings? = null
     private var headingPolyline: MapLine? = null
     private var flightPlanLines: MutableList<MapLine> = mutableListOf()
     private var homeLine: MapLine? = null
@@ -208,8 +160,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         phoneHeading = degrees
         // Not over a replay unless its menu also asks for the live phone.
         if (showLiveArrow()) {
-            map?.setPhoneBearing(degrees)
-            terrain3D?.setMyHeading(degrees)
+            flightOverlays.showPhoneHeading(degrees)
         }
     }
 
@@ -262,15 +213,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             fr24Manager?.watchFrom(fix.latitude, fix.longitude, model = false)
         }
         if (!showLiveArrow()) return
-        map?.setPhoneLocation(
-            Position(fix.latitude, fix.longitude),
-            if (fix.hasAccuracy()) fix.accuracy else Float.NaN
+        flightOverlays.showPhone(
+            fix.latitude, fix.longitude,
+            if (fix.hasAccuracy()) fix.accuracy else Float.NaN,
+            phoneHeading
         )
-        // NaN is meaningful: draw a dot rather than retaining an old arrow.
-        map?.setPhoneBearing(phoneHeading)
-        terrain3D?.setMyPosition(fix.latitude, fix.longitude,
-            if (fix.hasAccuracy()) fix.accuracy else 0f)
-        terrain3D?.setMyHeading(phoneHeading)
     }
 
     /**
@@ -312,24 +259,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var lastRoll = 0f
 
     private lateinit var connectButton: Button
-    private lateinit var replayButton: ImageView
+    internal lateinit var replayButton: ImageView
     private lateinit var seekBar: SeekBar
     private lateinit var playButton: FloatingActionButton
-    private lateinit var fuel: TextView
-    private lateinit var rssi: TextView
-    private lateinit var satellites: TextView
-    private lateinit var current: TextView
-    private lateinit var voltage: TextView
-    private lateinit var phoneBattery: TextView
-    private lateinit var speed: TextView
-    private lateinit var airspeed: TextView
-    private lateinit var vspeed: TextView
-    private lateinit var distance: TextView
-    private lateinit var traveled_distance: TextView
-    private lateinit var altitude: TextView
-    private lateinit var altitude_msl: TextView
-    private lateinit var mode: TextView
-    private lateinit var statustext: TextView
     private lateinit var followButton: FloatingActionButton
     private lateinit var chaseButton: FloatingActionButton
     private lateinit var mapTypeButton: FloatingActionButton
@@ -338,23 +270,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private lateinit var findQuadButton: FloatingActionButton
     // the switch in the top bar beside replay; sound, fill and turn on the
     // picture's own top-right, folding away with the half
-    private lateinit var videoButton: ImageView
-    private lateinit var videoSoundButton: ImageView
-    private lateinit var videoRotateButton: ImageView
-    private lateinit var videoDivider: View
-    private lateinit var videoView: SurfaceView
-    private lateinit var videoHalf: FrameLayout
-    private lateinit var videoWaiting: TextViewOutline
-    private lateinit var videoBlank: View
-    private lateinit var flightPane: LinearLayout
     private lateinit var fullscreenButton: ImageView
     private lateinit var menuButton: FloatingActionButton
     private lateinit var settingsButton: ImageView
     private lateinit var topLayout: RelativeLayout
     private lateinit var bottomLayout: RelativeLayout
     private lateinit var horizonView: HorizonView
-    private lateinit var topList: FlowLayout
-    private lateinit var bottomList: FlowLayout
     private lateinit var rootLayout: CoordinatorLayout
     private lateinit var compassHeading: TextViewOutline
     private lateinit var loadingGrid: LoadingGrid
@@ -363,26 +284,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     // the map and its overlays together — the half arrangement resizes this,
     // and the overlays ride along instead of standing over the picture
     private lateinit var mapPane: FrameLayout
-    private lateinit var rc_widget: RCWidget
-    private lateinit var dnSnr: TextView
-    private lateinit var upSnr: TextView
-    private lateinit var upLq: TextView
-    private lateinit var dnLq: TextView
-    private lateinit var elrsRate: TextView
-    private lateinit var ant: TextView
-    private lateinit var power: TextView
-    private lateinit var rssiDbm1: TextView
-    private lateinit var rssiDbm2: TextView
-    private lateinit var rssiDbmd: TextView
-    private lateinit var cell_voltage: TextView
-    private lateinit var throttle: TextView
-
-    /** Which protocol the link turned out to speak. */
-    private lateinit var protocolView: TextView
-    private lateinit var tlmRate: TextView
-
-    private lateinit var sensorViewMap: HashMap<String, View>
-    private lateinit var sensorsConverters: HashMap<String, Converter>
 
     private lateinit var preferenceManager: PreferenceManager
 
@@ -419,7 +320,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     internal var replayFileString: String? = null
 
     /**
-     * A replay held back until there is ground to watch it over.
+     * Whether a loaded replay starts — the resume answer and the hold that
+     * keeps playback off bare mesh while the ground is fetched, in one place.
      *
      * A log starts playing the moment it has finished decoding, and the ground
      * it happened over takes a few seconds the first time it is fetched —
@@ -429,7 +331,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * visit to a field: after that the pictures are on the phone and the wait
      * is nothing.
      */
-    private var replayWaitingForGround = false
+    private val replayHold = ReplayHold { preferenceManager.getPlaybackAutostart() }
 
     /**
      * The flight's own record of the operator: where they stood, which way they
@@ -472,7 +374,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var dataServiceBound = false
     private var lastPhoneBattery = 0
     private var lastTraveledDistance = 0.0
-    private var lastCellVoltage = 0.0f
 
     private var fullscreenWindow = false
 
@@ -487,18 +388,14 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private var modelHeadingKnown = false
 
-    private var logPlayer : LogPlayer? = null;
+    internal var logPlayer : LogPlayer? = null;
 
     private var requestWritePermissionSequence = RequestWritePermissionSequenceType.NONE;
 
-    internal var lastFileDialogSelection = "";
 
     /** The log list, its two modes and its import/export, lifted to their own file. */
     private val logManager = LogManager(this)
 
-    private var lastSelectedDataPooler = "";
-    private var lastSelectedBluetoothDeviceAddress = "";
-    private var lastSelectedBLEDeviceAddress = "";
 
     private var reconnectionStartTime = 0L;
 
@@ -522,6 +419,50 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     private var lastNetworkMode = 0
     private var lastNetworkHighLatency = false
 
+    /**
+     * The flight-shaping half of the decoded stream, bound to the private
+     * handlers below. The readouts are not forwarded from here any more —
+     * the panel hears the stream itself, beside this, through the multicast.
+     */
+    private val flightListener = object : DataDecoder.Companion.DefaultDecodeListener() {
+        override fun onConnected() = this@MapsActivity.onConnected()
+        override fun onConnectionFailed() = this@MapsActivity.onConnectionFailed()
+        override fun onDisconnected() = this@MapsActivity.onDisconnected()
+        override fun onDecoderRestart() = this@MapsActivity.onDecoderRestart()
+        override fun onGPSData(latitude: Double, longitude: Double) =
+            this@MapsActivity.onGPSData(latitude, longitude)
+        override fun onGPSData(list: List<Position>, addToEnd: Boolean) =
+            this@MapsActivity.onGPSData(list, addToEnd)
+        override fun onGPSState(satellites: Int, gpsFix: Boolean) =
+            this@MapsActivity.onGPSState(satellites, gpsFix)
+        override fun onAltitudeData(altitude: Float) =
+            this@MapsActivity.onAltitudeData(altitude)
+        override fun onGPSAltitudeData(altitude: Float) =
+            this@MapsActivity.onGPSAltitudeData(altitude)
+        override fun onHomeData(latitude: Double, longitude: Double, altitudeMsl: Float) =
+            this@MapsActivity.onHomeData(latitude, longitude, altitudeMsl)
+        override fun onHeadingData(heading: Float) = this@MapsActivity.onHeadingData(heading)
+        override fun onRollData(rollAngle: Float) = this@MapsActivity.onRollData(rollAngle)
+        override fun onPitchData(pitchAngle: Float) = this@MapsActivity.onPitchData(pitchAngle)
+        override fun onFlyModeData(
+            armed: Boolean,
+            heading: Boolean,
+            firstFlightMode: DataDecoder.Companion.FlyMode?,
+            secondFlightMode: DataDecoder.Companion.FlyMode?
+        ) = this@MapsActivity.onFlyModeData(armed, heading, firstFlightMode, secondFlightMode)
+        override fun onProtocolDetected(protocolName: String) =
+            this@MapsActivity.onProtocolDetected(protocolName)
+        override fun commit() = this@MapsActivity.commit()
+    }
+
+    /**
+     * Where every decoded reading lands, live and replay alike: the flight
+     * handlers and the telemetry panel, each hearing the stream directly.
+     */
+    private val decodeListener =
+        juricabi.com.telemetry.protocol.decoder.MulticastListener(
+            { flightListener }, { telemetryPanel })
+
     private val serviceConnection: ServiceConnection = object : ServiceConnection {
         override fun onServiceDisconnected(p0: ComponentName?) {
             onDisconnected()
@@ -529,7 +470,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
         override fun onServiceConnected(p0: ComponentName?, p1: IBinder?) {
             dataService = (p1 as DataService.DataBinder).getService()
-            dataService?.setDataListener(this@MapsActivity)
+            dataService?.setDataListener(decodeListener)
             dataService?.let {
                 setPhoneWatch(phoneWatchWanted)
                 if (it.isConnected()) {
@@ -555,7 +496,34 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
-    private val sensorTimeoutManager: SensorTimeoutManager = SensorTimeoutManager(this);
+    /**
+     * Which protocol the link turned out to speak; "" until it has said.
+     * The fact lives here because flight decisions hang on it — the LTM
+     * altitude settle among them — and the panel only renders under it.
+     */
+    @Volatile private var detectedProtocol: String = ""
+
+    private fun onProtocolDetected(protocolName: String) {
+        // Said out loud only when the answer changes: a log says one thing as
+        // it loads and its decoder may say a longer one later, and a seek
+        // asks the whole question again.
+        val changed = protocolName != detectedProtocol
+        detectedProtocol = protocolName
+        if (changed) {
+            runOnUiThread {
+                Toast.makeText(this, "Protocol: $protocolName", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    /** The telemetry readouts, whole: tiles, formatting, icons, greying. */
+    private lateinit var telemetryPanel: TelemetryPanel
+
+    /** The live picture and everything that owns it — see VideoPane. */
+    private lateinit var videoPane: VideoPane
+
+    /** The connect choosers, whole - see ConnectFlow. */
+    private lateinit var connectFlow: ConnectFlow
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -569,9 +537,24 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
         preferenceManager = PreferenceManager(this)
 
-        tts = TextToSpeech(this) { status ->
-            ttsReady = status == TextToSpeech.SUCCESS
-        }
+        telemetryPanel = TelemetryPanel(
+            this, preferenceManager,
+            showDialog = ::showDialog,
+            idle = ::isIdle,
+            // a replay's battery is history; its cell question is never asked
+            replaying = { logPlayer != null },
+            linkProtocol = { detectedProtocol }
+        )
+        connectFlow = ConnectFlow(this, preferenceManager)
+        videoPane = VideoPane(
+            this, preferenceManager,
+            showDialog = ::showDialog,
+            askPermission = permissionFunnel::ask,
+            cameraPermissionCode = REQUEST_CAMERA_PERMISSION,
+            recordAudioPermissionCode = REQUEST_RECORD_AUDIO_PERMISSION
+        )
+
+        trafficWarnings = TrafficWarnings(this)
 
         soundPool = SoundPool(5, AudioManager.STREAM_NOTIFICATION, 0)
         connectedSoundId = soundPool!!.load(this, R.raw.connected, 1)
@@ -592,9 +575,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
         followMode = savedInstanceState?.getBoolean("follow_mode")
             ?: preferenceManager.getCameraFollow()
-        detectedCells = savedInstanceState?.getInt("cells", 0) ?: 0
-        cellsAnswered = savedInstanceState?.getBoolean("cells_answered", false) ?: false
-        cellsAsked = savedInstanceState?.getBoolean("cells_asked", false) ?: false
+        savedInstanceState?.let { telemetryPanel.restoreFrom(it) }
+        // the re-announced name must not toast afresh on every turn of the phone
         detectedProtocol = savedInstanceState?.getString("detected_protocol") ?: ""
         replayFileString = savedInstanceState?.getString("replay_file_name")
         // Restored so a link that drops after a rotation still knows what to
@@ -611,9 +593,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
         fullscreenWindow = preferenceManager.isFullscreenWindow()
 
-        lastSelectedDataPooler = preferenceManager.getLastSelectedDataPooler()
-        lastSelectedBluetoothDeviceAddress = preferenceManager.getLastSelectedBluetoothDeviceAddress()
-        lastSelectedBLEDeviceAddress = preferenceManager.getLastSelectedBLEDeviceAddress()
 
         // The recordings, the CSVs and — on a debug build — the diagnostics
         // all live on storage, and a first flight recorded to nowhere is
@@ -630,24 +609,9 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
 
         rootLayout = findViewById(R.id.rootLayout)
-        fuel = findViewById(R.id.fuel)
-        rssi = findViewById(R.id.rssi)
-        satellites = findViewById(R.id.satellites)
         topLayout = findViewById(R.id.top_layout)
         bottomLayout = findViewById(R.id.bottom_layout)
         connectButton = findViewById(R.id.connect_button)
-        current = findViewById(R.id.current)
-        voltage = findViewById(R.id.voltage)
-        phoneBattery = findViewById(R.id.phone_battery)
-        speed = findViewById(R.id.speed)
-        airspeed = findViewById(R.id.airspeed)
-        vspeed = findViewById(R.id.vspeed)
-        distance = findViewById(R.id.distance)
-        traveled_distance = findViewById(R.id.traveled_distance)
-        altitude = findViewById(R.id.altitude)
-        altitude_msl = findViewById(R.id.altitude_msl)
-        mode = findViewById(R.id.mode)
-        statustext = findViewById(R.id.statustext)
         followButton = findViewById(R.id.follow_button)
         chaseButton = findViewById(R.id.chase_button)
         chaseButton.imageAlpha = 128
@@ -669,35 +633,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         clock_text = findViewById(R.id.clock_text)
         myLocationButton = findViewById(R.id.my_location_button)
         findQuadButton = findViewById(R.id.find_quad_button)
-        videoButton = findViewById(R.id.video_button)
-        videoButton.setOnClickListener { toggleVideo() }
-        videoButton.setOnLongClickListener { showVideoSettings(); true }
-        videoSoundButton = findViewById(R.id.video_sound_button)
-        videoSoundButton.imageAlpha = 128
-        videoSoundButton.setOnClickListener { toggleVideoSound() }
-        videoRotateButton = findViewById(R.id.video_rotate_button)
-        videoRotateButton.imageAlpha = 128
-        videoRotateButton.setOnClickListener { rotateVideo() }
-        // it never lights up for being turned — it wears the turn as its own
-        // angle instead; a press is the only thing that brightens it, since
-        // its flat backing has no pressed state of its own
-        videoRotateButton.setOnTouchListener { v, e ->
-            when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> (v as ImageView).imageAlpha = 255
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
-                    (v as ImageView).imageAlpha = 128
-            }
-            false
-        }
-        videoDivider = findViewById(R.id.video_divider)
-        videoDivider.setOnTouchListener { _, event -> dragVideoSplit(event) }
-        videoView = findViewById(R.id.video_view)
-        videoHalf = findViewById(R.id.video_half)
-        videoWaiting = findViewById(R.id.video_waiting)
-        videoBlank = findViewById(R.id.video_blank)
-        flightPane = findViewById(R.id.flight_pane)
-        videoWanted = savedInstanceState?.getBoolean("video_wanted") ?: false
-        videoAudioOn = savedInstanceState?.getBoolean("video_audio") ?: false
+        savedInstanceState?.let { videoPane.restoreFrom(it) }
         settingsButton = findViewById(R.id.settings_button)
         replayButton = findViewById(R.id.replay_button)
         seekBar = findViewById(R.id.seekbar)
@@ -705,65 +641,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         horizonView = findViewById(R.id.horizon_view)
         fullscreenButton = findViewById(R.id.fullscreen_button)
         menuButton = findViewById(R.id.replay_menu_button)
-        topList = findViewById(R.id.top_list)
-        bottomList = findViewById(R.id.bottom_list)
         mapHolder = findViewById(R.id.map_holder)
         mapPane = findViewById(R.id.map_pane)
-        rc_widget = findViewById(R.id.rc_widget)
-        dnSnr = findViewById(R.id.dn_snr)
-        upSnr = findViewById(R.id.up_snr)
-        upLq = findViewById(R.id.up_lq)
-        dnLq = findViewById(R.id.dn_lq)
-        elrsRate = findViewById(R.id.elrs_rate)
-        crsfSystemOverride = getPreferences(Context.MODE_PRIVATE).getString("crsf_system", null)
-        elrsRate.setOnLongClickListener {
-            // Only meaningful on CRSF (or before a link, to preset it); on GHST or
-            // any other link the rate is not a CRSF rf_mode, so say so rather than
-            // let the choice do nothing.
-            if (detectedProtocol == null || detectedProtocol == "CRSF") showCrsfSystemDialog()
-            else Toast.makeText(this, "Rate system applies to CRSF links", Toast.LENGTH_SHORT).show()
-            true
-        }
-        ant = findViewById(R.id.ant)
-        power = findViewById(R.id.power)
-        rssiDbm1 = findViewById(R.id.up_rssi_dbm1)
-        rssiDbm2 = findViewById(R.id.up_rssi_dbm2)
-        rssiDbmd = findViewById(R.id.dn_rssi_dbm)
-        cell_voltage = findViewById(R.id.cell_voltage)
-        throttle = findViewById(R.id.throttle)
-        protocolView = findViewById(R.id.protocol)
-        tlmRate = findViewById(R.id.tlm_rate)
-
-        sensorViewMap = hashMapOf(
-            Pair(PreferenceManager.sensors.elementAt(0).name, satellites),
-            Pair(PreferenceManager.sensors.elementAt(1).name, fuel),
-            Pair(PreferenceManager.sensors.elementAt(2).name, voltage),
-            Pair(PreferenceManager.sensors.elementAt(3).name, current),
-            Pair(PreferenceManager.sensors.elementAt(4).name, speed),
-            Pair(PreferenceManager.sensors.elementAt(5).name, distance),
-            Pair(PreferenceManager.sensors.elementAt(6).name, traveled_distance),
-            Pair(PreferenceManager.sensors.elementAt(7).name, altitude),
-            Pair(PreferenceManager.sensors.elementAt(8).name, phoneBattery),
-            Pair(PreferenceManager.sensors.elementAt(9).name, rc_widget),
-            Pair(PreferenceManager.sensors.elementAt(10).name, rssi),
-            Pair(PreferenceManager.sensors.elementAt(11).name, dnSnr),
-            Pair(PreferenceManager.sensors.elementAt(12).name, upSnr),
-            Pair(PreferenceManager.sensors.elementAt(13).name, upLq),
-            Pair(PreferenceManager.sensors.elementAt(14).name, dnLq),
-            Pair(PreferenceManager.sensors.elementAt(15).name, elrsRate),
-            Pair(PreferenceManager.sensors.elementAt(16).name, ant),
-            Pair(PreferenceManager.sensors.elementAt(17).name, power),
-            Pair(PreferenceManager.sensors.elementAt(18).name, rssiDbm1),
-            Pair(PreferenceManager.sensors.elementAt(19).name, rssiDbm2),
-            Pair(PreferenceManager.sensors.elementAt(20).name, rssiDbmd),
-            Pair(PreferenceManager.sensors.elementAt(21).name, airspeed),
-            Pair(PreferenceManager.sensors.elementAt(22).name, vspeed),
-            Pair(PreferenceManager.sensors.elementAt(23).name, cell_voltage),
-            Pair(PreferenceManager.sensors.elementAt(24).name, altitude_msl),
-            Pair(PreferenceManager.sensors.elementAt(25).name, throttle),
-            Pair(PreferenceManager.sensors.elementAt(26).name, tlmRate),
-            Pair(PreferenceManager.sensors.elementAt(27).name, protocolView)
-        )
 
         settingsButton.setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
@@ -818,8 +697,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         northUpButton.setOnClickListener {
             // north up and heading up are two answers to the same question
             setChaseMode(false)
-            map?.resetMapOrientation()
-            terrain3D?.faceNorth()
+            flightOverlays.faceNorth()
         }
 
         myLocationButton.setOnClickListener {
@@ -879,7 +757,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
         playButton.setOnClickListener {
             // asked for by hand: nothing is owed to it afterwards
-            replayWaitingForGround = false
+            replayHold.handTakesOver()
             if ( this.logPlayer != null) {
                 if ( this.logPlayer?.isPlaying() == true) {
                     this.logPlayer?.stop()
@@ -972,8 +850,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         operatorLine = null
         marker?.remove();
         marker = null;
-        airplaneMarkers.values.forEach { it.remove() }
-        airplaneMarkers.clear()
+        flightOverlays.forgetMapTraffic()
 
         initMapLibreMap()
     }
@@ -1191,7 +1068,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private fun readOperatorTrack(log: File) {
         forgetOperator()
-        val csv = File(log.parentFile, replaceExtension(log.name, ".csv"))
+        val csv = File(log.parentFile, logManager.replaceExtension(log.name, ".csv"))
         val worker = Thread(Runnable {
             val track = try {
                 OperatorTrack.read(csv)
@@ -1237,8 +1114,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // and its line go together — a line pointing at a hidden arrow
         // points at nothing.
         if (!preferenceManager.isRecordedOperatorShown()) {
-            map?.showRecordedLocation(null, 0f, 0f)
-            terrain3D?.hideLoggedLocation()
+            flightOverlays.hideOperator()
             recordedMe = null
             updateHomeLine()
             return
@@ -1247,8 +1123,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         val now = replayTimeNow()
         if (track == null || now == null) {
             // nothing recorded of where anybody stood, so nothing orange drawn
-            map?.showRecordedLocation(null, 0f, 0f)
-            terrain3D?.hideLoggedLocation()
+            flightOverlays.hideOperator()
             updateHomeLine()
             return
         }
@@ -1256,20 +1131,17 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // places: the clock runs, and nothing orange is drawn.
         val where = track.at(now.time)
         if (where == null) {
-            map?.showRecordedLocation(null, 0f, 0f)
-            terrain3D?.hideLoggedLocation()
+            flightOverlays.hideOperator()
             recordedMe = null
             updateHomeLine()
             return
         }
-        val here = Position(where.lat, where.lon)
-        recordedMe = here
+        recordedMe = Position(where.lat, where.lon)
 
         // Its own arrow in both views — orange, beside the blue one that is
         // where the phone is now. On the map it is a second overlay of the same
         // kind, so it is drawn exactly as the live one is.
-        map?.showRecordedLocation(here, where.accuracy, where.heading)
-        terrain3D?.setLoggedPosition(where.lat, where.lon, where.accuracy, where.heading)
+        flightOverlays.showOperator(where.lat, where.lon, where.accuracy, where.heading)
         updateHomeLine()
     }
 
@@ -1301,7 +1173,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             // setting rather than simply off.
             map?.isMyLocationEnabled = showLiveArrow()
         } else {
-            askPermission(
+            permissionFunnel.ask(
                 android.Manifest.permission.ACCESS_FINE_LOCATION,
                 REQUEST_LOCATION_PERMISSION
             )
@@ -1309,34 +1181,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
-    /**
-     * One permission dialog at a time. Android cancels a request fired while
-     * another request's dialog is standing — the cancelled ask returns empty
-     * and unseen, which is how a fresh install lost its location dialog under
-     * the start-of-app storage one, and a first Connect under a pending
-     * dialog lost its tap. Every ask funnels through here: one in flight,
-     * the next waits for its result, and a repeat of one already waiting is
-     * dropped rather than shown twice.
-     */
-    private var askInFlight = -1
-    private val asksWaiting = kotlin.collections.ArrayDeque<Pair<String, Int>>()
-
-    private fun askPermission(permission: String, code: Int) {
-        if (askInFlight == code || asksWaiting.any { it.second == code }) return
-        if (askInFlight != -1) {
-            asksWaiting.addLast(permission to code)
-            return
-        }
-        askInFlight = code
-        ActivityCompat.requestPermissions(this, arrayOf(permission), code)
-    }
-
-    /** Any result — granted, denied or cancelled — frees the next ask. */
-    private fun askResolved() {
-        askInFlight = -1
-        val next = asksWaiting.removeFirstOrNull() ?: return
-        askPermission(next.first, next.second)
-    }
+    /** Every permission ask takes its turn here — see PermissionFunnel. */
+    private val permissionFunnel = PermissionFunnel(this, showDialog = ::showDialog)
 
 
     private fun initHeadingLine() {
@@ -1588,7 +1434,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     android.Manifest.permission.READ_EXTERNAL_STORAGE
                 ) == PackageManager.PERMISSION_DENIED
             ) {
-                askPermission(
+                permissionFunnel.ask(
                     android.Manifest.permission.READ_EXTERNAL_STORAGE,
                     REQUEST_READ_PERMISSION
                 )
@@ -1603,14 +1449,17 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     internal fun startReplay(file: File?, resumePosition: Int = -1, resumePlaying: Boolean = false) {
         // A hold belonging to the replay being closed. Left set, tearing down
         // the old 3D view below released it — onto a player just disposed.
-        replayWaitingForGround = false
+        replayHold.clear()
         logPlayer?.dispose()
         GhstProtocol.forgetLaunchAltitude()
         juricabi.com.telemetry.gl.AltitudeFrame.forget()
-        detectedCells = 0
-        highestPackVoltage = 0f
-        cellsAsked = false
-        cellsAnswered = false
+        telemetryPanel.forgetCells()
+        // The replay forwards its log's device name now, so the rate system a
+        // previous link or replay earned must not outlive it here. The
+        // protocol FACT is deliberately kept: a rotation restores it from the
+        // bundle and re-runs this, and wiping it here made the re-announced
+        // name read as news — the toast fired on every turn of the phone.
+        telemetryPanel.forgetLinkName()
         forgetFlight()
         // In replay mode before the ground is begun again: the 3D view decides
         // at birth whether its ground follows the phone, and a view born for a
@@ -1637,7 +1486,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
             readOperatorTrack(file)
 
-            this.logPlayer = LogPlayer(this)
+            this.logPlayer = LogPlayer(decodeListener)
 
             val context = this;
 
@@ -1762,7 +1611,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                             // also holds playback until the 3D ground is ready,
                             // so a resumed replay never starts over an empty
                             // world.
-                            replayResumePlay = resumePlaying
+                            replayHold.armResume(resumePlaying)
                             player.seek(resumePosition)
                             seekBar.progress = resumePosition
                         } else {
@@ -1776,7 +1625,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                             // otherwise the bar's thumb goes to the first fix so
                             // it does not sit at 0 while the model is drawn
                             // further in and then jump when play is pressed.
-                            replayResumePlay = null
+                            replayHold.armResume(null)
                             player.seek(firstFix)
                             if (preferenceManager.getPlaybackAutostart()) {
                                 player.seek(0)
@@ -1814,30 +1663,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
                 override fun getPlaybackAutostart() : Boolean
                 {
-                    // The one place that decides whether a loaded replay starts.
-                    // On a rotation resume that is the play/pause the replay had;
-                    // on a fresh open it is the preference. Read once, then
-                    // cleared, so a later load falls back to the preference.
-                    val wantPlay = replayResumePlay ?: preferenceManager.getPlaybackAutostart()
-                    replayResumePlay = null
-                    if (!wantPlay) return false
+                    // The decision is ReplayHold's; only the ground's state is
+                    // read here, where the 3D view lives.
                     val view = terrain3D
-                    // Held only for ground already on its way. A replay-bound
-                    // view waits for the flight's first fix before loading any
-                    // ground, and that fix comes from playback — held here,
-                    // the two waited on each other and nothing ever started.
-                    if (view != null && view.groundBegun() && !view.groundReady()) {
-                        replayWaitingForGround = true
-                        return false
-                    }
-                    return true
+                    return replayHold.shouldStart(
+                        view != null && view.groundBegun() && !view.groundReady())
                 }
 
                 override fun onProtocolDetected(protocolName: String) {
-                    // Straight to the one place that answers this, which puts
-                    // it in the row and says it out loud. Answering here as
-                    // well toasted every announcement twice.
+                    // The fact to its owner, the rendering to the row — the
+                    // same two halves the live road's multicast feeds.
                     this@MapsActivity.onProtocolDetected(protocolName)
+                    telemetryPanel.onProtocolDetected(protocolName)
                 }
             })
         }
@@ -1852,152 +1689,15 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     @Volatile private var isArmed = false
     @Volatile private var gotArmedState = false
 
-    override fun onFlyModeData(
+    private fun onFlyModeData(
         armed: Boolean,
         heading: Boolean,
         firstFlightMode: DataDecoder.Companion.FlyMode?,
         secondFlightMode: DataDecoder.Companion.FlyMode?
     ) {
+        // the mode row itself is the panel's, told through the multicast
         isArmed = armed
         gotArmedState = true
-        runOnUiThread {
-            if (armed) {
-                mode.text = "Armed"
-            } else {
-                mode.text = "Disarmed"
-            }
-
-            if (heading) {
-                mode.text = mode.text.toString() + " | Heading"
-            }
-
-            decodeMode(firstFlightMode)
-            decodeMode(secondFlightMode)
-        }
-    }
-
-    private fun decodeMode(flyMode: DataDecoder.Companion.FlyMode?) {
-        when (flyMode) {
-            DataDecoder.Companion.FlyMode.ACRO -> {
-                mode.text = mode.text.toString() + " | Acro"
-            }
-            DataDecoder.Companion.FlyMode.HORIZON -> {
-                mode.text = mode.text.toString() + " | Horizon"
-            }
-            DataDecoder.Companion.FlyMode.ANGLE -> {
-                mode.text = mode.text.toString() + " | Angle"
-            }
-            DataDecoder.Companion.FlyMode.FAILSAFE -> {
-                mode.text = mode.text.toString() + " | Failsafe"
-            }
-            DataDecoder.Companion.FlyMode.RTH -> {
-                mode.text = mode.text.toString() + " | RTH"
-            }
-            DataDecoder.Companion.FlyMode.WAYPOINT -> {
-                mode.text = mode.text.toString() + " | Waypoint"
-            }
-            DataDecoder.Companion.FlyMode.MANUAL -> {
-                mode.text = mode.text.toString() + " | Manual"
-            }
-            DataDecoder.Companion.FlyMode.CRUISE -> {
-                mode.text = mode.text.toString() + " | Cruise"
-            }
-            DataDecoder.Companion.FlyMode.HOLD -> {
-                mode.text = mode.text.toString() + " | Hold"
-            }
-            DataDecoder.Companion.FlyMode.HOME_RESET -> {
-                mode.text = mode.text.toString() + " | Home reset"
-            }
-            DataDecoder.Companion.FlyMode.CRUISE3D -> {
-                mode.text = mode.text.toString() + " | 3D Cruise"
-            }
-            DataDecoder.Companion.FlyMode.ALTHOLD -> {
-                mode.text = mode.text.toString() + " | Alt hold"
-            }
-            DataDecoder.Companion.FlyMode.ERROR -> {
-                mode.text = mode.text.toString() + " | !ERROR!"
-            }
-            DataDecoder.Companion.FlyMode.WAIT -> {
-                mode.text = mode.text.toString() + " | GPS wait"
-            }
-            DataDecoder.Companion.FlyMode.CIRCLE -> {
-                mode.text = mode.text.toString() + " | Circle"
-            }
-            DataDecoder.Companion.FlyMode.STABILIZE -> {
-                mode.text = mode.text.toString() + " | Stabilize"
-            }
-            DataDecoder.Companion.FlyMode.TRAINING -> {
-                mode.text = mode.text.toString() + " | Training"
-            }
-            DataDecoder.Companion.FlyMode.FBWA -> {
-                mode.text = mode.text.toString() + " | FBWA"
-            }
-            DataDecoder.Companion.FlyMode.FBWB -> {
-                mode.text = mode.text.toString() + " | FBWB"
-            }
-            DataDecoder.Companion.FlyMode.AUTOTUNE -> {
-                mode.text = mode.text.toString() + " | Autotune"
-            }
-            DataDecoder.Companion.FlyMode.LOITER -> {
-                mode.text = mode.text.toString() + " | Loiter"
-            }
-            DataDecoder.Companion.FlyMode.TAKEOFF -> {
-                mode.text = mode.text.toString() + " | Takeoff"
-            }
-            DataDecoder.Companion.FlyMode.AVOID_ADSB -> {
-                mode.text = mode.text.toString() + " | AVOID_ADSB"
-            }
-            DataDecoder.Companion.FlyMode.GUIDED -> {
-                mode.text = mode.text.toString() + " | Guided"
-            }
-            DataDecoder.Companion.FlyMode.INITIALISING -> {
-                mode.text = mode.text.toString() + " | Initializing"
-            }
-            DataDecoder.Companion.FlyMode.LANDING -> {
-                mode.text = mode.text.toString() + " | Landing"
-            }
-            DataDecoder.Companion.FlyMode.MISSION -> {
-                mode.text = mode.text.toString() + " | Mission"
-            }
-            DataDecoder.Companion.FlyMode.QSTABILIZE -> {
-                mode.text = mode.text.toString() + " | QSTABILIZE"
-            }
-            DataDecoder.Companion.FlyMode.QHOVER -> {
-                mode.text = mode.text.toString() + " | QHOVER"
-            }
-            DataDecoder.Companion.FlyMode.QLOITER -> {
-                mode.text = mode.text.toString() + " | QLOITER"
-            }
-            DataDecoder.Companion.FlyMode.QLAND -> {
-                mode.text = mode.text.toString() + " | QLAND"
-            }
-            DataDecoder.Companion.FlyMode.QRTL -> {
-                mode.text = mode.text.toString() + " | QRTL"
-            }
-            DataDecoder.Companion.FlyMode.QAUTOTUNE -> {
-                mode.text = mode.text.toString() + " | QAUTOTUNE"
-            }
-            DataDecoder.Companion.FlyMode.QACRO -> {
-                mode.text = mode.text.toString() + " | QACRO"
-            }
-            DataDecoder.Companion.FlyMode.AUTONOMOUS -> {
-                mode.text = mode.text.toString() + " | Autonomous"
-            }
-            DataDecoder.Companion.FlyMode.GEO -> {
-                mode.text = mode.text.toString() + " | Geo"
-            }
-            DataDecoder.Companion.FlyMode.TURTLE -> {
-                mode.text = mode.text.toString() + " | Turtle"
-            }
-            DataDecoder.Companion.FlyMode.RATE -> {
-                mode.text = mode.text.toString() + " | Rate"
-            }
-            DataDecoder.Companion.FlyMode.ANGLE_HOLD -> {
-                mode.text = mode.text.toString() + " | Angle Hold"
-            }
-            null -> {
-            }
-        }
     }
 
     override fun onLowMemory() {
@@ -2010,18 +1710,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         logManager.onSaveInstanceState(outState)
         map?.onSaveInstanceState(outState)
         outState?.putBoolean("follow_mode", followMode)
-        // Turning the phone round builds this screen again from nothing, and an
-        // answer already given should not be asked for a second time.
-        outState?.putInt("cells", detectedCells)
-        outState?.putBoolean("cells_answered", cellsAnswered)
-        outState?.putBoolean("cells_asked", cellsAsked)
-        // and which protocol the link turned out to speak, so the rebuilt
-        // screen knows the re-announced name and does not toast it afresh on
-        // every turn of the phone.
+        telemetryPanel.saveInto(outState)
         outState?.putString("detected_protocol", detectedProtocol)
         outState?.putBoolean("chase_mode", chaseMode)
-        outState?.putBoolean("video_wanted", videoWanted)
-        outState?.putBoolean("video_audio", videoAudioOn)
+        videoPane.saveInto(outState)
         outState?.putString("replay_file_name", replayFileString)
         // Where a replay had got to, and whether it was running, so a rotation
         // lands back on the same moment instead of reloading the whole log to
@@ -2054,25 +1746,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
 
         updateHorizonViewSize()
 
-        updateSensorsPlacement()
+        telemetryPanel.placeSensors()
     }
 
-    private fun updateSensorsPlacement() {
-        val sensorsSettings = preferenceManager.getSensorsSettings().sortedBy { it.index }
-        topList.removeAllViews()
-        bottomList.removeAllViews()
-        sensorsSettings.forEach {
-            val sensorView = sensorViewMap[it.name]
-            sensorView?.visibility = if (it.shown) View.VISIBLE else View.GONE
-            if (it.position == "top") {
-                topList.addView(sensorView)
-            } else {
-                bottomList.addView(sensorView)
-            }
-        }
-    }
-
-    private fun connect() {
+    internal fun connect() {
         lastConnectionType = CONNTYPE_NONE;
         // Tapping connect is a deliberate act: it ends any reconnect the last
         // drop had armed, so a retry cannot fire behind the chooser or race a
@@ -2080,138 +1757,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // retry caught mid-attempt schedules no successor.
         reconnectOnFailure = false
         reconnectionStartTime = 0
-        val showcaseView = MaterialShowcaseView.Builder(this)
-            .renderOverNavigationBar()
-            .setTarget(replayButton)
-            .setMaskColour(Color.argb(230, 0, 0, 0))
-            .setDismissText("GOT IT")
-            .setContentText("You can replay your logged flights by clicking this button")
-            .setListener(
-                object : IShowcaseListener {
-                    override fun onShowcaseDismissed(showcaseView: MaterialShowcaseView?) {
-                        connect();
-                    }
-                    override fun onShowcaseDisplayed(showcaseView: MaterialShowcaseView?) {
-                    }
-                })
-            .singleUse("replay_guide").build()
-
-        var items = arrayOf(
-            "Bluetooth",
-            "Bluetooth LE",
-            "USB Serial",
-            getString(R.string.network)
-        )
-
-        if (showcaseView.hasFired()) {
-            this.showDialog(AlertDialog.Builder(this)
-                .setAdapter(
-                    ArrayAdapter(
-                        this,
-                        android.R.layout.simple_list_item_1,
-                        items.map { i ->
-                            if (i == lastSelectedDataPooler) {
-                                val boldOption = SpannableString(i)
-                                boldOption.setSpan(StyleSpan(Typeface.BOLD), 0, i.length, 0)
-                                boldOption
-                            } else {
-                                i
-                            }
-                        })
-                ) { dialogInterface, i ->
-                    lastSelectedDataPooler = items[i]
-                    preferenceManager.setLastSelectedDataPooler(lastSelectedDataPooler)
-                    when (i) {
-                        0 -> connectBluetooth()
-                        1 -> connectBluetoothLE()
-                        2 -> connectUSB()
-                        3 -> connectNetwork()
-                    }
-                }
-                .setTitle("Choose connection method")
-                .create())
-        } else {
-            showcaseView.show(this)
-        }
-    }
-
-    private fun connectUSB() {
-        val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
-        val drivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager)
-        val driver = drivers.firstOrNull()
-        if (driver == null) {
-            // Three different problems used to share one message. Naming what is
-            // actually attached says which one it is: nothing plugged in at all,
-            // or a radio sitting in Joystick or Storage mode instead of serial.
-            val attached = usbManager.deviceList.values
-            val message = if (attached.isEmpty()) {
-                "No USB device attached. Check the cable supports data, and that the " +
-                    "phone is not also plugged into a computer."
-            } else {
-                val names = StringBuilder()
-                for (device in attached) {
-                    if (names.isNotEmpty()) names.append(", ")
-                    names.append(String.format("%04x:%04x", device.vendorId, device.productId))
-                }
-                "Attached (" + names + ") but not a serial port. On EdgeTX choose " +
-                    "USB Serial (VCP) rather than Joystick or Storage."
-            }
-            this.showDialog(
-                AlertDialog.Builder(this)
-                    .setTitle("No serial device")
-                    .setMessage(message)
-                    .setPositiveButton("OK", null)
-                    .create()
-            )
-        } else {
-            val connection = usbManager.openDevice(driver.device)
-            if (connection != null) {
-                val port = driver.ports.firstOrNull()
-                if (port == null) {
-                    Toast.makeText(this, "No valid usb port has been found", Toast.LENGTH_SHORT)
-                        .show()
-                } else {
-                    connectToUSBDevice(port, connection)
-                }
-            } else {
-                val pendingIntent =
-                    PendingIntent.getBroadcast(
-                        this,
-                        0,
-                        Intent(ACTION_USB_DEVICE).setPackage(packageName),
-                        PendingIntent.FLAG_IMMUTABLE
-                    )
-                registerReceiver(object : BroadcastReceiver() {
-                    override fun onReceive(context: Context?, intent: Intent?) {
-                        if (ACTION_USB_DEVICE == intent?.action) {
-                            synchronized(this) {
-                                val device: UsbDevice? =
-                                    intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
-
-                                if (intent.getBooleanExtra(
-                                        UsbManager.EXTRA_PERMISSION_GRANTED,
-                                        false
-                                    )
-                                ) {
-                                    device?.apply {
-                                        connectUSB()
-                                    }
-                                } else {
-                                    Toast.makeText(
-                                        this@MapsActivity,
-                                        "You need to allow permission in order to connect with a usb",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                            }
-                        }
-
-                        unregisterReceiver(this)
-                    }
-                }, IntentFilter(ACTION_USB_DEVICE))
-                usbManager.requestPermission(driver.device, pendingIntent)
-            }
-        }
+        connectFlow.open()
     }
 
     override fun onResume() {
@@ -2221,7 +1767,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             it.onResume()
             applyTerrainSettings(it)
         }
-        this.sensorTimeoutManager.resume();
+        this.telemetryPanel.resume();
         updateWindowFullscreenDecoration()
         updateScreenOrientation()
         // reapplies the colours and the heading line, which is how a change made
@@ -2241,485 +1787,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         showOperator()
         setPhoneWatch(true)
         startFr24()
-        updateVideoControls()
+        videoPane.updateControls()
         // built fresh from the settings just left, so a changed source or
         // address takes effect on the way back. Noted, because a resume also
         // follows every system dialog — a run of these lines in the log means
         // something keeps pausing the screen, not that somebody keeps tapping.
-        if (videoWanted && videoSource == null) {
-            juricabi.com.telemetry.utils.DebugLog.note("Video", "restart on resume")
-            startVideo()
-        }
-    }
-
-    /**
-     * The live picture: over the map, under the readouts. The button lives
-     * only while a source is chosen in the settings, so it can never be a
-     * control that does nothing; the wish to watch survives pauses and
-     * rotations, while the camera or the stream itself is released with the
-     * screen and started again with it.
-     */
-    private var videoSource: VideoSource? = null
-    private var videoWanted = false
-
-    /**
-     * The stream's sound, for the sources that could carry any. Off until its
-     * button is tapped, so the picture starts at once instead of waiting on
-     * an audio track — the wish survives rotations but not the app.
-     */
-    private var videoAudioOn = false
-
-    /**
-     * Every start numbers its events, and stopping a source retires the
-     * number. A stopped source's last words can still be queued on their way
-     * to the UI thread, and unguarded they acted on the fresh source's
-     * screen — one dead stream's parting trouble kept folding away its
-     * healthy successor under quick re-taps.
-     */
-    private var videoGeneration = 0
-
-    /**
-     * Tries the stream again after trouble stopped the source but left the
-     * pane standing. Cancelled wherever the pane closes or the screen goes.
-     */
-    private val videoRetry = Runnable {
-        if (videoWanted && videoSource == null) startVideo(retrying = true)
-    }
-
-    private fun newVideoEvents(): VideoSource.Events {
-        val generation = ++videoGeneration
-        fun current() = generation == videoGeneration && videoWanted
-        return object : VideoSource.Events {
-            override fun onLive() {
-                runOnUiThread {
-                    if (current()) videoWaiting.visibility = View.GONE
-                }
-            }
-
-            override fun onIdle() {
-                runOnUiThread {
-                    // the picture stopped and may return; the card says so where
-                    // the picture was, instead of the layout jumping about
-                    if (current()) videoWaiting.visibility = View.VISIBLE
-                }
-            }
-
-            override fun onTrouble(what: String) {
-                runOnUiThread {
-                    if (!current()) return@runOnUiThread
-                    // trouble ends any turn in progress — lift the rotate cover
-                    // so the message is not read through black (a stream that
-                    // died at the very moment of a turn would leave it standing)
-                    videoBlank.visibility = View.GONE
-                    if (preferenceManager.getVideoSource() == "network") {
-                        // An unreachable stream is a waiting state, not a
-                        // verdict — the server may simply not be up yet. The
-                        // pane stays, like the USB half waiting for its
-                        // camera: the card says what is wrong and the stream
-                        // is tried again. Folding on the spot made the button
-                        // read as broken — a tap opened the half for the
-                        // tenth of a second four refused connections take,
-                        // then it snapped shut, and the field logs are full
-                        // of the re-taps. USB keeps the fold: retrying there
-                        // would re-ask the USB permission at every turn.
-                        videoGeneration++
-                        videoSource?.stop()
-                        videoSource = null
-                        videoWaiting.text = "$what — trying again…"
-                        videoWaiting.visibility = View.VISIBLE
-                        videoWaiting.removeCallbacks(videoRetry)
-                        videoWaiting.postDelayed(videoRetry, 2000)
-                    } else {
-                        Toast.makeText(this@MapsActivity, "Video: $what", Toast.LENGTH_LONG).show()
-                        hideVideo()
-                    }
-                }
-            }
-
-            override fun onCovered(covered: Boolean) {
-                runOnUiThread {
-                    if (current()) videoBlank.visibility =
-                        if (covered) View.VISIBLE else View.GONE
-                }
-            }
-
-            override fun onAudioLost() {
-                runOnUiThread {
-                    if (!current()) return@runOnUiThread
-                    videoAudioOn = false
-                    videoSoundButton.imageAlpha = 128
-                    Toast.makeText(
-                        this@MapsActivity,
-                        "This stream's sound never arrived — playing the picture alone",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            }
-        }
-    }
-
-    private fun updateVideoControls() {
-        val configured = preferenceManager.getVideoSource() != "off"
-        videoButton.visibility = if (configured) View.VISIBLE else View.GONE
-        if (!configured && videoWanted) hideVideo()
-    }
-
-    private fun toggleVideo() {
-        if (videoWanted) hideVideo() else showVideo()
-    }
-
-    /**
-     * The source and its address, reached by a long press on the video
-     * button — the switch a flying day makes over and over, between the bench
-     * camera, the goggles and the ground station, without leaving the map for
-     * the settings list. It writes the same "settings" store the settings
-     * screen does and carries the same recent addresses, so the two ways of
-     * choosing never disagree.
-     */
-    private fun showVideoSettings() {
-        val content = layoutInflater.inflate(R.layout.dialog_video_settings, null)
-        val group = content.findViewById<RadioGroup>(R.id.video_settings_source)
-        val usbButton = content.findViewById<RadioButton>(R.id.video_settings_usb)
-        val networkButton = content.findViewById<RadioButton>(R.id.video_settings_network)
-        val addressGroup = content.findViewById<View>(R.id.video_settings_address_group)
-        val input = content.findViewById<EditText>(R.id.video_settings_url)
-        val udpToggle = content.findViewById<CompoundButton>(R.id.video_settings_rtsp_udp)
-        val recents = content.findViewById<LinearLayout>(R.id.video_settings_recents)
-
-        when (preferenceManager.getVideoSource()) {
-            "usb" -> usbButton.isChecked = true
-            "network" -> networkButton.isChecked = true
-            else -> content.findViewById<RadioButton>(R.id.video_settings_off).isChecked = true
-        }
-        udpToggle.isChecked = preferenceManager.getRtspUdp()
-        input.setText(preferenceManager.getVideoStreamUrl())
-        input.setSelection(input.text.length)
-        // the address and the transport it rides both belong to a network
-        // stream, and fold away together under the other sources
-        addressGroup.visibility = if (networkButton.isChecked) View.VISIBLE else View.GONE
-        group.setOnCheckedChangeListener { _, _ ->
-            addressGroup.visibility = if (networkButton.isChecked) View.VISIBLE else View.GONE
-        }
-
-        val history = preferenceManager.getVideoUrlHistory()
-        if (history.isEmpty()) {
-            content.findViewById<TextView>(R.id.video_settings_recents_title).visibility = View.GONE
-        }
-        val ripple = TypedValue()
-        theme.resolveAttribute(android.R.attr.selectableItemBackground, ripple, true)
-        val pad = (12 * resources.displayMetrics.density).toInt()
-        for (url in history) {
-            val row = TextView(this)
-            row.text = url
-            row.textSize = 16f
-            row.setPadding(0, pad, 0, pad)
-            row.setBackgroundResource(ripple.resourceId)
-            row.setOnClickListener {
-                // a remembered address is a network one by definition
-                networkButton.isChecked = true
-                input.setText(url)
-                input.setSelection(input.text.length)
-            }
-            recents.addView(row)
-        }
-
-        showDialog(
-            AlertDialog.Builder(this)
-                .setTitle("Video source")
-                .setView(content)
-                .setPositiveButton(android.R.string.ok) { _, _ ->
-                    val chosen = when {
-                        usbButton.isChecked -> "usb"
-                        networkButton.isChecked -> "network"
-                        else -> "off"
-                    }
-                    if (chosen == "network") {
-                        val typed = input.text.toString().trim()
-                        preferenceManager.setVideoStreamUrl(typed)
-                        if (typed.isNotBlank()) preferenceManager.rememberVideoUrl(typed)
-                        preferenceManager.setRtspUdp(udpToggle.isChecked)
-                    }
-                    applyVideoSource(chosen)
-                }
-                .setNegativeButton(android.R.string.cancel, null)
-                .create()
-        )
-    }
-
-    private fun applyVideoSource(source: String) {
-        val wasShowing = videoWanted
-        preferenceManager.setVideoSource(source)
-        // shows or hides the button, and folds a live picture away if now off
-        updateVideoControls()
-        if (source == "off") {
-            // the button that opened this is gone with the source; say where
-            // it went, or turning it back on looks impossible
-            Toast.makeText(
-                this,
-                "Video turned off — turn it back on under Settings ▸ Video",
-                Toast.LENGTH_LONG
-            ).show()
-        } else if (wasShowing) {
-            // a picture already up takes the new source at once, no extra tap
-            hideVideo()
-            showVideo()
-        }
-    }
-
-    /**
-     * The configured source, or null having said why there is nothing to
-     * start. One network entry, and the address's scheme picks the decoder:
-     * the scheme already states the protocol, and a separate choice to keep
-     * in agreement with it would only add a way to disagree.
-     */
-    private fun buildVideoSource(): VideoSource? {
-        val events = newVideoEvents()
-        return when (preferenceManager.getVideoSource()) {
-            "usb" -> UsbUvcSource(this, events)
-            "network" -> {
-                // trimmed, because a keyboard's autocomplete space made a
-                // right address fail with a toast insisting it was wrong
-                val url = preferenceManager.getVideoStreamUrl().trim()
-                // The road to the camera, chosen by who routes to it — the
-                // goggle's Wi-Fi, a USB adapter — so preferred mobile data
-                // cannot swallow the stream while the maps keep riding it.
-                // The same pin the telemetry link has. RTSP resolves it anew
-                // through the lambda on every rebuild, because a recovery may
-                // be the moment the right network finally exists — the pane
-                // opened before the goggle's Wi-Fi was joined, or a Wi-Fi
-                // blip mid-flight replaced the network the factory was born
-                // on. MJPEG re-resolves by rebuilding the source per retry.
-                val binder = NetworkBinder(this)
-                val streamHost = android.net.Uri.parse(url).host ?: ""
-                val trouble = when {
-                    url.isBlank() -> "No stream address set — enter one under Settings, Video"
-                    url.startsWith("rtsp://", ignoreCase = true) ->
-                        return RtspSource(
-                            this, url, preferenceManager.getRtspUdp(),
-                            { binder.networkTo(streamHost)?.socketFactory }, events
-                        )
-                    url.startsWith("http://", ignoreCase = true) ||
-                        url.startsWith("https://", ignoreCase = true) ->
-                        return MjpegSource(url, binder.networkTo(streamHost), events)
-                    url.startsWith("udp://", ignoreCase = true) -> {
-                        // a pushed stream has no address to dial, only the
-                        // port here to listen on — udp://5600 and
-                        // udp://0.0.0.0:5600 both name it
-                        val port = url.substring(6).trim('/')
-                            .substringAfterLast(':').toIntOrNull()
-                        if (port != null && port in 1..65535)
-                            return UdpSource(port, events)
-                        "udp:// needs the port the stream is pushed to, like udp://5600"
-                    }
-                    else -> "The stream address must start rtsp:// (RTSP), " +
-                        "http(s):// (MJPEG) or udp:// (a pushed RTP stream)"
-                }
-                Toast.makeText(this, trouble, Toast.LENGTH_LONG).show()
-                null
-            }
-            else -> null
-        }
-    }
-
-    private fun showVideo() {
-        videoWanted = true
-        startVideo()
-    }
-
-    /**
-     * Along the axis the screen has more of: the picture left of the map
-     * held landscape, above it held upright. The picture takes the share
-     * the divider was last dragged to, remembered for each orientation, and
-     * the map takes the rest. A rotation rebuilds the screen, so this is
-     * decided fresh each time video starts.
-     */
-    private fun arrangeFlightPane() {
-        val landscape =
-            resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-        flightPane.orientation =
-            if (landscape) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
-        val match = LinearLayout.LayoutParams.MATCH_PARENT
-        // coerced here too, so a split saved under looser old bounds obeys
-        val share = preferenceManager.getVideoSplit(landscape).coerceIn(0.3f, 0.5f)
-        // The grab band costs no screen: its margins pull it back exactly
-        // its own thickness, so the halves meet edge to edge and the band
-        // floats over the seam, half on each. Raised so it draws — and is
-        // touched — above both.
-        val grab = (20 * resources.displayMetrics.density).toInt()
-        val divider = LinearLayout.LayoutParams(
-            if (landscape) grab else match, if (landscape) match else grab
-        )
-        if (landscape) {
-            divider.leftMargin = -grab / 2
-            divider.rightMargin = -grab / 2
-        } else {
-            divider.topMargin = -grab / 2
-            divider.bottomMargin = -grab / 2
-        }
-        videoDivider.layoutParams = divider
-        videoDivider.elevation = 2 * resources.displayMetrics.density
-        for ((half, weight) in listOf(videoHalf to share, mapPane to 1f - share)) {
-            half.layoutParams = LinearLayout.LayoutParams(
-                if (landscape) 0 else match, if (landscape) match else 0, weight
-            )
-        }
-    }
-
-    /**
-     * The divider under a finger: the split follows the touch, and the
-     * sources refit their pictures on the layout changes this causes. The
-     * picture may shrink to 30% but never grow past half — the map is the
-     * flight, and a video allowed to crowd it out got dragged there by
-     * accident more than by wish. The landing place is written down only
-     * when the finger lifts.
-     */
-    private fun dragVideoSplit(event: MotionEvent): Boolean {
-        val landscape =
-            resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-        val paneOnScreen = IntArray(2)
-        flightPane.getLocationOnScreen(paneOnScreen)
-        val total = (if (landscape) flightPane.width else flightPane.height).toFloat()
-        if (total <= 0) return true
-        val at = if (landscape) event.rawX - paneOnScreen[0] else event.rawY - paneOnScreen[1]
-        val share = (at / total).coerceIn(0.3f, 0.5f)
-        val match = LinearLayout.LayoutParams.MATCH_PARENT
-        for ((half, weight) in listOf(videoHalf to share, mapPane to 1f - share)) {
-            half.layoutParams = LinearLayout.LayoutParams(
-                if (landscape) 0 else match, if (landscape) match else 0, weight
-            )
-        }
-        // a drag the system cancels still moved the split; save that too,
-        // or the next layout snaps it back to a place the finger left
-        if (event.actionMasked == MotionEvent.ACTION_UP ||
-            event.actionMasked == MotionEvent.ACTION_CANCEL
-        ) {
-            preferenceManager.setVideoSplit(landscape, share)
-            videoDivider.performClick()
-        }
-        return true
-    }
-
-    private fun startVideo(retrying: Boolean = false) {
-        // Each source gets a surface with no history: removing and re-adding
-        // the SurfaceView destroys its surface and creates a fresh one, so a
-        // decoder or a canvas from the previous source can never draw the
-        // wrong picture into the next — and the dead stream's last frame is
-        // retired with the old surface. Done before every branch, so the
-        // camera-permission card below never stands on a stale picture.
-        (videoView.parent as ViewGroup).let { parent ->
-            val at = parent.indexOfChild(videoView)
-            parent.removeViewAt(at)
-            parent.addView(videoView, at)
-        }
-        // Android hands a camera-class USB device only to a holder of the
-        // camera permission; without it the USB ask is refused instantly and
-        // silently, which the field read as a "no" that could never be taken
-        // back. Asked here, where the wish to watch was just expressed —
-        // granting resumes below, refusing folds the half away and says why.
-        if (preferenceManager.getVideoSource() == "usb" &&
-            ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            // the half opens on the ask, its card saying what is being
-            // waited for — left untouched, whatever happened to be on screen
-            // stood over the dialog and read as broken
-            videoWaiting.text = "Waiting for the camera permission…"
-            videoWaiting.visibility = View.VISIBLE
-            arrangeFlightPane()
-            videoHalf.visibility = View.VISIBLE
-            videoDivider.visibility = View.VISIBLE
-            videoSoundButton.visibility = View.GONE
-            videoRotateButton.visibility = View.GONE
-            juricabi.com.telemetry.utils.DebugLog.note("Video", "camera permission asked")
-            askPermission(android.Manifest.permission.CAMERA, REQUEST_CAMERA_PERMISSION)
-            return
-        }
-        val source = buildVideoSource()
-        if (source == null) {
-            hideVideo()
-            return
-        }
-        videoSource = source
-        // The card says what is being waited for, and the first real frame
-        // replaces it. A retry keeps the trouble message standing instead:
-        // flipping to "Connecting…" for the split second a refused
-        // connection takes made the card flicker every two seconds.
-        if (!retrying) videoWaiting.text = if (preferenceManager.getVideoSource() == "usb")
-            "Waiting for the USB camera…" else "Connecting to the stream…"
-        videoWaiting.visibility = View.VISIBLE
-        arrangeFlightPane()
-        videoHalf.visibility = View.VISIBLE
-        videoDivider.visibility = View.VISIBLE
-        // the speaker only where there could be sound; remembered before
-        // start so the choice needs no second session
-        videoSoundButton.visibility = if (source.hasAudio) View.VISIBLE else View.GONE
-        videoSoundButton.imageAlpha = if (videoAudioOn) 255 else 128
-        // remembered on, so bring it up now — asking for the mic permission
-        // here if the source's sound needs it, the same nice ask as the tap
-        if (videoAudioOn) enableVideoSound()
-        // the remembered turn, for a camera mounted sideways; the button
-        // wears the same angle so it shows which turn is on
-        videoRotateButton.visibility = View.VISIBLE
-        videoRotateButton.rotation = preferenceManager.getVideoRotation().toFloat()
-        source.start(videoView)
-    }
-
-    /** A quarter-turn per tap, for a camera mounted sideways; 0 comes back around. */
-    private fun rotateVideo() {
-        val degrees = (preferenceManager.getVideoRotation() + 90) % 360
-        preferenceManager.setVideoRotation(degrees)
-        // the button turns with the picture, so its icon shows which of the
-        // four turns is on — a brightness that only said "not zero" did not
-        videoRotateButton.rotation = degrees.toFloat()
-        // The turn is the source's now, not the view's — a SurfaceView will
-        // not rotate its surface content. refit carries the new turn to the
-        // source, which takes it up in place: the decoder rebuilds with it,
-        // no reconnect, a keyframe's worth of black at most.
-        videoSource?.refit()
-    }
-
-    private fun toggleVideoSound() {
-        if (videoAudioOn) {
-            // turning the sound off never needs anything
-            videoAudioOn = false
-            videoSoundButton.imageAlpha = 128
-            videoSource?.setAudio(false)
-        } else {
-            enableVideoSound()
-        }
-    }
-
-    /**
-     * Turn the picture's sound on, first asking for the microphone permission
-     * if this source's sound needs it — the USB path, whose audio is a USB
-     * input device the OS guards. The ask is raised on the speaker tap or at
-     * start, where the wish is plain and cannot get buried, and granting comes
-     * back through onRequestPermissionsResult to finish the job; a refusal
-     * leaves the picture playing on, silent.
-     */
-    private fun enableVideoSound() {
-        val source = videoSource ?: return
-        if (source.needsRecordAudio &&
-            ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            askPermission(android.Manifest.permission.RECORD_AUDIO, REQUEST_RECORD_AUDIO_PERMISSION)
-            return
-        }
-        videoAudioOn = true
-        videoSoundButton.imageAlpha = 255
-        source.setAudio(true)
-    }
-
-    private fun hideVideo() {
-        videoWanted = false
-        videoGeneration++ // whatever the stopped source still says is stale
-        videoWaiting.removeCallbacks(videoRetry)
-        videoSource?.stop()
-        videoSource = null
-        videoBlank.visibility = View.GONE
-        videoHalf.visibility = View.GONE
-        videoDivider.visibility = View.GONE
+        videoPane.restartIfWanted()
     }
 
     /**
@@ -2728,19 +1801,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     private var replayWasPlaying = false
 
-    /**
-     * The play/pause a rotation is resuming to, or null for a fresh open (which
-     * follows the autostart preference). Set as a loaded replay opens and read
-     * once by getPlaybackAutostart, the single place that starts playback.
-     */
-    private var replayResumePlay: Boolean? = null
-
     override fun onPause() {
         super.onPause()
         clock_text.removeCallbacks(clockTicker)
         terrain3D?.onPause()
         map?.onPause()
-        this.sensorTimeoutManager.pause();
+        this.telemetryPanel.pause();
         // Caught before the player is stopped on the next line: onPause always
         // runs before onSaveInstanceState, so reading isPlaying() there would
         // see this stop, and a replay that was running would come back paused
@@ -2757,357 +1823,18 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         super.onStop()
         map?.onStop()
         this.logPlayer?.stop();
-        this.sensorTimeoutManager.pause();
-        // The camera or the stream goes with the screen — this screen, truly
-        // gone, not merely paused. Released in onPause it died under every
-        // system dialog, and the USB permission ask is itself such a dialog:
-        // releasing cancelled the pending request, the restart asked again,
-        // and the field watched dialogs churn at three a second. videoWanted
-        // stays, and coming back starts it again.
-        videoGeneration++
-        videoWaiting.removeCallbacks(videoRetry)
-        videoSource?.stop()
-        videoSource = null
-    }
-
-    private fun connectBluetooth() {
-        val adapter = BluetoothAdapter.getDefaultAdapter()
-        if (adapter == null) {
-            this.showDialog(
-                AlertDialog.Builder(this)
-                    .setMessage("It seems like your phone does not have bluetooth, or it does not supported")
-                    .setPositiveButton("OK", null)
-                    .create()
-            )
-            return
-        }
-
-        if (!adapter.isEnabled) {
-            val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
-            startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT)
-            return
-        }
-        if (preferenceManager.isLoggingEnabled()) {
-            if (!requestWritePermission(RequestWritePermissionSequenceType.CONNECT)) return;
-        }
-
-        val devices = ArrayList<BluetoothDevice>(adapter.bondedDevices)
-        var deviceNames = ArrayList<String>(devices.map {
-            var result = it.name
-            if (result == null) {
-                result = it.address
-            }
-            if (result == null) {
-                result = "*noname*"
-            }
-            result
-        })
-
-        deviceNames = augmentNonUniqueDiviceNames(deviceNames, devices.map { i-> i.address })
-
-        var deviceNames1 = deviceNames.mapIndexed { index, i ->
-            if ( devices[index].address == lastSelectedBluetoothDeviceAddress ) {
-                val boldOption = SpannableString(i)
-                boldOption.setSpan(StyleSpan(Typeface.BOLD), 0, i.length, 0)
-                boldOption
-            } else {
-                i
-            }
-        }.toMutableList()
-
-        val deviceAdapter = ArrayAdapter( this, android.R.layout.simple_list_item_1, deviceNames1)
-
-        var dialog = AlertDialog.Builder(this).setOnDismissListener {
-        } .setNeutralButton(R.string.pair_new_device) { dialog, which ->
-            showPairDeviceDialog()
-        }.setAdapter(deviceAdapter) { _, i ->
-            lastSelectedBluetoothDeviceAddress = devices[i].address;
-            preferenceManager.setLastSelectedBluetoothDeviceAddress(lastSelectedBluetoothDeviceAddress)
-            runOnUiThread {
-                connectToBluetoothDevice(devices[i], false)
-            }
-        }.create()
-
-        dialog.setOnShowListener {
-            val alertDialog = it as AlertDialog
-            var index = devices.indexOfFirst {i -> i.address == lastSelectedBluetoothDeviceAddress}
-            if ( index != -1) {
-                val centerY = alertDialog.listView.height / 2 // Calculate the center position vertically
-                alertDialog.listView.smoothScrollToPositionFromTop(index, centerY)
-            }
-        }
-
-        this.showDialog(dialog)
-    }
-
-    private fun augmentNonUniqueDiviceNames(deviceNames : ArrayList<String>, deviceAddr : List<String>) : ArrayList<String>
-    {
-        return ArrayList(deviceNames.mapIndexed { index, i ->
-            var i1 = deviceNames.indexOf(i)
-            var i2 = deviceNames.lastIndexOf(i)
-            if (i1 != i2) {
-                "${deviceNames[index]} (${deviceAddr[index]})"
-            } else {
-                i
-            }
-        })
-    }
-
-    private fun showPairDeviceDialog() {
-        val devices = ArrayList<BluetoothDevice>()
-        val deviceNames = ArrayList<String>()
-        val deviceAdapter =
-            ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, deviceNames)
-        AlertDialog.Builder(this)
-            .setAdapter(deviceAdapter) { _, i ->
-                BluetoothAdapter.getDefaultAdapter().cancelDiscovery()
-                pairDevice(devices[i])
-            }.show()
-        val listener = object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                when (intent?.action) {
-                    BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
-                        unregisterReceiver(this)
-                    }
-                    BluetoothDevice.ACTION_FOUND -> {
-                        val device =
-                            intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)!!
-                        val name = intent.getStringExtra(BluetoothDevice.EXTRA_NAME)
-                            ?: device.address
-                        if (!deviceNames.contains(name) && device.bondState == BluetoothDevice.BOND_NONE) {
-                            devices.add(device)
-                            deviceNames.add(name)
-                            deviceAdapter.notifyDataSetChanged()
-                        }
-                    }
-                    BluetoothAdapter.ACTION_DISCOVERY_STARTED -> {
-
-                    }
-                }
-            }
-        }
-        registerReceiver(listener, IntentFilter(BluetoothAdapter.ACTION_DISCOVERY_STARTED).apply {
-            addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
-            addAction(BluetoothDevice.ACTION_FOUND)
-        })
-        BluetoothAdapter.getDefaultAdapter().startDiscovery()
-    }
-
-    private fun pairDevice(bluetoothDevice: BluetoothDevice) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            if (!bluetoothDevice.createBond()) {
-                Toast.makeText(this, "Failed to pair bluetooth device", Toast.LENGTH_LONG).show()
-            } else {
-                val receiver = object : BroadcastReceiver() {
-                    override fun onReceive(context: Context?, intent: Intent?) {
-                        if (intent?.action == BluetoothDevice.ACTION_BOND_STATE_CHANGED) {
-                            val device =
-                                intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
-                            val newBondState: Int =
-                                intent.getIntExtra(
-                                    BluetoothDevice.EXTRA_BOND_STATE,
-                                    BluetoothDevice.BOND_NONE
-                                )
-                            if (newBondState == BluetoothDevice.BOND_BONDED) {
-                                device?.let { connectToBluetoothDevice(it, false) }
-                                unregisterReceiver(this)
-                            } else if (newBondState == BluetoothDevice.BOND_NONE) {
-                                Toast.makeText(
-                                    this@MapsActivity,
-                                    "Failed to pair new device",
-                                    Toast.LENGTH_LONG
-                                ).show()
-                                unregisterReceiver(this)
-                            }
-                        }
-                    }
-                }
-
-                registerReceiver(receiver, IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED))
-            }
-        } else {
-            AlertDialog.Builder(this)
-                .setMessage(getString(R.string.pair_not_supported_message))
-                .show()
-        }
-    }
-
-    private fun connectBluetoothLE() {
-        if (!bleCheck()) {
-            Toast.makeText(
-                this,
-                "Bluetooth LE is not supported or application does not have needed permissions",
-                Toast.LENGTH_LONG
-            ).show()
-            return
-        }
-        val adapter = BluetoothAdapter.getDefaultAdapter()
-        if (adapter == null) {
-            this.showDialog(
-                AlertDialog.Builder(this)
-                    .setMessage("It seems like your phone does not have bluetooth, or it does not supported")
-                    .setPositiveButton("OK", null)
-                    .create()
-            )
-            return
-        }
-
-        if (!adapter.isEnabled) {
-            val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
-            startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT)
-            return
-        }
-        if (preferenceManager.isLoggingEnabled()) {
-            if (!requestWritePermission(RequestWritePermissionSequenceType.CONNECT)) return;
-        }
-
-        val devices = ArrayList<BluetoothDevice>(adapter.bondedDevices)
-        var deviceNames = ArrayList<String>(devices.map {
-            var result = it.name
-            if (result == null) {
-                result = it.address
-            }
-            if (result == null) {
-                result = "*noname*"
-            }
-            result
-        })
-
-        deviceNames = augmentNonUniqueDiviceNames(deviceNames, devices.map {i -> i.address})
-
-        var deviceNames1 = deviceNames.mapIndexed { index, i ->
-            if ( devices[index].address == lastSelectedBLEDeviceAddress ) {
-                val boldOption = SpannableString(i)
-                boldOption.setSpan(StyleSpan(Typeface.BOLD), 0, i.length, 0)
-                boldOption
-            } else {
-                i
-            }
-        }.toMutableList()
-
-        val deviceAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, deviceNames1)
-
-        var scrolled = false;
-        var dialog: AlertDialog? = null;
-
-        val callback = BluetoothAdapter.LeScanCallback { bluetoothDevice, i, bytes ->
-            if (!devices.contains(bluetoothDevice) && bluetoothDevice.name != null) {
-                devices.add(bluetoothDevice)
-                var name1 = bluetoothDevice.name
-                if ( deviceNames.indexOf( name1) >= 0 ) {
-                    name1 = "${bluetoothDevice.name} (${bluetoothDevice.address})"
-                }
-                if ( lastSelectedBLEDeviceAddress == bluetoothDevice.address) {
-                    val boldOption = SpannableString(name1)
-                    boldOption.setSpan(StyleSpan(Typeface.BOLD), 0, name1.length, 0)
-                    deviceNames1.add(boldOption)
-
-                    if ( dialog is AlertDialog && scrolled) {
-                        runOnUiThread {
-                            var index = devices.indexOfFirst {i -> i.address == lastSelectedBLEDeviceAddress}
-                            if ( index != -1) {
-                                val alertDialog = dialog as AlertDialog
-                                if ( alertDialog != null ) {
-                                    val centerY =
-                                        alertDialog.listView.height / 2 // Calculate the center position vertically
-                                    alertDialog.listView.smoothScrollToPositionFromTop(
-                                        index,
-                                        centerY
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-                else {
-                    deviceNames1.add(name1)
-                }
-                deviceAdapter.notifyDataSetChanged()
-            }
-        }
-
-        if (bleCheck()) {
-            adapter.startLeScan(callback)
-        }
-
-        dialog = AlertDialog.Builder(this).setOnDismissListener {
-            if (bleCheck()) {
-                adapter.stopLeScan(callback)
-            }
-        }.setAdapter(deviceAdapter) { _, i ->
-            lastSelectedBLEDeviceAddress = devices[i].address;
-            preferenceManager.setLastSelectedBLEDeviceAddress(lastSelectedBLEDeviceAddress)
-            if (bleCheck()) {
-                adapter.stopLeScan(callback)
-            }
-            runOnUiThread {
-                connectToBluetoothDevice(devices[i], true)
-            }
-        }.create()
-
-        dialog.setOnShowListener {
-            val alertDialog = it as AlertDialog
-            var index = devices.indexOfFirst {i -> i.address == lastSelectedBLEDeviceAddress}
-            if ( index != -1) {
-                val centerY = alertDialog.listView.height / 2 // Calculate the center position vertically
-                alertDialog.listView.smoothScrollToPositionFromTop(index, centerY)
-            }
-            scrolled = true;
-        }
-
-        this.showDialog(dialog)
+        this.telemetryPanel.pause();
+        videoPane.releaseForStop()
     }
 
     private fun resetUI() {
-        satellites.text = "0"
-        rssi.text = "-"
-        this.setRSSIIcon(100)
-        voltage.text = "-"
-        phoneBattery.text = "-"
-        current.text = "-"
-        fuel.text = "-"
-        this.setFuelIcon(-1);
-        altitude.text = "-"
-        altitude_msl.text = "-"
-        speed.text = "-"
-        airspeed.text = "-"
-        vspeed.text = "-"
-        distance.text = "-"
-        traveled_distance.text = "0 m"
+        telemetryPanel.reset()
         this.lastTraveledDistance = 0.0;
-        mode.text = "Disconnected"
-        statustext.text = "";
-        dnSnr.text = "-"
-        upSnr.text = "-"
-        dnLq.text = "-"
-        elrsRate.text = "-"
-        this.setDNLQIcon(100)
-        upLq.text = "-"
-        this.setUPLQIcon(100)
-        ant.text = "-"
-        power.text = "-"
-        rssiDbm1.text = "-"
-        this.setRssiDbm1Icon(0)
-        rssiDbm2.text = "-"
-        this.setRssiDbm2Icon(0)
-        rssiDbmd.text = "-"
-        this.setRssiDbmdIcon(0)
         horizonView.snapLevel()
-        cell_voltage.text = "-"
-        this.lastCellVoltage = 0.0f;
-        throttle.text = "-"
-        protocolView.text = "-"
-        tlmRate.text = "0 b/s"
     }
 
-    private fun bleCheck() =
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2 && ContextCompat.checkSelfPermission(
-            this,
-            android.Manifest.permission.ACCESS_FINE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
 
-
-    private fun connectToBluetoothDevice(device: BluetoothDevice, isBLE: Boolean) {
+    internal fun connectToBluetoothDevice(device: BluetoothDevice, isBLE: Boolean) {
         clearCrsfSystem()
         if ( isBLE ) {
             lastConnectionType = CONNTYPE_BLE;
@@ -3178,7 +1905,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         dataService?.let {
             connectButton.text = getString(R.string.reconnecting)
             connectButton.isEnabled = false
-            sensorTimeoutManager.setTimeoutWindow(
+            telemetryPanel.setTimeoutWindow(
                 if (lastNetworkHighLatency) SensorTimeoutManager.HIGH_LATENCY_TIMEOUT_MS
                 else SensorTimeoutManager.DEFAULT_TIMEOUT_MS)
             it.connect(lastNetworkHost, lastNetworkPort, lastNetworkMode,
@@ -3186,7 +1913,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
-    private fun connectToUSBDevice(
+    internal fun connectToUSBDevice(
         port: UsbSerialPort,
         connection: UsbDeviceConnection
     ) {
@@ -3198,451 +1925,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             connectButton.isEnabled = false
             it.connect(port, connection)
         }
-    }
-
-    /**
-     * Where the telemetry is coming from, for the presets.
-     *
-     * The two that matter are ExpressLRS, which broadcasts MAVLink to UDP 14550
-     * so there is nothing to address, and TBS Crossfire, whose WiFi module is a
-     * server on TCP 8888 and can be switched to UDP on the module itself. Both
-     * ports are configurable at their end, so nothing here is fixed — a preset
-     * only fills the fields in.
-     */
-    private class NetworkPreset(
-        val label: String,
-        /**
-         * The stored identity: remembered ports, hosts and the last-used
-         * preset are saved under this number, never under the list position —
-         * so presets can be ordered for the eye without handing anyone's
-         * settings to a neighbour. Keys match the positions of the releases
-         * that stored them; a new preset takes the next unused number,
-         * wherever it sits in the list.
-         */
-        val key: Int,
-        val useTcp: Boolean,
-        val port: Int,
-        val useGateway: Boolean,
-        /** a fixed address, where the preset knows it */
-        val host: String? = null,
-        /** transport, matching the order of the transport spinner */
-        val mode: Int = if (useTcp) NetworkDataPoller.MODE_TCP_CLIENT else NetworkDataPoller.MODE_UDP,
-        /** MAVLink High Latency: pin the protocol and send the enable command */
-        val highLatency: Boolean = false
-    )
-
-    // The transport stays in the name because it is the thing that decides
-    // whether an address is needed at all. The port does not: it lands in the
-    // port field the moment the preset is picked.
-    private val networkPresets = listOf(
-        NetworkPreset("ExpressLRS backpack (UDP)", 0, false, 14550, false),
-        NetworkPreset("TBS Crossfire / Tracer (TCP)", 1, true, 8888, true),
-        NetworkPreset("TBS Crossfire / Tracer (UDP)", 2, false, 8888, false),
-        NetworkPreset("MAVLink router / ground station (UDP)", 3, false, 14550, false),
-        // A satellite- or LoRa-class link: one HIGH_LATENCY2 message per five
-        // seconds. The autopilot boots with that stream off, so this preset
-        // also sends the command that turns it on — to the typed address, and
-        // to whoever speaks to us.
-        NetworkPreset("MAVLink High Latency (UDP)", 7, false, 14550, false,
-            highLatency = true),
-        NetworkPreset("Serial to Wi-Fi bridge (TCP)", 4, true, 23, true),
-        // The one path into a Crossfire WiFi module that every firmware
-        // serves: its own phone app uses MQTT, which needs a broker in the app
-        // and is broken on the newest firmware, while this carries plain CRSF.
-        NetworkPreset(
-            "TBS Crossfire WiFi (WebSocket)", 5, true, 80, true,
-            mode = NetworkDataPoller.MODE_WEBSOCKET
-        ),
-        NetworkPreset("Custom", 6, false, 14550, false)
-    )
-
-    private fun connectNetwork() {
-        // as the Bluetooth and BLE paths do: without it a network session
-        // silently records nothing while both logging switches say "on"
-        if (preferenceManager.isLoggingEnabled()) {
-            if (!requestWritePermission(RequestWritePermissionSequenceType.CONNECT)) return
-        }
-
-        val binder = NetworkBinder(this)
-        val view = layoutInflater.inflate(R.layout.dialog_network, null)
-        var dialogOpen = true
-
-        val presetSpinner = view.findViewById<Spinner>(R.id.network_preset)
-        val transportSpinner = view.findViewById<Spinner>(R.id.network_transport)
-        val hostField = view.findViewById<EditText>(R.id.network_host)
-        val hostLabel = view.findViewById<TextView>(R.id.network_host_label)
-        val portField = view.findViewById<EditText>(R.id.network_port)
-        val wifiStatus = view.findViewById<TextView>(R.id.network_wifi_status)
-        val hint = view.findViewById<TextView>(R.id.network_hint)
-        val interfaceSpinner = view.findViewById<Spinner>(R.id.network_interface)
-        val findButton = view.findViewById<Button>(R.id.network_find)
-        val portDefaultButton = view.findViewById<Button>(R.id.network_port_default)
-
-        val transports = arrayOf(
-            "UDP listen", "TCP client", "TCP server (wait)", "TBS WebSocket"
-        )
-
-        presetSpinner.adapter = ArrayAdapter(
-            this, android.R.layout.simple_spinner_dropdown_item,
-            networkPresets.map { it.label })
-        transportSpinner.adapter = ArrayAdapter(
-            this, android.R.layout.simple_spinner_dropdown_item, transports)
-
-        // Which network to work on. The phone can be on two at once — mobile
-        // data plus a hotspot that the module has joined — and in that case the
-        // module is a client of this phone, so the gateway is the phone itself
-        // and tells us nothing about where the module is.
-        var interfaces = LocalNetworks.list(binder.cellularInterfaceNames())
-        fun interfaceLabels(): ArrayList<String> {
-            val labels = ArrayList<String>()
-            labels.add(getString(R.string.network_interface_auto))
-            interfaces.forEach { labels.add(it.label()) }
-            return labels
-        }
-        interfaceSpinner.adapter = ArrayAdapter(
-            this, android.R.layout.simple_spinner_dropdown_item, interfaceLabels())
-
-        // Whether we are on Wi-Fi and what it is called are two different
-        // questions on a modern Android: the network is visible through
-        // ConnectivityManager, but the SSID needs location permission and
-        // location switched on. Treating an unreadable name as "no Wi-Fi"
-        // would put a wrong warning in front of someone whose setup is fine.
-        fun networkStanding(): String {
-            val ssid = binder.ssid()
-            val hotspot = interfaces.firstOrNull { it.likelyHotspot }
-            // a wired way in — a USB-ethernet adapter — is as good as Wi-Fi now
-            // that the pin routes by target, so it must not be told to "join
-            // Wi-Fi first" over a link that already works
-            val wired = interfaces.firstOrNull {
-                !it.loopback && !it.likelyHotspot && !it.name.startsWith("wlan")
-            }
-            return when {
-                // A hotspot is not a Network as far as ConnectivityManager is
-                // concerned, so asking it whether we are "on Wi-Fi" says no even
-                // though the module is happily connected to this phone.
-                hotspot != null -> "Sharing a hotspot on " + hotspot.address
-                binder.hasWifi() && ssid != null -> getString(R.string.network_on_wifi, ssid)
-                binder.hasWifi() -> getString(R.string.network_on_wifi_unknown)
-                wired != null -> "On " + wired.label()
-                else -> getString(R.string.network_no_wifi)
-            }
-        }
-        // The streams pin themselves to the network that reaches the module,
-        // so the phone's per-app network preference is free for the maps —
-        // said here, where whoever stands on an internet-less module Wi-Fi
-        // wonders how the tiles will load.
-        wifiStatus.text = networkStanding() + "\n" + getString(R.string.network_pin_tip)
-
-        // A UDP listen binds a local port and never needs the module's address,
-        // which is the whole reason the UDP presets are offered first.
-        fun updateHostEnabled() {
-            // whatever dials out needs somewhere to dial: a TCP client and a
-            // WebSocket both do, a UDP listen and a TCP server do not
-            val chosen = transportSpinner.selectedItemPosition
-            val tcp = chosen == NetworkDataPoller.MODE_TCP_CLIENT ||
-                chosen == NetworkDataPoller.MODE_WEBSOCKET
-            // The high-latency preset needs somewhere to send its enable
-            // command even on a UDP listen: an autopilot with the stream off
-            // sends nothing, so there is no sender to learn an address from.
-            val highLatency = networkPresets.getOrNull(
-                presetSpinner.selectedItemPosition)?.highLatency == true
-            hostField.isEnabled = tcp || highLatency
-            hostLabel.isEnabled = tcp || highLatency
-            // Greying the field out on its own only raises the question "why
-            // can I not type here" — so the label answers it.
-            hostLabel.text = when {
-                tcp -> getString(R.string.network_host)
-                highLatency -> getString(R.string.network_host_hl)
-                else -> getString(R.string.network_host_unused)
-            }
-            hostField.hint = when {
-                tcp -> getString(R.string.network_host_hint)
-                highLatency -> getString(R.string.network_host_hint_hl)
-                else -> getString(R.string.network_host_hint_udp)
-            }
-            // nothing to find on loopback: it is a single address, this device
-            findButton.isEnabled = tcp && !hostField.text.toString().trim().startsWith("127.")
-            hint.text = when {
-                tcp -> getString(R.string.network_hint_tcp)
-                highLatency -> getString(R.string.network_hint_hl)
-                else -> getString(R.string.network_hint_udp)
-            }
-        }
-
-        fun applyPreset(index: Int) {
-            val preset = networkPresets[index]
-            transportSpinner.setSelection(preset.mode)
-            // the port this preset was last used with, not the documented one:
-            // modules do get moved off their default
-            portField.setText(
-                preferenceManager.getNetworkPortFor(preset.key, preset.port).toString())
-            if (preset.host != null) {
-                hostField.setText(preset.host)
-            } else if (preset.useGateway) {
-                val gateway = binder.gatewayAddress()
-                if (gateway != null) hostField.setText(gateway)
-            }
-            updateHostEnabled()
-        }
-
-        // restore what was used last; the saved value is a preset key, which
-        // by construction equals the list position it had when it was stored
-        val savedPreset = preferenceManager.getNetworkPreset()
-        transportSpinner.setSelection(preferenceManager.getNetworkMode())
-        // Reopening is restoring the last session, so the fallback is the port
-        // that session used — not the preset's documented default. Falling back
-        // to the default threw away a port that had been typed and connected
-        // with, which is exactly the one worth keeping. (Switching preset is a
-        // different question, and applyPreset answers it differently.)
-        portField.setText(
-            preferenceManager.getNetworkPortFor(
-                savedPreset, preferenceManager.getNetworkPort()
-            ).toString())
-        // The address is remembered per network, the same way the port is
-        // remembered per preset: a module is 10.0.0.1 on its own access point
-        // and something else on a home network, so a single remembered address
-        // was wrong every time you moved between the two.
-        val network = binder.ssid() ?: ""
-        val savedHost = preferenceManager.getNetworkHostFor(
-            network, savedPreset, preferenceManager.getNetworkHost()
-        )
-        hostField.setText(if (savedHost.isEmpty()) (binder.gatewayAddress() ?: "") else savedHost)
-        val savedPosition = networkPresets.indexOfFirst { it.key == savedPreset }
-        if (savedPosition >= 0) presetSpinner.setSelection(savedPosition)
-        updateHostEnabled()
-
-        // A Spinner delivers its current selection to a newly attached listener,
-        // and whether that happens at all depends on the layout pass — so a
-        // one-shot "ignore the first callback" flag either swallows the user's
-        // first real choice or lets the initial one through. Comparing against
-        // what was set programmatically is not timing dependent: the echo has
-        // the same position and does nothing, a real change does not.
-        // Picking a network says where to look on it. On a hotspot the phone is
-        // the gateway, so the module is a client somewhere in the subnet and the
-        // useful thing to offer is the subnet itself, ready for the last octet
-        // or for Find. On a joined network the gateway is usually the module.
-        fun applyInterface(pos: Int) {
-            val idx = pos - 1
-            if (idx < 0 || idx >= interfaces.size) return
-            val iface = interfaces[idx]
-            val fill = when {
-                // this device is a single address, not a subnet to search
-                iface.loopback -> iface.address
-                iface.likelyHotspot -> iface.subnet24()
-                else -> binder.gatewayAddress() ?: iface.subnet24()
-            }
-            hostField.setText(fill)
-            hostField.setSelection(hostField.text.length)
-        }
-
-        var appliedIface = interfaceSpinner.selectedItemPosition
-        interfaceSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
-            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                if (pos == appliedIface) return
-                appliedIface = pos
-                applyInterface(pos)
-            }
-        }
-
-        // The dialog is exactly where somebody stands while joining the
-        // module's Wi-Fi or plugging an adapter in, and it used to describe
-        // the networks of the moment it opened until closed and reopened.
-        // Refreshed on a slow tick instead: the status line always, the
-        // interface list only when it truly changed — swapping the spinner
-        // under a finger for nothing is worse than being a breath late —
-        // and back to Automatic then, since the old choice named a list
-        // that is gone.
-        val refreshNetworks = object : Runnable {
-            override fun run() {
-                if (!dialogOpen || isFinishing) return
-                // Asleep behind another app, this asks the system for every
-                // interface every two seconds for nothing; the tick comes back
-                // with the screen, and the first one then refreshes it anyway.
-                if (!lifecycle.currentState.isAtLeast(
-                        androidx.lifecycle.Lifecycle.State.RESUMED)
-                ) {
-                    view.postDelayed(this, 2000)
-                    return
-                }
-                val fresh = LocalNetworks.list(binder.cellularInterfaceNames())
-                if (fresh.map { it.label() } != interfaces.map { it.label() }) {
-                    // an explicit choice survives the list changing around it —
-                    // an adapter plugged in must not snap a picked hotspot back
-                    // to Automatic; only a vanished choice falls back there
-                    val kept = interfaceSpinner.selectedItemPosition.let { pos ->
-                        if (pos <= 0) null else interfaces.getOrNull(pos - 1)?.label()
-                    }
-                    interfaces = fresh
-                    interfaceSpinner.adapter = ArrayAdapter(
-                        this@MapsActivity,
-                        android.R.layout.simple_spinner_dropdown_item, interfaceLabels()
-                    )
-                    val at = kept?.let { label ->
-                        interfaces.indexOfFirst { it.label() == label }
-                    } ?: -1
-                    appliedIface = if (at >= 0) at + 1 else 0
-                    interfaceSpinner.setSelection(appliedIface)
-                }
-                wifiStatus.text =
-                    networkStanding() + "\n" + getString(R.string.network_pin_tip)
-                view.postDelayed(this, 2000)
-            }
-        }
-        view.postDelayed(refreshNetworks, 2000)
-
-        var appliedPreset = presetSpinner.selectedItemPosition
-        presetSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
-            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                if (pos == appliedPreset) return
-                appliedPreset = pos
-                applyPreset(pos)
-            }
-        }
-        transportSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
-            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                updateHostEnabled()
-            }
-        }
-
-        portDefaultButton.setOnClickListener {
-            val index = presetSpinner.selectedItemPosition
-            val preset = networkPresets.getOrNull(index)
-            if (preset == null) return@setOnClickListener
-            preferenceManager.clearNetworkPortFor(index)
-            portField.setText(preset.port.toString())
-            hint.text = getString(R.string.network_port_reset, preset.port)
-        }
-
-        // Finding a module that joined this phone's hotspot: there is no
-        // gateway to ask, so ask every address on the subnet whether it is
-        // serving telemetry on the chosen port.
-        findButton.setOnClickListener {
-            val chosen = interfaceSpinner.selectedItemPosition - 1
-            val iface = if (chosen >= 0 && chosen < interfaces.size) {
-                interfaces[chosen]
-            } else {
-                interfaces.firstOrNull { it.likelyHotspot }
-                    ?: interfaces.firstOrNull { it.name.startsWith("wlan") }
-                    ?: interfaces.firstOrNull()
-            }
-            val port = portField.text.toString().trim().toIntOrNull() ?: 0
-            if (iface == null || port !in 1..65535) {
-                Toast.makeText(this, "Pick a network and a valid port first", Toast.LENGTH_LONG)
-                    .show()
-                return@setOnClickListener
-            }
-            val findLabel = findButton.text
-            findButton.isEnabled = false
-
-            findButton.text = getString(R.string.network_searching_short)
-            hint.text = getString(R.string.network_searching, iface.subnet24() + "x")
-
-            // the probes ride the searched network the way the connect will,
-            // resolved once — every target in the /24 routes the same way, and
-            // a link the system reaches by itself (this phone's hotspot) comes
-            // back unpinned from here, as the connect will find it too
-            val road = binder.networkTo(iface.address)
-            AsyncTask.execute {
-                LocalNetworks.scan(iface, port, 300, { probe ->
-                    try {
-                        road?.bindSocket(probe)
-                    } catch (e: Exception) {
-                        // an unbound probe still searches the default road
-                    }
-                }, { done, total ->
-                    runOnUiThread {
-                        if (!dialogOpen || isFinishing) return@runOnUiThread
-                        hint.text = getString(
-                            R.string.network_searching_progress,
-                            iface.subnet24() + "x", done, total
-                        )
-                    }
-                }) { hits ->
-                    runOnUiThread {
-                        // the scan outlives the dialog, so a late result must
-                        // not put a chooser up over the map
-                        if (!dialogOpen || isFinishing) return@runOnUiThread
-                        // through the one place that knows whether Find belongs
-                        // to the transport now chosen — it may have changed to
-                        // a UDP listen while the scan ran
-                        updateHostEnabled()
-                        findButton.text = findLabel
-                        when {
-                            hits.isEmpty() -> hint.text = getString(R.string.network_found_none)
-                            hits.size == 1 -> {
-                                hostField.setText(hits[0])
-                                hint.text = getString(R.string.network_found_one, hits[0])
-                            }
-                            else -> {
-                                // more than one thing is listening on that port,
-                                // so say so and let the user choose rather than
-                                // silently picking one
-                                hint.text = getString(R.string.network_found_many, hits.size)
-                                showDialog(
-                                    AlertDialog.Builder(this)
-                                        .setTitle(R.string.network_found_title)
-                                        .setItems(hits.toTypedArray()) { d, which ->
-                                            hostField.setText(hits[which])
-                                            hint.text =
-                                                getString(R.string.network_found_one, hits[which])
-                                            d.dismiss()
-                                        }
-                                        .create()
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        this.showDialog(
-            AlertDialog.Builder(this)
-                .setOnDismissListener { dialogOpen = false }
-                .setTitle(R.string.network_title)
-                .setView(view)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(R.string.network_connect) { _, _ ->
-                    val mode = transportSpinner.selectedItemPosition
-                    val useTcp = mode == NetworkDataPoller.MODE_TCP_CLIENT ||
-                        mode == NetworkDataPoller.MODE_WEBSOCKET
-                    val port = portField.text.toString().trim().toIntOrNull() ?: 0
-                    val host = hostField.text.toString().trim()
-
-                    if (port !in 1..65535) {
-                        Toast.makeText(this, "Port must be between 1 and 65535", Toast.LENGTH_LONG)
-                            .show()
-                        return@setPositiveButton
-                    }
-                    if (useTcp && host.isEmpty()) {
-                        Toast.makeText(this, "TCP needs the module's address", Toast.LENGTH_LONG)
-                            .show()
-                        return@setPositiveButton
-                    }
-
-                    // stored under the preset's key, not its list position:
-                    // the list is ordered for the eye and may be reordered
-                    val chosenPreset = networkPresets[presetSpinner.selectedItemPosition]
-                    preferenceManager.setNetworkPreset(chosenPreset.key)
-                    preferenceManager.setNetworkUseTcp(useTcp)
-                    preferenceManager.setNetworkMode(mode)
-                    preferenceManager.setNetworkHost(host)
-                    preferenceManager.setNetworkHostFor(
-                        binder.ssid() ?: "", chosenPreset.key, host)
-                    preferenceManager.setNetworkPort(port)
-                    preferenceManager.setNetworkPortFor(chosenPreset.key, port)
-
-                    // Only from the preset that means it, and only over UDP —
-                    // switching the transport away from what the preset set is
-                    // choosing a different thing.
-                    val highLatency = chosenPreset.highLatency &&
-                        mode == NetworkDataPoller.MODE_UDP
-                    connectToNetwork(host, port, mode, highLatency)
-                }
-                .create())
     }
 
     /** Called when a link is started by hand: none of the previous one carries over. */
@@ -3725,25 +2007,16 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // A reconnect continues the same flight and does not come through
         // here; a connection asked for by hand starts a new altitude frame.
         juricabi.com.telemetry.gl.AltitudeFrame.forget()
-        detectedCells = 0
-        highestPackVoltage = 0f
-        cellsAsked = false
-        cellsAnswered = false
         // forgotten before the ground is started again, or it is started on the
         // flight that has just been thrown away
         forgetFlight()
         startFlightIn3D()
-        crsfSystem = null
-        // else the next link would redraw the old rate under its own table
-        lastRfMode = null
-        // and the row would name the last link until the new one had said two
-        // valid frames — long enough to read, and wrong. A reconnect does not
-        // come through here, so a link coming back keeps the name it earned.
+        // the fact and its rendering, each at its owner
         detectedProtocol = ""
-        protocolView.text = "-"
+        telemetryPanel.newLink()
     }
 
-    private fun connectToNetwork(host: String, port: Int, mode: Int,
+    internal fun connectToNetwork(host: String, port: Int, mode: Int,
                                  highLatency: Boolean = false) {
         clearCrsfSystem()
         // connect() clears this before the chooser opens, so every transport
@@ -3759,7 +2032,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // One message per five seconds against a ten second sensor window is
         // one dropped frame from greying out — widen it; and set it every
         // connect, so no ordinary link inherits the slack.
-        sensorTimeoutManager.setTimeoutWindow(
+        telemetryPanel.setTimeoutWindow(
             if (highLatency) SensorTimeoutManager.HIGH_LATENCY_TIMEOUT_MS
             else SensorTimeoutManager.DEFAULT_TIMEOUT_MS)
 
@@ -3783,9 +2056,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         terrain3D = null
         parked3D?.release()
         parked3D = null
-        tts?.shutdown()
-        tts = null
-        ttsReady = false
+        trafficWarnings?.shutdown()
+        trafficWarnings = null
         headingPolyline = null;
         polyLine = null;
         flightPlanLines.clear()
@@ -3835,15 +2107,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        askResolved()
+        permissionFunnel.resolved()
         if (grantResults.isEmpty()) {
             // an interrupted ask delivers no results at all; the camera ask
             // put a waiting half on screen that must not outlive its dialog
             if (requestCode == REQUEST_CAMERA_PERMISSION) {
-                juricabi.com.telemetry.utils.DebugLog.note(
-                    "Video", "camera permission ask interrupted"
-                )
-                hideVideo()
+                videoPane.onCameraAskInterrupted()
             }
             return
         }
@@ -3854,7 +2123,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                     // live-arrow setting and the 3D view are both honoured
                     showMyLocation()
                 } else {
-                    explainDeniedPermission(
+                    permissionFunnel.explainDenied(
                         "Location permission is needed in order to discover BLE devices and show your location on map",
                         permissions.firstOrNull()
                     )
@@ -3863,58 +2132,36 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                     when (requestWritePermissionSequence) {
                         RequestWritePermissionSequenceType.CONNECT -> connect()
-                        RequestWritePermissionSequenceType.DELETE -> showDeleteLogDialog()
+                        RequestWritePermissionSequenceType.DELETE -> logManager.showDeleteLogDialog()
                         RequestWritePermissionSequenceType.LOG_PICKER -> replay()
-                        RequestWritePermissionSequenceType.RENAME -> showRenameLogDialog()
-                        RequestWritePermissionSequenceType.EXPORT_GPX -> showExportGPXDialog()
-                        RequestWritePermissionSequenceType.EXPORT_KML -> showExportKMLDialog1()
+                        RequestWritePermissionSequenceType.RENAME -> logManager.showRenameLogDialog()
+                        RequestWritePermissionSequenceType.EXPORT_GPX -> logManager.showExportGPXDialog()
+                        RequestWritePermissionSequenceType.EXPORT_KML -> logManager.showExportKMLDialog1()
                         // nothing was waiting on the permission
                         RequestWritePermissionSequenceType.NONE -> {}
                     }
                     requestWritePermissionSequence = RequestWritePermissionSequenceType.NONE;
                 } else {
-                    explainDeniedPermission(
+                    permissionFunnel.explainDenied(
                         "Write permission is required in order to log telemetry data. Disable logging or grant permission to continue",
                         permissions.firstOrNull()
                     )
                 }
             } else if (requestCode == REQUEST_CAMERA_PERMISSION) {
-                if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    juricabi.com.telemetry.utils.DebugLog.note(
-                        "Video", "camera permission granted"
-                    )
-                    if (videoWanted && videoSource == null) startVideo()
-                } else {
-                    juricabi.com.telemetry.utils.DebugLog.note(
-                        "Video", "camera permission denied"
-                    )
-                    hideVideo()
-                    explainDeniedPermission(
+                if (!videoPane.onCameraPermission(
+                        grantResults[0] == PackageManager.PERMISSION_GRANTED)
+                ) {
+                    permissionFunnel.explainDenied(
                         "Camera permission is needed for a USB camera — " +
                             "Android refuses the USB device without it",
                         permissions.firstOrNull()
                     )
                 }
             } else if (requestCode == REQUEST_RECORD_AUDIO_PERMISSION) {
-                if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    juricabi.com.telemetry.utils.DebugLog.note(
-                        "Video", "record-audio permission granted"
-                    )
-                    // finish what the speaker tap or the start began, on the
-                    // source now running — if it still offers sound
-                    val source = videoSource
-                    if (source != null && source.hasAudio) {
-                        videoAudioOn = true
-                        videoSoundButton.imageAlpha = 255
-                        source.setAudio(true)
-                    }
-                } else {
-                    juricabi.com.telemetry.utils.DebugLog.note(
-                        "Video", "record-audio permission denied"
-                    )
-                    videoAudioOn = false
-                    videoSoundButton.imageAlpha = 128
-                    explainDeniedPermission(
+                if (!videoPane.onRecordAudioPermission(
+                        grantResults[0] == PackageManager.PERMISSION_GRANTED)
+                ) {
+                    permissionFunnel.explainDenied(
                         "Microphone permission lets the app play the USB " +
                             "receiver's own sound — the picture plays without it",
                         permissions.firstOrNull()
@@ -3924,7 +2171,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                     replay()
                 } else {
-                    explainDeniedPermission(
+                    permissionFunnel.explainDenied(
                         "Read permission is required in order to read and replay telemetry data",
                         permissions.firstOrNull()
                     )
@@ -3939,105 +2186,21 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      * that is impossible from inside the app. Exactly there, and only there,
      * the dialog grows a way to the one place the grant still lives.
      */
-    private fun explainDeniedPermission(message: String, permission: String?) {
-        val builder = AlertDialog.Builder(this)
-            .setMessage(message)
-            .setPositiveButton("OK", null)
-        if (permission != null &&
-            !ActivityCompat.shouldShowRequestPermissionRationale(this, permission)
-        ) {
-            builder.setNeutralButton("Open app settings") { _, _ ->
-                startActivity(
-                    Intent(
-                        android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                        Uri.fromParts("package", packageName, null)
-                    )
-                )
-            }
-        }
-        this.showDialog(builder.create())
-    }
-
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (logManager.onActivityResult(requestCode, resultCode, data)) return
         if (requestCode == REQUEST_ENABLE_BT && resultCode == Activity.RESULT_OK) {
-            connectBluetooth()
+            connectFlow.connectBluetooth()
         }
     }
 
-    override fun onVSpeedData(vspeed: Float) {
-        this.sensorTimeoutManager.onVSpeedData(vspeed);
-        runOnUiThread {
-            this.vspeed.text = "${"%.1f".format(vspeed)} m/s"
-        }
-    }
-
-    override fun onThrottleData(throttle: Int) {
-        this.sensorTimeoutManager.onThrottleData(throttle);
-        runOnUiThread {
-            this.throttle.text = throttle.toString();
-        }
-    }
-
-    private fun formatDistance(v: Float): String {
-        if (v < 1000) {
-            return "${"%.0f".format(v)} m"
-        } else {
-            return "${"%.2f".format(v / 1000)} km"
-        }
-    }
-
-    private fun formatHeight(v: Float): String {
-        if (v < -1000) {
-            return "${"%.1f".format(v / 1000)} km"
-        } else if (v < -10) {
-            return "${"%.0f".format(v)} m"
-        } else if (v < 0) {
-            return "${"%.1f".format(v)} m"
-        } else  if (v < 10) {
-            return "${"%.2f".format(v)} m"
-        } else if (v < 100) {
-            return "${"%.1f".format(v)} m"
-        } else if (v < 1000) {
-            return "${"%.0f".format(v)} m"
-        } else {
-            return "${"%.2f".format(v / 1000)} km"
-        }
-    }
-
-    override fun onAltitudeData(altitude: Float) {
+    // the panel hears these itself through the multicast; only the flight's
+    // own business is left here
+    private fun onAltitudeData(altitude: Float) {
         flightAltitude.onFallback(altitude)
-        this.sensorTimeoutManager.onAltitudeData(altitude);
-        showAltitude(altitude, false)
     }
 
-    /**
-     * The height on screen, written once however many arrive.
-     *
-     * Seeking a replay backwards replays the log from its beginning, and every
-     * height in it now comes through — which is what the flight needs. A screen
-     * only needs the last of them: posting each one across to the other thread
-     * to be laid out and drawn is thousands of pieces of work for one line of
-     * text, and it is felt as a rewind that drags.
-     */
-    @Volatile private var altitudeShown = Float.NaN
-    @Volatile private var altitudeMslShown = Float.NaN
-    @Volatile private var altitudePosted = false
-
-    private fun showAltitude(metres: Float, msl: Boolean) {
-        if (msl) altitudeMslShown = metres else altitudeShown = metres
-        if (altitudePosted) return
-        altitudePosted = true
-        runOnUiThread {
-            altitudePosted = false
-            if (!altitudeShown.isNaN()) this.altitude.text = formatHeight(altitudeShown)
-            if (!altitudeMslShown.isNaN()) this.altitude_msl.text = formatHeight(altitudeMslShown)
-        }
-    }
-
-    override fun onGPSAltitudeData(altitude: Float) {
-        this.sensorTimeoutManager.onGPSAltitudeData(altitude);
+    private fun onGPSAltitudeData(altitude: Float) {
         // raw: the height question judges the reported values, and lifting
         // its own input would beg it
         flightAltitude.onGps(altitude)
@@ -4052,24 +2215,17 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             if (gotArmedState && !isArmed) 0f
             else juricabi.com.telemetry.gl.AltitudeFrame
                 .lift(juricabi.com.telemetry.gl.AltitudeFrame.currentEpoch()) ?: 0f
-        showAltitude(altitude + lift, true)
+        telemetryPanel.showAltitude(altitude + lift, true)
     }
 
     /** How high the aircraft's home stands; only iNav over LTM says it. */
     @Volatile private var homeAltitudeMsl = Float.NaN
 
-    override fun onHomeData(latitude: Double, longitude: Double, altitudeMsl: Float) {
+    private fun onHomeData(latitude: Double, longitude: Double, altitudeMsl: Float) {
         homeAltitudeMsl = altitudeMsl
     }
 
-    override fun onDistanceData(distance: Int) {
-        this.sensorTimeoutManager.onDistanceData(distance)
-        runOnUiThread {
-            this.distance.text = this.formatDistance(distance.toFloat());
-        }
-    }
-
-    override fun onRollData(rollAngle: Float) {
+    private fun onRollData(rollAngle: Float) {
         lastRoll = rollAngle
         runOnUiThread {
             horizonView.setRoll(rollAngle)
@@ -4077,7 +2233,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
-    override fun onPitchData(pitchAngle: Float) {
+    private fun onPitchData(pitchAngle: Float) {
         lastPitch = pitchAngle
         runOnUiThread {
             horizonView.setPitch(pitchAngle)
@@ -4085,36 +2241,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
-    override fun onGSpeedData(speed: Float) {
-        this.sensorTimeoutManager.onGSpeedData(speed)
-        runOnUiThread {
-            this.speed.text = "${speed.roundToInt()} km/h"
-        }
-    }
-
-    override fun onAirSpeedData(speed: Float) {
-        this.sensorTimeoutManager.onAirSpeedData(speed)
-        runOnUiThread {
-            this.airspeed.text = "${speed.roundToInt()} km/h"
-        }
-    }
-
-    override fun onRCChannels(rcChannels: IntArray) {
-        this.sensorTimeoutManager.onRCChannels(rcChannels)
-        runOnUiThread {
-            this.rc_widget.setChannels(rcChannels)
-        }
-    }
-
-    override fun onStatusText(message: String) {
-        this.sensorTimeoutManager.onStatusText(message)
-        runOnUiThread {
-            this.statustext.text = message;
-        }
-    }
-
-    override fun onGPSState(satellites: Int, gpsFix: Boolean) {
-        this.sensorTimeoutManager.onGPSState(satellites, gpsFix)
+    private fun onGPSState(satellites: Int, gpsFix: Boolean) {
         runOnUiThread {
             // Nothing is feeding this screen, so this was decoded before the
             // link went and posted after: it belongs to a flight that has
@@ -4122,7 +2249,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             if (isIdle()) return@runOnUiThread
             this.hasGPSFix = gpsFix
             this.tryCreateMarker()
-            this.satellites.text = if (satellites == 99) "ES" else satellites.toString()
         }
     }
 
@@ -4306,7 +2432,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // that fired long ago and never comes again.
         if (adopted == null && logPlayer?.isPlaying() == true) {
             logPlayer?.stop()
-            replayWaitingForGround = true
+            replayHold.holdForGround()
         }
         view.onFollowingLost = { setFollowMode(false) }
         // The world belongs to whatever is alive: a link, or a replay, or —
@@ -4656,348 +2782,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         return map?.addPolyline(LineWeights.HEADING, preferenceManager.getHeadLineColor(), lastGPS, lastGPS)
     }
 
-    private fun setRSSIIcon(rssi: Int) {
-        when (rssi) {
-            in 81..100 -> R.drawable.ic_rssi_5
-            in 61..80 -> R.drawable.ic_rssi_4
-            in 41..69 -> R.drawable.ic_rssi_3
-            in 21..40 -> R.drawable.ic_rssi_2
-            in 1..20 -> R.drawable.ic_rssi_1
-            0 -> R.drawable.ic_rssi_0
-            else -> R.drawable.ic_rssi_5
-        }.let {
-            if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-                this.rssi.setCompoundDrawablesWithIntrinsicBounds(
-                    ContextCompat.getDrawable(
-                        this,
-                        it
-                    ), null, null, null
-                )
-            } else {
-                this.rssi.setCompoundDrawablesWithIntrinsicBounds(
-                    null,
-                    ContextCompat.getDrawable(this, it),
-                    null,
-                    null
-                )
-            }
-        }
-    }
-
-    private fun setUPLQIcon(lq: Int) {
-        when (lq) {
-            in 81..100 -> R.drawable.ic_up_lq_5
-            in 61..80 -> R.drawable.ic_up_lq_4
-            in 41..69 -> R.drawable.ic_up_lq_3
-            in 21..40 -> R.drawable.ic_up_lq_2
-            in 1..20 -> R.drawable.ic_up_lq_1
-            0 -> R.drawable.ic_up_lq_0
-            else -> R.drawable.ic_up_lq_5
-        }.let {
-            if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-                this.upLq.setCompoundDrawablesWithIntrinsicBounds(
-                    ContextCompat.getDrawable(
-                        this,
-                        it
-                    ), null, null, null
-                )
-            } else {
-                this.upLq.setCompoundDrawablesWithIntrinsicBounds(
-                    null,
-                    ContextCompat.getDrawable(this, it),
-                    null,
-                    null
-                )
-            }
-        }
-    }
-
-    private fun setDNLQIcon(lq: Int) {
-        when (lq) {
-            in 81..100 -> R.drawable.ic_dn_lq_5
-            in 61..80 -> R.drawable.ic_dn_lq_4
-            in 41..69 -> R.drawable.ic_dn_lq_3
-            in 21..40 -> R.drawable.ic_dn_lq_2
-            in 1..20 -> R.drawable.ic_dn_lq_1
-            0 -> R.drawable.ic_dn_lq_0
-            else -> R.drawable.ic_dn_lq_5
-        }.let {
-            if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-                this.dnLq.setCompoundDrawablesWithIntrinsicBounds(
-                    ContextCompat.getDrawable(
-                        this,
-                        it
-                    ), null, null, null
-                )
-            } else {
-                this.dnLq.setCompoundDrawablesWithIntrinsicBounds(
-                    null,
-                    ContextCompat.getDrawable(this, it),
-                    null,
-                    null
-                )
-            }
-        }
-    }
-
-    private fun setRssiDbm1Icon(rssi: Int) {
-        when (rssi) {
-            in -31..0 -> R.drawable.ic_rssi_dbm1_5
-            in -51..-30 -> R.drawable.ic_rssi_dbm1_4
-            in -71..-59 -> R.drawable.ic_rssi_dbm1_3
-            in -91..-70 -> R.drawable.ic_rssi_dbm1_2
-            in -120..-90 -> R.drawable.ic_rssi_dbm1_1
-            0 -> R.drawable.ic_rssi_dbm1_0
-            else -> R.drawable.ic_rssi_dbm1_5
-        }.let {
-            if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-                this.rssiDbm1.setCompoundDrawablesWithIntrinsicBounds(
-                    ContextCompat.getDrawable(
-                        this,
-                        it
-                    ), null, null, null
-                )
-            } else {
-                this.rssiDbm1.setCompoundDrawablesWithIntrinsicBounds(
-                    null,
-                    ContextCompat.getDrawable(this, it),
-                    null,
-                    null
-                )
-            }
-        }
-    }
-
-    private fun setRssiDbm2Icon(rssi: Int) {
-        when (rssi) {
-            in -31..0 -> R.drawable.ic_rssi_dbm2_5
-            in -51..-30 -> R.drawable.ic_rssi_dbm2_4
-            in -71..-50 -> R.drawable.ic_rssi_dbm2_3
-            in -91..-70 -> R.drawable.ic_rssi_dbm2_2
-            in -121..-90 -> R.drawable.ic_rssi_dbm2_1
-            0 -> R.drawable.ic_rssi_dbm2_0
-            else -> R.drawable.ic_rssi_dbm2_5
-        }.let {
-            if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-                this.rssiDbm2.setCompoundDrawablesWithIntrinsicBounds(
-                    ContextCompat.getDrawable(
-                        this,
-                        it
-                    ), null, null, null
-                )
-            } else {
-                this.rssiDbm2.setCompoundDrawablesWithIntrinsicBounds(
-                    null,
-                    ContextCompat.getDrawable(this, it),
-                    null,
-                    null
-                )
-            }
-        }
-    }
-
-    private fun setRssiDbmdIcon(rssi: Int) {
-        when (rssi) {
-            in -31..0 -> R.drawable.ic_rssi_dbmd_5
-            in -51..-30 -> R.drawable.ic_rssi_dbmd_4
-            in -71..50 -> R.drawable.ic_rssi_dbmd_3
-            in -91..-70 -> R.drawable.ic_rssi_dbmd_2
-            in -120..-90 -> R.drawable.ic_rssi_dbmd_1
-            0 -> R.drawable.ic_rssi_dbmd_0
-            else -> R.drawable.ic_rssi_dbmd_5
-        }.let {
-            if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-                this.rssiDbmd.setCompoundDrawablesWithIntrinsicBounds(
-                    ContextCompat.getDrawable(
-                        this,
-                        it
-                    ), null, null, null
-                )
-            } else {
-                this.rssiDbmd.setCompoundDrawablesWithIntrinsicBounds(
-                    null,
-                    ContextCompat.getDrawable(this, it),
-                    null,
-                    null
-                )
-            }
-        }
-    }
-
-    override fun onRSSIData(rssi: Int) {
-        this.sensorTimeoutManager.onRSSIData(rssi);
-
-        runOnUiThread {
-            this.rssi.text = if (rssi == -1) "-" else rssi.toString()
-            this.setRSSIIcon(rssi);
-        }
-    }
-
-    override fun onUpLqData(lq: Int) {
-        this.sensorTimeoutManager.onUpLqData(lq);
-
-        runOnUiThread {
-            this.upLq.text = if (lq == -1) "-" else lq.toString()
-            this.setUPLQIcon(lq);
-        }
-    }
-
-    override fun onDnLqData(lq: Int) {
-        this.sensorTimeoutManager.onDnLqData(lq);
-
-        runOnUiThread {
-            this.dnLq.text = if (lq == -1) "-" else lq.toString()
-            this.setDNLQIcon(lq);
-        }
-    }
-
-    override fun onRssiDbm1Data(rssi: Int) {
-        this.sensorTimeoutManager.onRssiDbm1Data(rssi);
-
-        runOnUiThread {
-            this.rssiDbm1.text = if (rssi == 0) "-" else rssi.toString()
-            this.setRssiDbm1Icon(rssi);
-        }
-    }
-
-    override fun onRssiDbm2Data(rssi: Int) {
-        this.sensorTimeoutManager.onRssiDbm2Data(rssi);
-
-        runOnUiThread {
-            this.rssiDbm2.text = if (rssi == 0) "-" else rssi.toString()
-            this.setRssiDbm2Icon(rssi);
-        }
-    }
-
-    override fun onRssiDbmdData(rssi: Int) {
-        this.sensorTimeoutManager.onRssiDbmdData(rssi);
-
-        runOnUiThread {
-            this.rssiDbmd.text = if (rssi == 0) "-" else rssi.toString()
-            this.setRssiDbmdIcon(rssi);
-        }
-    }
-
-    /**
-     * Which radio system is on the other end, learned from the name it reports
-     * in a CRSF DEVICE_INFO frame.
-     *
-     * It matters because rf_mode is a CRSF field that ExpressLRS, Crossfire and
-     * Tracer all send and all number differently: mode 2 is 50 Hz on ExpressLRS
-     * and 150 Hz on a Crossfire. Showing one system's table for another is not
-     * a cosmetic problem — it is the wrong number.
-     */
-    private var crsfSystem: String? = null
-
-    /**
-     * A manual fallback for the CRSF system, for links whose module name never
-     * identifies it — a Bluetooth telemetry mirror carries no device-name frame,
-     * so a Crossfire link is read under the ExpressLRS table. Long-press the rate
-     * tile to set it. A real name always wins over it, so a properly-identified
-     * link (WebSocket, USB) is never mislabelled by a stale override.
-     */
-    private var crsfSystemOverride: String? = null
-    private fun effectiveCrsfSystem(): String? = crsfSystem ?: crsfSystemOverride
-
-    override fun onDeviceName(name: String) {
-        val lower = name.lowercase(java.util.Locale.US)
-        val system = when {
-            lower.contains("tracer") -> "TRACER"
-            lower.contains("elrs") || lower.contains("expresslrs") -> "ELRS"
-            // TBS names its Crossfire hardware "XF ..." — "XF Micro TX", "XF WiFi"
-            lower.startsWith("xf ") || lower.contains("crossfire") -> "XF"
-            else -> null
-        }
-        if (system != null && system != crsfSystem) {
-            crsfSystem = system
-            // The name arrives after the link is already up, so a rate may
-            // already be on screen — under the wrong system's table and beside
-            // the wrong mark. Both are redone now that the system is known.
-            runOnUiThread {
-                applyRateIcon()
-                lastRfMode?.let { renderRate(it) }
-            }
-        }
-    }
-
-    /**
-     * Crossfire and Tracer RF modes, from ArduPilot's table: 4, 50, 150, 250 Hz.
-     * ExpressLRS keeps its own, longer list, which is what the labels below are.
-     */
-    private fun crossfireRate(mode: Int): String {
-        val rates = intArrayOf(4, 50, 150, 250)
-        return if (mode in rates.indices) rates[mode].toString() + "Hz" else mode.toString()
-    }
-
-    /**
-     * Long-press the rate tile to say which CRSF system the link is, for when the
-     * name never did — a Crossfire over Bluetooth reads under the ExpressLRS table
-     * otherwise, and mode 2 is 50 Hz there but 150 Hz on a Crossfire. Auto hands it
-     * back to the module name; the choice is remembered.
-     */
-    private fun showCrsfSystemDialog() {
-        val labels = arrayOf("Auto (from name)", "ExpressLRS", "Crossfire", "Tracer")
-        val values = arrayOf<String?>(null, "ELRS", "XF", "TRACER")
-        val current = values.indexOf(crsfSystemOverride).let { if (it < 0) 0 else it }
-        this.showDialog(
-            AlertDialog.Builder(this)
-                .setTitle("Rate system")
-                .setSingleChoiceItems(labels, current) { d, which ->
-                    crsfSystemOverride = values[which]
-                    getPreferences(Context.MODE_PRIVATE).edit()
-                        .putString("crsf_system", crsfSystemOverride).apply()
-                    applyRateIcon()
-                    lastRfMode?.let { renderRate(it) }
-                    d.dismiss()
-                }
-                .setNegativeButton("Cancel") { d, _ -> d.dismiss() }
-                .create()
-        )
-    }
-
-    override fun onElrsModeModeData(mode: Int) {
-        this.sensorTimeoutManager.onElrsModeModeData(mode);
-        lastRfMode = mode
-        runOnUiThread { renderRate(mode) }
-    }
-
-    /** The last RF mode seen, so the reading can be redrawn if the system changes. */
-    private var lastRfMode: Int? = null
-
-    private fun renderRate(mode: Int) {
-        if (detectedProtocol == "GHST") {
-            this.elrsRate.text = GHST_RF_PROFILES.getOrNull(mode) ?: mode.toString()
-            return
-        }
-        // A Crossfire or Tracer numbers these differently, so use its own table.
-        // The icon beside it is what says which system it is, so the number does
-        // not repeat it — there is little enough room on the bar as it is.
-        val system = effectiveCrsfSystem()
-        if (system == "XF" || system == "TRACER") {
-            this.elrsRate.text = crossfireRate(mode)
-            return
-        }
-        run {
-            when (mode) {
-                13 -> this.elrsRate.text = "F1000"
-                12 -> this.elrsRate.text = "F500"
-                11 -> this.elrsRate.text = "D500"
-                10 -> this.elrsRate.text = "D250"
-                9 -> this.elrsRate.text = "L500"
-                8 -> this.elrsRate.text = "L333c" //8ch
-                7 -> this.elrsRate.text = "L250"
-                6 -> this.elrsRate.text = "L200"
-                5 -> this.elrsRate.text = "L150"
-                4 -> this.elrsRate.text = "L100"
-                3 -> this.elrsRate.text = "L100c"  //8ch
-                2 -> this.elrsRate.text = "L50"
-                1 -> this.elrsRate.text = "L25"
-                0 -> this.elrsRate.text = "L4"
-                else -> this.elrsRate.text = mode.toString();
-            }
-        }
-    }
-
 
     private fun showMapTypeSelectorDialog() {
         val fDialogTitle = "Select Map Type"
@@ -5038,207 +2822,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         this.showDialog(fMapTypeDialog);
     }
 
-    override fun onVBATData(voltage: Float) {
-        this.sensorTimeoutManager.onVBATData(voltage);
-        runOnUiThread {
-            this.voltage.text = "${"%.2f".format(voltage)} V"
-        }
-    }
-
-    override fun onCellVoltageData(voltage: Float) {
-        this.lastCellVoltage = voltage;
-        runOnUiThread {
-            this.cell_voltage.text = "${"%.2f".format(voltage)} V"
-        }
-    }
-
-    // The reported value is either the whole pack or a single cell, depending on
-    // how the flight controller is set up (report_cell_voltage). Work out the
-    // other one from the cell count, which is either set by hand or taken from
-    // the first sensible pack reading.
-    /**
-     * How many cells the pack has, when the flight controller reports the whole
-     * pack and the setting is left on Auto.
-     *
-     * One reading cannot always settle this: 21.0V is a full 5S or a half used
-     * 6S, and both are ordinary. So the best guess is made and shown straight
-     * away, and where two sizes people actually fly are both plausible, the
-     * question is put to the one person who knows — once, without stopping
-     * anything, with the safer of the two in use until it is answered.
-     */
-    private fun cellCount(packVoltage: Float): Int {
-        val setting = preferenceManager.getBatteryCells()
-        if (setting != "auto") {
-            return setting.toIntOrNull() ?: 1
-        }
-
-        // Deliberately nothing here that revisits the count when the volts per
-        // cell look too low. That would fire on the one reading which must
-        // never lie: a pack being run into the ground. A 6S at 2.4V a cell is
-        // 14.4V, which on its own looks like a 4S and would then read a healthy
-        // 3.60V a cell on a battery destroying itself. Holding the count keeps
-        // the number falling, which is the truth.
-        //
-        // The cost is a smaller pack fitted without reconnecting: the count
-        // stays high, the reading reads low, which is visible and harmless, and
-        // connecting again clears it.
-        if (cellsAnswered) return detectedCells
-
-        if (packVoltage > 2f && packVoltage > highestPackVoltage) {
-            highestPackVoltage = packVoltage
-
-            // Sizes that would make this a plausible pack as connected. The top
-            // of the range is where 4.35V belongs — the most a cell can hold,
-            // and exactly what a high voltage cell is charged to, so a hair
-            // above it keeps LiHV packs on the right count instead of one too
-            // many. As a *divisor* that same 4.35 is what read a 6S at 3.6V a
-            // cell as a fully charged 5S.
-            //
-            // Rare sizes are left out so their neighbours do not muddy the
-            // question; they can still be set by hand.
-            val plausible = intArrayOf(1, 2, 3, 4, 5, 6, 8, 12, 16)
-                .filter { packVoltage / it in 3.5f..4.4f }
-
-            if (plausible.size > 1) {
-                // The larger count reads lower volts per cell, which is the safe
-                // way to be wrong while waiting for an answer.
-                val safest = plausible.max() ?: plausible[0]
-                if (safest > detectedCells) detectedCells = safest
-                if (!cellsAsked && logPlayer == null) {
-                    cellsAsked = true
-                    askCellCount(packVoltage, plausible)
-                }
-            } else if (plausible.size == 1) {
-                if (plausible[0] > detectedCells) detectedCells = plausible[0]
-            } else {
-                // Nothing plausible: the pack is well used, or these are high
-                // voltage cells. Divide by the most a cell can hold and round up
-                // to a real size — erring towards more cells, and so towards a
-                // lower reading.
-                var cells = Math.ceil((packVoltage / 4.25f).toDouble()).toInt()
-                for (common in intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16)) {
-                    if (common >= cells) {
-                        cells = common
-                        break
-                    }
-                }
-                if (cells < 1) cells = 1
-                if (cells > 16) cells = 16
-                if (cells > detectedCells) detectedCells = cells
-            }
-        }
-        return if (detectedCells > 0) detectedCells else 1
-    }
-
-    private fun askCellCount(packVoltage: Float, options: List<Int>) {
-        val labels = options
-            .map { it.toString() + "S — " + "%.2f".format(packVoltage / it) + " V per cell" }
-            .toTypedArray()
-        // The title carries the voltage rather than a message: an AlertDialog
-        // shows either a message or a list, never both, and the message won —
-        // so the dialog appeared with nothing in it to choose.
-        this.showDialog(
-            AlertDialog.Builder(this)
-                .setTitle("%.1f".format(packVoltage) + " V — which battery?")
-                .setItems(labels) { d, which ->
-                    detectedCells = options[which]
-                    cellsAnswered = true
-                    d.dismiss()
-                }
-                .create()
-        )
-    }
-
-    override fun onVBATOrCellData(voltage: Float) {
-        runOnUiThread {
-            if (preferenceManager.getReportVoltage() == "Battery") {
-                // reported value is the pack
-                this.sensorTimeoutManager.onVBATData(voltage)
-                this.voltage.text = "${"%.2f".format(voltage)} V"
-
-                val cells = cellCount(voltage)
-                if (cells > 0) {
-                    val perCell = voltage / cells
-                    this.sensorTimeoutManager.onCellVoltageData(perCell)
-                    this.cell_voltage.text = "${"%.2f".format(perCell)} V"
-                    this.lastCellVoltage = perCell
-                }
-            } else {
-                // reported value is one cell
-                this.sensorTimeoutManager.onCellVoltageData(voltage)
-                this.cell_voltage.text = "${"%.2f".format(voltage)} V"
-                this.lastCellVoltage = voltage
-
-                // The pack figure is only shown when the user has said how many
-                // cells there are, because multiplying by a guessed count would
-                // be inventing a number. Without this the voltage widget — the
-                // one on screen by default — simply stayed blank for anyone
-                // whose flight controller reports per cell.
-                val setting = preferenceManager.getBatteryCells()
-                val cells = if (setting == "auto") 0 else (setting.toIntOrNull() ?: 0)
-                if (cells > 0) {
-                    val pack = voltage * cells
-                    this.sensorTimeoutManager.onVBATData(pack)
-                    this.voltage.text = "${"%.2f".format(pack)} V"
-                }
-            }
-        }
-    }
-
-    override fun onCurrentData(current: Float) {
-        this.sensorTimeoutManager.onCurrentData(current)
-        runOnUiThread {
-            this.current.text = "${"%.2f".format(current)} A"
-        }
-    }
-
-    override fun onDNSNRData(snr: Int) {
-        this.sensorTimeoutManager.onDNSNRData(snr);
-        runOnUiThread {
-            this.dnSnr.text = snr.toString();
-        }
-    }
-
-    override fun onUPSNRData(snr: Int) {
-        this.sensorTimeoutManager.onUPSNRData(snr);
-        runOnUiThread {
-            this.upSnr.text = snr.toString();
-        }
-    }
-
-    override fun onAntData(activeAntena: Int) {
-        this.sensorTimeoutManager.onAntData(activeAntena);
-        runOnUiThread {
-            this.ant.text = (activeAntena + 1).toString();
-        }
-    }
-
-    override fun onPowerData(power: Int) {
-        this.sensorTimeoutManager.onPowerData(power);
-        if (detectedProtocol == "GHST") {
-            // Ghost reports the power in mW and uses levels the CRSF table does not have
-            runOnUiThread {
-                this.power.text =
-                    if (power >= 1000 && power % 1000 == 0) "${power / 1000}W" else "${power}mW"
-            }
-            return
-        }
-        runOnUiThread {
-            when (power) {
-                1 -> this.power.text = "10mW"
-                2 -> this.power.text = "25mW"
-                3 -> this.power.text = "100mW"
-                4 -> this.power.text = "500mW"
-                5 -> this.power.text = "1W"
-                6 -> this.power.text = "2W"
-                7 -> this.power.text = "250mW"
-                8 -> this.power.text = "50mW"
-                else -> this.power.text = power.toString();
-            }
-        }
-    }
-
-    override fun onHeadingData(heading: Float) {
+    private fun onHeadingData(heading: Float) {
         gotHeading = true;
         modelHeadingKnown = true
         lastHeading = heading
@@ -5291,7 +2875,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
-    override fun onDisconnected() {
+    private fun onDisconnected() {
         runOnUiThread {
             Toast.makeText(this, "Disconnected", Toast.LENGTH_SHORT).show()
             val asked = disconnectAsked
@@ -5413,8 +2997,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             closeReplay()
             switchToIdleState()
         }
-        this.sensorTimeoutManager.disableTimeouts()
-        this.tlmRate.setAlpha(0.5f);
+        this.telemetryPanel.enterReplay()
         lastGPS = Position(0.0, 0.0);
         hasGPSFix = false;
     }
@@ -5440,12 +3023,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         connectButton.setOnClickListener {
             connect()
         }
-        this.sensorTimeoutManager.enableTimeouts()
-        // a high-latency link widened this; whatever connects next starts
-        // from the ordinary window
-        this.sensorTimeoutManager.setTimeoutWindow(
-            SensorTimeoutManager.DEFAULT_TIMEOUT_MS)
-        this.tlmRate.setAlpha(1.0f);
+        this.telemetryPanel.leaveReplay()
         // The model and the flight both stay. A link that drops leaves the last
         // place the model was seen on the screen, which is the one thing worth
         // having at that moment. Closing a replay is the other case, and that
@@ -5461,9 +3039,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
      */
     /** Let a held replay run, now that there is something to run it over. */
     private fun releaseHeldReplay() {
-        if (!replayWaitingForGround) return
-        replayWaitingForGround = false
-        logPlayer?.startPlayback()
+        if (replayHold.releaseForGround()) logPlayer?.startPlayback()
     }
 
     internal fun closeReplay() {
@@ -5473,10 +3049,8 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         // still officially open, which left it off
         replayFileString = null
         // A replay held back for ground it never got is owed nothing once it
-        // has been closed. Left set, the hold outlived the replay that asked
-        // for it: the next log to be opened was started — or, having played to
-        // its end, started again — by ground arriving for something else.
-        replayWaitingForGround = false
+        // has been closed.
+        replayHold.clear()
         forgetOperator()
         juricabi.com.telemetry.gl.AltitudeFrame.forget()
         // The whole of it: a recording that has been closed leaves nothing
@@ -5648,7 +3222,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         menuButton.hide()
         connectButton.text = getString(R.string.disconnect)
         connectButton.isEnabled = true
-        mode.text = "Connected"
+        telemetryPanel.showConnected()
         connectButton.setOnClickListener {
             connectButton.isEnabled = false
             connectButton.text = getString(R.string.disconnecting)
@@ -5661,11 +3235,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
-    override fun onConnectionFailed() {
+    private fun onConnectionFailed() {
         runOnUiThread {
             Toast.makeText(this, "Connection failed", Toast.LENGTH_SHORT).show()
             connectButton.text = getString(R.string.connect)
-            mode.text = "Disconnected"
+            telemetryPanel.showDisconnected()
             connectButton.isEnabled = true
             connectButton.setOnClickListener {
                 connect()
@@ -5680,82 +3254,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
-    private fun setFuelIcon(percentage: Int) {
-        when (percentage) {
-            in 91..100 -> R.drawable.ic_battery_full
-            in 81..90 -> R.drawable.ic_battery_90
-            in 61..80 -> R.drawable.ic_battery_80
-            in 51..60 -> R.drawable.ic_battery_60
-            in 31..50 -> R.drawable.ic_battery_50
-            in 21..30 -> R.drawable.ic_battery_30
-            in 0..20 -> R.drawable.ic_battery_alert
-            else -> R.drawable.ic_battery_unknown
-        }.let {
-            if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-                this.fuel.setCompoundDrawablesWithIntrinsicBounds(
-                    ContextCompat.getDrawable(this, it),
-                    null,
-                    null,
-                    null
-                )
-            } else {
-                this.fuel.setCompoundDrawablesWithIntrinsicBounds(
-                    null,
-                    ContextCompat.getDrawable(this, it),
-                    null,
-                    null
-                )
-            }
-        }
-    }
-
-    private fun formatPower(v: Int, suffix: String): String {
-        if (v < 1000) {
-            return "$v $suffix"
-        } else {
-            if (suffix == "mAh") {
-                return "${"%.2f".format(v / 1000f)} Ah"
-            } else {
-                return "${"%.2f".format(v / 1000f)} Wh"
-            }
-        }
-    }
-
-    override fun onFuelData(fuel: Int) {
-        this.sensorTimeoutManager.onFuelData(fuel)
-        runOnUiThread {
-            val batteryUnits = preferenceManager.getBatteryUnits()
-            var percentage = fuel
-
-            when (batteryUnits) {
-                "mAh", "mWh" -> {
-                    this.fuel.text = this.formatPower(fuel, batteryUnits)
-                    //for icon, calculate percentage from cell voltage if available
-                    if ((lastCellVoltage > 0) && (lastCellVoltage <= 4.4)) {
-                        percentage = ((1 - (4.2f - lastCellVoltage)).coerceIn(0f, 1f) * 100).toInt()
-                    } else {
-                        percentage = -1;  //unknnow icon
-                    }
-                }
-                "Percentage" -> {
-                    this.fuel.text = "$fuel%"
-                }
-            }
-
-            this.setFuelIcon(percentage);
-        }
-    }
-
-
-    override fun onTelemetryByte() {
-        this.sensorTimeoutManager.onTelemetryByte()
-    }
-
-    override fun onSuccessDecode() {
-        this.sensorTimeoutManager.onSuccessDecode()
-    }
-
-    override fun onDecoderRestart() {
+    private fun onDecoderRestart() {
         // A fresh decoder reaches here two ways: a replay run to its end and
         // started again, which wants the old flight cleared before it re-runs;
         // and a live link (re)connecting. The live case needs no clear here — a
@@ -5769,62 +3268,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
-    /**
-     * The mark shown beside the rate: whose numbering the reading follows.
-     *
-     * GHST and ExpressLRS already had one each. A Crossfire needs its own,
-     * because the same mode number means a different rate on each system and
-     * the icon is the fastest way to see which table is in use.
-     */
-    private fun rateIconRes(): Int {
-        val system = effectiveCrsfSystem()
-        return when {
-            detectedProtocol == "GHST" -> R.drawable.ic_ghst_rate
-            system == "XF" || system == "TRACER" -> R.drawable.ic_xf_rate
-            else -> R.drawable.ic_elrs_rate
-        }
-    }
-
-    private fun applyRateIcon() {
-        val icon = androidx.core.content.ContextCompat.getDrawable(this, rateIconRes())
-        if (this.elrsRate.compoundDrawablesRelative[1] != null) {
-            this.elrsRate.setCompoundDrawablesRelativeWithIntrinsicBounds(null, icon, null, null)
-        } else {
-            this.elrsRate.setCompoundDrawablesRelativeWithIntrinsicBounds(icon, null, null, null)
-        }
-    }
-
-    override fun onProtocolDetected( protocolName: String) {
-        // Said out loud only when the answer changes: a log says one thing as
-        // it loads and its decoder may say a longer one later, and a seek
-        // asks the whole question again.
-        val changed = protocolName != detectedProtocol
-        detectedProtocol = protocolName
-        runOnUiThread {
-            // what the link turned out to speak, in the row with the rest
-            // of what it is saying
-            protocolView.text =
-                juricabi.com.telemetry.protocol.ProtocolFactory.shortNameOf(protocolName)
-            run {
-                // keep the icon on the side the current layout puts it on
-                val icon = androidx.core.content.ContextCompat.getDrawable(this, rateIconRes())
-                if (this.elrsRate.compoundDrawablesRelative[1] != null) {
-                    this.elrsRate.setCompoundDrawablesRelativeWithIntrinsicBounds(
-                        null, icon, null, null
-                    )
-                } else {
-                    this.elrsRate.setCompoundDrawablesRelativeWithIntrinsicBounds(
-                        icon, null, null, null
-                    )
-                }
-            }
-            if (changed) {
-                Toast.makeText(this, "Protocol: $protocolName", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    override fun commit() {
+    private fun commit() {
         runOnUiThread {
             drawGathered()
             commitRouteLinePoints()
@@ -5904,8 +3348,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         if (!timeVisualBatch) settlePausedReplaySeek(last)
     }
 
-    override fun onGPSData(list: List<Position>, addToEnd: Boolean) {
-        this.sensorTimeoutManager.onGPSData(list, addToEnd);
+    private fun onGPSData(list: List<Position>, addToEnd: Boolean) {
         runOnUiThread {
             // A link and a replay are the only two things that produce these.
             // With neither running, this one was decoded before the link went
@@ -5945,8 +3388,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
-    override fun onGPSData(latitude: Double, longitude: Double) {
-        this.sensorTimeoutManager.onGPSData(latitude, longitude);
+    private fun onGPSData(latitude: Double, longitude: Double) {
         runOnUiThread {
             // on every fix, not only a moved one: a quad on the ground repeats
             // its position, and the retry below would never come round again
@@ -6017,8 +3459,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                         publishedVisualTrack.add(lastGPS)
                     }
                     this.lastTraveledDistance += d
-                    this.traveled_distance.text =
-                        this.formatDistance(this.lastTraveledDistance.toFloat());
+                    this.telemetryPanel.showTraveledDistance(this.lastTraveledDistance)
                     // and the sky measures from the model only where the model
                     // is believed. A receiver reports the place it remembers
                     // while it looks for satellites, which is why nothing else
@@ -6033,7 +3474,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
     }
 
-    override fun onConnected() {
+    private fun onConnected() {
         runOnUiThread {
             reconnectionStartTime = 0L;
             // A link is up, so no reconnect is owed; it re-arms on the next
@@ -6043,7 +3484,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             Toast.makeText(this, "Connected!", Toast.LENGTH_SHORT).show()
             switchToConnectedState()
             this.lastTraveledDistance = 0.0;
-            this.traveled_distance.text = "-"
+            this.telemetryPanel.showNoTraveledDistance()
             this.lastGPS = Position(0.0, 0.0);
             this.hasGPSFix = false;
 
@@ -6079,7 +3520,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
     }
 
     private fun updatePhoneBattery() {
-        this.phoneBattery.text = "$lastPhoneBattery%"
+        this.telemetryPanel.showPhoneBattery(lastPhoneBattery)
     }
 
     /**
@@ -6192,11 +3633,11 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         }
         view.findViewById<View>(R.id.playback_gpx).setOnClickListener {
             dialog.dismiss()
-            showExportGPXDialog()
+            logManager.showExportGPXDialog()
         }
         view.findViewById<View>(R.id.playback_kml).setOnClickListener {
             dialog.dismiss()
-            showExportKMLDialog1()
+            logManager.showExportKMLDialog1()
         }
         showDialog(dialog)
     }
@@ -6268,116 +3709,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
                 else -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             }
         } catch (e: Exception) {
-        }
-    }
-
-    //SensorTimeoutListener
-    private fun updateSetSensorGrayed(sensorId: Int) {
-        var alpha = 1f;
-        if (this.sensorTimeoutManager.getSensorTimeout(sensorId)) alpha = 0.5f;
-        when (sensorId) {
-            SensorTimeoutManager.SENSOR_GPS -> {
-                this.satellites.setAlpha(alpha);
-                this.traveled_distance.setAlpha(alpha);
-            }
-            SensorTimeoutManager.SENSOR_DISTANCE -> {
-                this.distance.setAlpha(alpha);
-            }
-            SensorTimeoutManager.SENSOR_ALTITUDE -> {
-                this.altitude.setAlpha(alpha);
-            }
-            SensorTimeoutManager.SENSOR_GPS_ALTITUDE -> {
-                this.altitude_msl.setAlpha(alpha);
-            }
-            SensorTimeoutManager.SENSOR_RSSI -> {
-                this.rssi.setAlpha(alpha);
-            }
-            SensorTimeoutManager.SENSOR_UP_LQ -> {
-                this.upLq.setAlpha(alpha);
-            }
-            SensorTimeoutManager.SENSOR_DN_LQ -> {
-                this.dnLq.setAlpha(alpha);
-            }
-            SensorTimeoutManager.SENSOR_ELRS_MODE -> {
-                this.elrsRate.setAlpha(alpha);
-            }
-            SensorTimeoutManager.SENSOR_VOLTAGE -> {
-                this.voltage.setAlpha(alpha);
-            }
-            SensorTimeoutManager.SENSOR_CELL_VOLTAGE -> {
-                this.cell_voltage.setAlpha(alpha);
-            }
-            SensorTimeoutManager.SENSOR_CURRENT -> {
-                this.current.setAlpha(alpha);
-            }
-            SensorTimeoutManager.SENSOR_SPEED -> {
-                this.speed.setAlpha(alpha);
-            }
-            SensorTimeoutManager.SENSOR_AIRSPEED -> {
-                this.airspeed.setAlpha(alpha);
-            }
-            SensorTimeoutManager.SENSOR_VSPEED -> {
-                this.vspeed.setAlpha(alpha);
-            }
-            SensorTimeoutManager.SENSOR_THROTTLE -> {
-                this.throttle.setAlpha(alpha);
-            }
-            SensorTimeoutManager.SENSOR_FUEL -> {
-                this.fuel.setAlpha(alpha);
-            }
-            SensorTimeoutManager.SENSOR_RC_CHANNELS -> {
-                this.rc_widget.setAlpha(alpha);
-            }
-            SensorTimeoutManager.SENSOR_STATUSTEXT -> {
-                if (this.sensorTimeoutManager.getSensorTimeout(sensorId)) {
-                    this.statustext.text = "";
-                }
-            }
-            SensorTimeoutManager.SENSOR_DN_SNR -> {
-                this.dnSnr.setAlpha(alpha);
-            }
-            SensorTimeoutManager.SENSOR_UP_SNR -> {
-                this.upSnr.setAlpha(alpha);
-            }
-            SensorTimeoutManager.SENSOR_ANT -> {
-                this.ant.setAlpha(alpha);
-            }
-            SensorTimeoutManager.SENSOR_POWER -> {
-                this.power.setAlpha(alpha);
-            }
-            SensorTimeoutManager.SENSOR_RSSI_DBM_1 -> {
-                this.rssiDbm1.setAlpha(alpha);
-            }
-            SensorTimeoutManager.SENSOR_RSSI_DBM_2 -> {
-                this.rssiDbm2.setAlpha(alpha);
-            }
-            SensorTimeoutManager.SENSOR_RSSI_DBM_D -> {
-                this.rssiDbmd.setAlpha(alpha);
-            }
-        }
-    }
-
-    //SensorTimeoutListener
-    override fun onSensorTimeout(sensorId: Int) {
-        runOnUiThread {
-            this.updateSetSensorGrayed(sensorId);
-        }
-    }
-
-    //SensorTimeoutListener
-    override fun onSensorData(sensorId: Int) {
-        runOnUiThread {
-            this.updateSetSensorGrayed(sensorId);
-        }
-    }
-
-    override fun onTelemetryRate(rate: Int) {
-        runOnUiThread {
-            if (rate < 1000) {
-                this.tlmRate.text = "${rate} b/s"
-            } else {
-                this.tlmRate.text = "${"%.1f".format(rate / 1000f)} kb/s"
-            }
         }
     }
 
@@ -6807,219 +4138,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         polyLine?.commitPoints()
     }
 
-    fun showRenameLogDialog(fileName: String? = null) {
-        if (!requestWritePermission(RequestWritePermissionSequenceType.RENAME)) return;
-
-        val currentFileName = fileName ?: replayFileString ?: "";
-        val dot = currentFileName.lastIndexOf('.')
-        val extension = if (dot > 0) currentFileName.substring(dot) else ""
-        val editText = EditText(this)
-        editText.setText(if (dot > 0) currentFileName.substring(0, dot) else currentFileName)
-        editText.setSelection(editText.text.length)
-        // One line, and not endless: the name is a file's, shown in a row that
-        // ellipsizes, so a runaway name serves nobody.
-        editText.isSingleLine = true
-        editText.filters = arrayOf(InputFilter.LengthFilter(60))
-        // In a padded frame, so the field — and the line beneath it — is inset
-        // from the dialog's edges instead of running the whole width.
-        val d = resources.displayMetrics.density
-        val frame = FrameLayout(this).apply {
-            setPadding((20 * d).toInt(), (8 * d).toInt(), (20 * d).toInt(), 0)
-            addView(
-                editText,
-                FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.WRAP_CONTENT
-                )
-            )
-        }
-
-        this.showDialog( AlertDialog.Builder(this)
-        .setTitle("Rename Log")
-        .setView(frame)
-        .setPositiveButton("Rename") { dialog: DialogInterface, which: Int ->
-            val typed = editText.text.toString().trim()
-            if (typed.isEmpty()) {
-                Toast.makeText(this, "Name cannot be empty", Toast.LENGTH_SHORT).show()
-            } else {
-                renameLog(currentFileName, typed + extension)
-            }
-            dialog.dismiss()
-        }
-        .setNegativeButton("Cancel") { dialog: DialogInterface, which: Int ->
-            dialog.dismiss()
-        }.create())
-    }
-
-    private fun renameLog(currentFileName: String, newFileName: String) {
-        val currentFile = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), currentFileName)
-        val newFile = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), newFileName)
-
-        // renameTo replaces the destination silently — refuse a name another
-        // recording already holds rather than delete that flight.
-        if (newFileName != currentFileName && newFile.exists()) {
-            Toast.makeText(this, "A log named that already exists.", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        if (currentFile.renameTo(newFile)) {
-            Toast.makeText(this, "Log renamed successfully.", Toast.LENGTH_SHORT).show()
-
-            val csvCurrentFileName = replaceExtension( currentFileName, ".csv")
-            val csvNewFileName = replaceExtension( newFileName, ".csv")
-            val csvCurrentFile = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), csvCurrentFileName)
-            val csvNewFile = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), csvNewFileName)
-            csvCurrentFile.renameTo(csvNewFile)
-
-            if (currentFileName == replayFileString) {
-                replayFileString = newFileName;
-            }
-            // The bold marks the last flight opened. This is not it under a new
-            // name — it was never opened as this — so drop the mark rather than
-            // leave it pointing at a name that is gone.
-            if (currentFileName == lastFileDialogSelection) {
-                lastFileDialogSelection = ""
-            }
-        } else {
-            Toast.makeText(this, "Failed to rename log.", Toast.LENGTH_SHORT).show()
-        }
-        // If the manager opened this rename, refresh it in place (select mode kept,
-        // nothing marked); a no-op when the rename came from the replay screen.
-        logManager.filesChanged()
-    }
-
-
-    fun showDeleteLogDialog(fileName: String? = null) {
-        if (!requestWritePermission(RequestWritePermissionSequenceType.DELETE)) return;
-
-        val target = fileName ?: replayFileString ?: ""
-        this.showDialog( AlertDialog.Builder(this)
-        .setTitle("Delete Log")
-        .setMessage("Delete " + target + "?")
-        .setPositiveButton("Delete") { dialog: DialogInterface, which: Int ->
-            deleteLog(target)
-            dialog.dismiss()
-        }
-        .setNegativeButton("Cancel") { dialog: DialogInterface, which: Int ->
-            dialog.dismiss()
-        }.create())
-    }
-
-    fun deleteLog(fileName: String)
-    {
-        val currentFile = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), fileName)
-
-        if (currentFile.delete()) {
-            Toast.makeText(this, "Log deleted successfully.", Toast.LENGTH_SHORT).show()
-
-            val csvFileName = replaceExtension( fileName, ".csv")
-            val currentFileCSV = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), csvFileName)
-            currentFileCSV.delete();
-
-            if (fileName == replayFileString) {
-                // the log being replayed has just been deleted, so the replay
-                // ends the same way as closing it — in that order too, or the
-                // idle switch asks whether this is still a replay while it
-                // still is, and leaves the sky switched off behind it
-                closeReplay()
-                switchToIdleState()
-            }
-        } else {
-            Toast.makeText(this, "Failed to delete log.", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    fun replaceExtension(fileName: String, newExtension : String): String {
-        val extensionSeparatorIndex = fileName.lastIndexOf(".")
-        if (extensionSeparatorIndex != -1) {
-            val nameWithoutExtension = fileName.substring(0, extensionSeparatorIndex)
-            return nameWithoutExtension + newExtension
-        }
-        return fileName
-    }
-
-    fun showExportGPXDialog() {
-        this.logPlayer?.stop();
-        if (!requestWritePermission(RequestWritePermissionSequenceType.EXPORT_GPX)) return;
-
-        val editText = EditText(this)
-        editText.setText(this.logPlayer?.launchPointMSLAltitude.toString())
-        editText.inputType = InputType.TYPE_CLASS_NUMBER
-        editText.filters = arrayOf(InputFilter.LengthFilter(10)) // Set maximum input length, if needed
-        editText.setSelection(editText.text.length)
-
-        this.showDialog(AlertDialog.Builder(this)
-        .setTitle("Enter launch point MSL altitude, m:")
-        .setView(editText)
-        .setPositiveButton("OK") { dialog: DialogInterface, which: Int ->
-            val enteredNumber = editText.text.toString().toFloatOrNull()
-            if (enteredNumber != null) {
-                val fileName = replaceExtension( replayFileString?:"", ".gpx")
-                this.logPlayer?.exportGPX(fileName, enteredNumber)
-                Toast.makeText(this, fileName + " saved", Toast.LENGTH_SHORT).show()
-            }
-            dialog.dismiss()
-        }
-        .setNegativeButton("Cancel") { dialog: DialogInterface, which: Int ->
-            dialog.dismiss()
-        }.create())
-    }
-
-    fun showExportKMLDialog1() {
-        this.logPlayer?.stop();
-        if (!requestWritePermission(RequestWritePermissionSequenceType.EXPORT_KML)) return;
-
-        val option1 = "Clamp to ground";
-        val option2 = "Relative to ground";
-        val option3 = "MSL";
-        val options = arrayOf(option1, option2, option3)
-
-        val fileName = replaceExtension( replayFileString?:"", ".kml")
-
-        this.showDialog( AlertDialog.Builder(this)
-        .setTitle("Select altitude mode:")
-        .setItems(options) { dialog: DialogInterface, which: Int ->
-            val selectedOption = options[which]
-            when (selectedOption) {
-                option1 -> {
-                    this.logPlayer?.exportKML(fileName, 0.0f, "clampToGround" )
-                    Toast.makeText(this, fileName + " saved", Toast.LENGTH_SHORT).show()
-                }
-                option2 -> {
-                    this.showExportKMLDialog2(fileName, "relativeToGround","Adjust track altitude, m:", 0)
-                }
-                option3 -> {
-                    this.showExportKMLDialog2(fileName, "absolute","Enter launch point MSL altitude, m:", this.logPlayer?.launchPointMSLAltitude?:0)
-                }
-            }
-            dialog.dismiss()
-        }.create())
-    }
-
-    fun showExportKMLDialog2(fileName: String, altitudeMode: String, requestText: String, defaultValue: Int) {
-        val editText = EditText(this)
-        editText.setText(defaultValue.toString())
-        editText.inputType = InputType.TYPE_CLASS_NUMBER
-        editText.filters = arrayOf(InputFilter.LengthFilter(10)) // Set maximum input length, if needed
-        editText.setSelection(editText.text.length)
-
-        this.showDialog( AlertDialog.Builder(this)
-        .setTitle(requestText)
-        .setView(editText)
-        .setPositiveButton("OK") { dialog: DialogInterface, which: Int ->
-            val enteredNumber = editText.text.toString().toFloatOrNull()
-            if (enteredNumber != null) {
-                this.logPlayer?.exportKML(fileName, enteredNumber,altitudeMode)
-                Toast.makeText(this, fileName + " saved", Toast.LENGTH_SHORT).show()
-            }
-            dialog.dismiss()
-        }
-        .setNegativeButton("Cancel") { dialog: DialogInterface, which: Int ->
-            dialog.dismiss()
-        }.create())
-    }
-
-
     fun requestWritePermission(seq: RequestWritePermissionSequenceType): Boolean {
         if (ContextCompat.checkSelfPermission(
                 this,
@@ -7027,7 +4145,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
             ) == PackageManager.PERMISSION_DENIED
         ) {
             requestWritePermissionSequence = seq;
-            askPermission(
+            permissionFunnel.ask(
                 android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
                 REQUEST_WRITE_PERMISSION
             )
@@ -7080,56 +4198,19 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         fr24Manager?.stop()
         fr24Manager = null
         if (!clear) return
-        airplaneMarkers.values.forEach { it.remove() }
-        airplaneMarkers.clear()
-        // The ground view's posts and the list they are rebuilt from. Without
-        // this a replay opened from the 3D view kept this afternoon's airliners
-        // standing over last month's flight — the map had cleared its own, and
-        // a view built later put them back from the list.
+        // Both views, and the list they are rebuilt from. Without the list a
+        // replay opened from the 3D view kept this afternoon's airliners
+        // standing over last month's flight — a view built later put them
+        // back from it.
         lastAirplanes = emptyList()
-        terrain3D?.setTraffic(emptyList())
+        flightOverlays.clearTraffic()
     }
 
     private var lastAirplanes: List<Fr24Manager.AirplaneInfo> = emptyList()
 
     override fun onAirplanesUpdated(airplanes: List<Fr24Manager.AirplaneInfo>) {
         lastAirplanes = airplanes
-        runOnUiThread { terrain3D?.setTraffic(airplanes) }
-        juricabi.com.telemetry.utils.DebugLog.note("Fr24",
-            "update: ${airplanes.size} aircraft, markers=${airplaneMarkers.size}, " +
-            "map=${if (map == null) "null" else "up"}")
-        val currentIds = airplanes.map { it.flightId }.toSet()
-
-        // Remove stale markers
-        val staleIds = airplaneMarkers.keys.filter { it !in currentIds }
-        staleIds.forEach { id ->
-            airplaneMarkers.remove(id)?.remove()
-        }
-
-        // Update or create markers
-        for (airplane in airplanes) {
-            val title = airplane.displayName
-            val snippet = airplaneSummary(airplane)
-
-            val existing = airplaneMarkers[airplane.flightId]
-            if (existing != null) {
-                existing.position = Position(airplane.lat.toDouble(), airplane.lon.toDouble())
-                existing.rotation = airplane.track.toFloat()
-                existing.title = title
-                existing.snippet = snippet
-            } else {
-                val m = map?.addMarker(
-                    R.drawable.ic_airplane_fr24,
-                    Position(airplane.lat.toDouble(), airplane.lon.toDouble())
-                )
-                if (m != null) {
-                    m.rotation = airplane.track.toFloat()
-                    m.title = title
-                    m.snippet = snippet
-                    airplaneMarkers[airplane.flightId] = m
-                }
-            }
-        }
+        runOnUiThread { flightOverlays.showTraffic(airplanes) }
     }
 
     /** Who an aircraft is, one text for the map's bubble and the 3D tap alike. */
@@ -7150,33 +4231,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), DataDecoder.Lis
         directionDeg: Double,
         fromModel: Boolean
     ) {
-        val cardinal = bearingToCardinal(directionDeg)
-        val distKm = distanceMeters / 1000.0
-        // Which is a different warning: two kilometres from the model is the
-        // model's business, two kilometres from the person standing in the
-        // field is theirs, and the number alone never said which.
-        val of = if (fromModel) "from the model" else "from you"
-        val msg = "TRAFFIC: ${airplane.displayName} ${"%.1f".format(distKm)}km $cardinal $of, alt ${airplane.altMeters}m"
-        Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
-
-        if (ttsReady) {
-            val spokenDir = bearingToSpoken(directionDeg)
-            val spokenOf = if (fromModel) "from the model" else "from you"
-            val speech = "Traffic, ${spokenDir}, ${"%.1f".format(distKm)} kilometers ${spokenOf}, altitude ${airplane.altMeters} meters"
-            tts?.speak(speech, TextToSpeech.QUEUE_ADD, null, "fr24_warning_${airplane.flightId}")
-        }
-    }
-
-    private fun bearingToCardinal(deg: Double): String {
-        val dirs = arrayOf("N", "NE", "E", "SE", "S", "SW", "W", "NW")
-        val index = ((deg + 22.5) / 45.0).toInt() % 8
-        return dirs[index]
-    }
-
-    private fun bearingToSpoken(deg: Double): String {
-        val dirs = arrayOf("north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west")
-        val index = ((deg + 22.5) / 45.0).toInt() % 8
-        return dirs[index]
+        trafficWarnings?.warn(airplane, distanceMeters, directionDeg, fromModel)
     }
 
 }

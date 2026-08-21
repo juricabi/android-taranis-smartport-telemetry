@@ -385,6 +385,10 @@ def main():
                         help="report height above the launch point, as iNav "
                              "over CRSF (and old Betaflight) does, instead of "
                              "above sea level")
+    parser.add_argument("--no-name", action="store_true",
+                        help="send no DEVICE_INFO, like a Bluetooth telemetry "
+                             "mirror — the link the rate-system override "
+                             "exists for")
     parser.add_argument("--passthrough", action="store_true",
                         help="weave ArduPilot passthrough frames into the CRSF "
                              "stream, as ArduPilot over ELRS sends them")
@@ -704,7 +708,7 @@ def main():
             last["mode"] = now
             arms_at = ROUTE_ARMS_AT if route is not None else 8
             send(mode_frame("ACRO" if t > arms_at else "ACRO*"))
-        if now - last["info"] >= 5.0:
+        if now - last["info"] >= 5.0 and not args.no_name:
             last["info"] = now
             # so the app can tell it is a Crossfire and use its rate table
             send(device_info_frame("XF Micro TX"))

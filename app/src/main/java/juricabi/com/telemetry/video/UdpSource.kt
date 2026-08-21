@@ -218,6 +218,9 @@ internal fun hostileProfile(codec: RtpCodec, sps: ByteArray): String? = when (co
  */
 class UdpSource(
     private val port: Int,
+    // the picture's extra quarter-turn, asked of the host at fit time — the
+    // host owns the setting, the source only wears it
+    private val turn: () -> Int,
     private val events: VideoSource.Events
 ) : VideoSource {
 
@@ -261,8 +264,7 @@ class UdpSource(
 
     override fun refit() {
         val v = view ?: return
-        val wanted = juricabi.com.telemetry.manager.PreferenceManager(v.context)
-            .getVideoRotation()
+        val wanted = turn()
         // a tap on rotate moved the preference; the running decoder still
         // outputs the old turn, so rebuild it and keep the half in the old
         // shape until the new frames land — the box and the turned picture
@@ -612,8 +614,7 @@ class UdpSource(
             // the frames before they reach the surface. Read once here; a
             // change to it rebuilds the decoder, since the key is honoured
             // only at configure.
-            decoderRotation = juricabi.com.telemetry.manager.PreferenceManager(view!!.context)
-                .getVideoRotation()
+            decoderRotation = turn()
             format.setInteger(MediaFormat.KEY_ROTATION, decoderRotation)
             when (codec) {
                 // AVC's documented form is SPS and PPS as separate buffers;

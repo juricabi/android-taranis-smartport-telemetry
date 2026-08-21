@@ -13,7 +13,8 @@ class SensorSettingFragment : PreferenceFragmentCompat() {
     }
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
-        preferenceManager.sharedPreferencesName = "settings"
+        preferenceManager.sharedPreferencesName =
+            juricabi.com.telemetry.manager.PreferenceManager.STORE
         setPreferencesFromResource(prefs!!, rootKey)
     }
 }

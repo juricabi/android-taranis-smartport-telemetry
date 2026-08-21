@@ -22,6 +22,11 @@ import android.widget.Button
 import android.widget.CheckBox
 import android.widget.ListView
 import android.widget.TextView
+import android.content.DialogInterface
+import android.text.InputFilter
+import android.text.InputType
+import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import juricabi.com.telemetry.R
@@ -139,7 +144,7 @@ class LogManager(private val host: MapsActivity) {
                 name.text = item.file.nameWithoutExtension
                 name.setTypeface(
                     null,
-                    if (!selecting && item.file.name == host.lastFileDialogSelection) Typeface.BOLD else Typeface.NORMAL
+                    if (!selecting && item.file.name == lastFileDialogSelection) Typeface.BOLD else Typeface.NORMAL
                 )
                 v.findViewById<TextView>(R.id.log_size).text = "${ceil(item.file.length() / 102.4) / 10} Kb"
                 check.visibility = if (selecting) View.VISIBLE else View.GONE
@@ -222,7 +227,7 @@ class LogManager(private val host: MapsActivity) {
             when (val item = items[position]) {
                 is LogItem.Log -> if (!selecting) {
                     host.updateWindowFullscreenDecoration()
-                    host.lastFileDialogSelection = item.file.name
+                    lastFileDialogSelection = item.file.name
                     dialog?.dismiss()
                     host.startReplay(item.file)
                 } else {
@@ -299,7 +304,7 @@ class LogManager(private val host: MapsActivity) {
             // The manager stays up behind the rename box; renameLog reopens it on
             // the new name, and a cancel simply leaves it standing.
             val one = selected.firstOrNull() ?: return@setOnClickListener
-            host.showRenameLogDialog(one.name)
+            showRenameLogDialog(one.name)
         }
         exportBtn.setOnClickListener { if (selected.isNotEmpty()) backupLogs(selected.toList()) }
         deleteBtn.setOnClickListener { if (selected.isNotEmpty()) confirmDeleteLogs(selected.toList()) }
@@ -321,7 +326,7 @@ class LogManager(private val host: MapsActivity) {
         }
         built.setOnShowListener {
             sizeWindow()
-            val idx = items.indexOfFirst { it is LogItem.Log && it.file.name == host.lastFileDialogSelection }
+            val idx = items.indexOfFirst { it is LogItem.Log && it.file.name == lastFileDialogSelection }
             // After layout, not now: in the show listener the list has no height
             // yet, so a scroll asked here goes nowhere. Posted, it centres the
             // last-opened flight the way the old picker did.
@@ -462,7 +467,7 @@ class LogManager(private val host: MapsActivity) {
                     ZipOutputStream(BufferedOutputStream(out)).use { zos ->
                         val buf = ByteArray(64 * 1024)
                         for (f in files) {
-                            val csv = File(f.parentFile, host.replaceExtension(f.name, ".csv"))
+                            val csv = File(f.parentFile, replaceExtension(f.name, ".csv"))
                             var wrote = false
                             for (part in listOf(f, csv)) {
                                 if (!part.exists()) continue
@@ -667,7 +672,7 @@ class LogManager(private val host: MapsActivity) {
             if (file.delete()) {
                 deleted++
                 // the CSV recorded alongside it, as deleting one log does
-                File(file.parentFile, host.replaceExtension(file.name, ".csv")).delete()
+                File(file.parentFile, replaceExtension(file.name, ".csv")).delete()
                 if (file.name == host.replayFileString) replayedWasDeleted = true
             }
         }
@@ -682,7 +687,7 @@ class LogManager(private val host: MapsActivity) {
 
         // Drop the bold last-opened mark only if that flight was among the deleted;
         // a partial delete that spares it leaves it marked (as single-delete does).
-        if (files.any { it.name == host.lastFileDialogSelection }) host.lastFileDialogSelection = ""
+        if (files.any { it.name == lastFileDialogSelection }) lastFileDialogSelection = ""
         // Only when the log now playing is one of the deleted: a partial delete
         // that spares it leaves the replay running. closeReplay first, by the
         // same doctrine the close button follows: everything the idle switch
@@ -696,5 +701,225 @@ class LogManager(private val host: MapsActivity) {
         // The manager is still open behind the confirmation, now showing rows
         // for files that are gone. Refresh it in place on the survivors.
         filesChanged()
+    }
+
+    // ------------------------------------------------- one log's own dialogs
+    // Rename, delete and the exports lived in the activity while this class
+    // owned the list — one concern, two files. The write-permission sequence
+    // stays the activity's: its grant re-enters these through the host.
+
+    /** The bold mark in the list: the last flight opened. */
+    internal var lastFileDialogSelection = ""
+
+    fun showRenameLogDialog(fileName: String? = null) {
+        if (!host.requestWritePermission(MapsActivity.RequestWritePermissionSequenceType.RENAME)) return;
+
+        val currentFileName = fileName ?: host.replayFileString ?: "";
+        val dot = currentFileName.lastIndexOf('.')
+        val extension = if (dot > 0) currentFileName.substring(dot) else ""
+        val editText = EditText(host)
+        editText.setText(if (dot > 0) currentFileName.substring(0, dot) else currentFileName)
+        editText.setSelection(editText.text.length)
+        // One line, and not endless: the name is a file's, shown in a row that
+        // ellipsizes, so a runaway name serves nobody.
+        editText.isSingleLine = true
+        editText.filters = arrayOf(InputFilter.LengthFilter(60))
+        // In a padded frame, so the field — and the line beneath it — is inset
+        // from the dialog's edges instead of running the whole width.
+        val d = host.resources.displayMetrics.density
+        val frame = FrameLayout(host).apply {
+            setPadding((20 * d).toInt(), (8 * d).toInt(), (20 * d).toInt(), 0)
+            addView(
+                editText,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+
+        host.showDialog( AlertDialog.Builder(host)
+        .setTitle("Rename Log")
+        .setView(frame)
+        .setPositiveButton("Rename") { dialog: DialogInterface, which: Int ->
+            val typed = editText.text.toString().trim()
+            if (typed.isEmpty()) {
+                Toast.makeText(host, "Name cannot be empty", Toast.LENGTH_SHORT).show()
+            } else {
+                renameLog(currentFileName, typed + extension)
+            }
+            dialog.dismiss()
+        }
+        .setNegativeButton("Cancel") { dialog: DialogInterface, which: Int ->
+            dialog.dismiss()
+        }.create())
+    }
+
+    private fun renameLog(currentFileName: String, newFileName: String) {
+        val currentFile = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), currentFileName)
+        val newFile = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), newFileName)
+
+        // renameTo replaces the destination silently — refuse a name another
+        // recording already holds rather than delete that flight.
+        if (newFileName != currentFileName && newFile.exists()) {
+            Toast.makeText(host, "A log named that already exists.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (currentFile.renameTo(newFile)) {
+            Toast.makeText(host, "Log renamed successfully.", Toast.LENGTH_SHORT).show()
+
+            val csvCurrentFileName = replaceExtension( currentFileName, ".csv")
+            val csvNewFileName = replaceExtension( newFileName, ".csv")
+            val csvCurrentFile = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), csvCurrentFileName)
+            val csvNewFile = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), csvNewFileName)
+            csvCurrentFile.renameTo(csvNewFile)
+
+            if (currentFileName == host.replayFileString) {
+                host.replayFileString = newFileName;
+            }
+            // The bold marks the last flight opened. This is not it under a new
+            // name — it was never opened as this — so drop the mark rather than
+            // leave it pointing at a name that is gone.
+            if (currentFileName == lastFileDialogSelection) {
+                lastFileDialogSelection = ""
+            }
+        } else {
+            Toast.makeText(host, "Failed to rename log.", Toast.LENGTH_SHORT).show()
+        }
+        // If the manager opened this rename, refresh it in place (select mode kept,
+        // nothing marked); a no-op when the rename came from the replay screen.
+        filesChanged()
+    }
+
+
+    fun showDeleteLogDialog(fileName: String? = null) {
+        if (!host.requestWritePermission(MapsActivity.RequestWritePermissionSequenceType.DELETE)) return;
+
+        val target = fileName ?: host.replayFileString ?: ""
+        host.showDialog( AlertDialog.Builder(host)
+        .setTitle("Delete Log")
+        .setMessage("Delete " + target + "?")
+        .setPositiveButton("Delete") { dialog: DialogInterface, which: Int ->
+            deleteLog(target)
+            dialog.dismiss()
+        }
+        .setNegativeButton("Cancel") { dialog: DialogInterface, which: Int ->
+            dialog.dismiss()
+        }.create())
+    }
+
+    fun deleteLog(fileName: String)
+    {
+        val currentFile = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), fileName)
+
+        if (currentFile.delete()) {
+            Toast.makeText(host, "Log deleted successfully.", Toast.LENGTH_SHORT).show()
+
+            val csvFileName = replaceExtension( fileName, ".csv")
+            val currentFileCSV = File(Environment.getExternalStoragePublicDirectory("TelemetryLogs"), csvFileName)
+            currentFileCSV.delete();
+
+            if (fileName == host.replayFileString) {
+                // the log being replayed has just been deleted, so the replay
+                // ends the same way as closing it — in that order too, or the
+                // idle switch asks whether this is still a replay while it
+                // still is, and leaves the sky switched off behind it
+                host.closeReplay()
+                host.switchToIdleState()
+            }
+        } else {
+            Toast.makeText(host, "Failed to delete log.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun replaceExtension(fileName: String, newExtension : String): String {
+        val extensionSeparatorIndex = fileName.lastIndexOf(".")
+        if (extensionSeparatorIndex != -1) {
+            val nameWithoutExtension = fileName.substring(0, extensionSeparatorIndex)
+            return nameWithoutExtension + newExtension
+        }
+        return fileName
+    }
+
+    fun showExportGPXDialog() {
+        host.logPlayer?.stop();
+        if (!host.requestWritePermission(MapsActivity.RequestWritePermissionSequenceType.EXPORT_GPX)) return;
+
+        val editText = EditText(host)
+        editText.setText(host.logPlayer?.launchPointMSLAltitude.toString())
+        editText.inputType = InputType.TYPE_CLASS_NUMBER
+        editText.filters = arrayOf(InputFilter.LengthFilter(10)) // Set maximum input length, if needed
+        editText.setSelection(editText.text.length)
+
+        host.showDialog(AlertDialog.Builder(host)
+        .setTitle("Enter launch point MSL altitude, m:")
+        .setView(editText)
+        .setPositiveButton("OK") { dialog: DialogInterface, which: Int ->
+            val enteredNumber = editText.text.toString().toFloatOrNull()
+            if (enteredNumber != null) {
+                val fileName = replaceExtension( host.replayFileString?:"", ".gpx")
+                host.logPlayer?.exportGPX(fileName, enteredNumber)
+                Toast.makeText(host, fileName + " saved", Toast.LENGTH_SHORT).show()
+            }
+            dialog.dismiss()
+        }
+        .setNegativeButton("Cancel") { dialog: DialogInterface, which: Int ->
+            dialog.dismiss()
+        }.create())
+    }
+
+    fun showExportKMLDialog1() {
+        host.logPlayer?.stop();
+        if (!host.requestWritePermission(MapsActivity.RequestWritePermissionSequenceType.EXPORT_KML)) return;
+
+        val option1 = "Clamp to ground";
+        val option2 = "Relative to ground";
+        val option3 = "MSL";
+        val options = arrayOf(option1, option2, option3)
+
+        val fileName = replaceExtension( host.replayFileString?:"", ".kml")
+
+        host.showDialog( AlertDialog.Builder(host)
+        .setTitle("Select altitude mode:")
+        .setItems(options) { dialog: DialogInterface, which: Int ->
+            val selectedOption = options[which]
+            when (selectedOption) {
+                option1 -> {
+                    host.logPlayer?.exportKML(fileName, 0.0f, "clampToGround" )
+                    Toast.makeText(host, fileName + " saved", Toast.LENGTH_SHORT).show()
+                }
+                option2 -> {
+                    showExportKMLDialog2(fileName, "relativeToGround","Adjust track altitude, m:", 0)
+                }
+                option3 -> {
+                    showExportKMLDialog2(fileName, "absolute","Enter launch point MSL altitude, m:", host.logPlayer?.launchPointMSLAltitude?:0)
+                }
+            }
+            dialog.dismiss()
+        }.create())
+    }
+
+    fun showExportKMLDialog2(fileName: String, altitudeMode: String, requestText: String, defaultValue: Int) {
+        val editText = EditText(host)
+        editText.setText(defaultValue.toString())
+        editText.inputType = InputType.TYPE_CLASS_NUMBER
+        editText.filters = arrayOf(InputFilter.LengthFilter(10)) // Set maximum input length, if needed
+        editText.setSelection(editText.text.length)
+
+        host.showDialog( AlertDialog.Builder(host)
+        .setTitle(requestText)
+        .setView(editText)
+        .setPositiveButton("OK") { dialog: DialogInterface, which: Int ->
+            val enteredNumber = editText.text.toString().toFloatOrNull()
+            if (enteredNumber != null) {
+                host.logPlayer?.exportKML(fileName, enteredNumber,altitudeMode)
+                Toast.makeText(host, fileName + " saved", Toast.LENGTH_SHORT).show()
+            }
+            dialog.dismiss()
+        }
+        .setNegativeButton("Cancel") { dialog: DialogInterface, which: Int ->
+            dialog.dismiss()
+        }.create())
     }
 }

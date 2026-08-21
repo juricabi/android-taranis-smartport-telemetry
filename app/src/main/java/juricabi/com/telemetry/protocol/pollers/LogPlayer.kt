@@ -13,7 +13,14 @@ import java.util.*
 import kotlin.collections.ArrayList
 import kotlin.collections.HashMap
 
-class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listener {
+/**
+ * Everything the replay has no stake in rides the ForwardingListener base
+ * straight to the screen; the overrides below are the replay's own
+ * interceptions — positions gathered instead of forwarded, connection state
+ * suppressed, the protocol name rerouted to the load's listener.
+ */
+class LogPlayer(val originalListener: DataDecoder.Listener) :
+    juricabi.com.telemetry.protocol.decoder.ForwardingListener(originalListener) {
 
     companion object {
         /**
@@ -88,9 +95,6 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
     private var uniqueDataIndex = HashMap<Int, Int>()
     private lateinit var protocol: Protocol
 
-    private var decodedAltitude : Float = -1f;
-    private var decodedSpeed : Float = 0f;
-    private var decodedHeading : Float = 0f;
 
     private var statusTextExpire : Int = 0;
 
@@ -502,15 +506,7 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
                 }
             }
         }
-        val decoder = when (protocol) {
-            is FrSkySportProtocol -> FrSkySportProtocol(probe)
-            is CrsfProtocol -> CrsfProtocol(probe)
-            is GhstProtocol -> GhstProtocol(probe)
-            is LTMProtocol -> LTMProtocol(probe)
-            is MAVLinkProtocol -> MAVLinkProtocol(probe)
-            is MAVLink2Protocol -> MAVLink2Protocol(probe)
-            else -> return null
-        }.dataDecoder
+        val decoder = ProtocolFactory.create(protocol, probe)?.dataDecoder ?: return null
         for (data in cachedData) {
             decoder.decodeData(data)
             found?.let { return it }
@@ -582,10 +578,6 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
     override fun onConnectionFailed() {
     }
 
-    override fun onFuelData(fuel: Int) {
-        originalListener.onFuelData(fuel)
-    }
-
     override fun onConnected() {
     }
 
@@ -597,47 +589,6 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
         if (latitude != 0.0 && longitude != 0.0) {
             decodedCoordinates.add(Position(latitude, longitude))
         }
-    }
-
-    override fun onVBATData(voltage: Float) {
-        originalListener.onVBATData(voltage)
-    }
-
-    override fun onCellVoltageData(voltage: Float) {
-        originalListener.onCellVoltageData(voltage)
-    }
-
-    override fun onVBATOrCellData(voltage: Float) {
-        originalListener.onVBATOrCellData(voltage)
-    }
-
-    override fun onCurrentData(current: Float) {
-        originalListener.onCurrentData(current)
-    }
-
-    override fun onHeadingData(heading: Float) {
-        decodedHeading = heading;
-        originalListener.onHeadingData(heading)
-    }
-
-    override fun onRSSIData(rssi: Int) {
-        originalListener.onRSSIData(rssi)
-    }
-
-    override fun onUpLqData(lq: Int) {
-        originalListener.onUpLqData(lq)
-    }
-
-    override fun onDnLqData(lq: Int) {
-        originalListener.onDnLqData(lq)
-    }
-
-    override fun onElrsModeModeData(rf: Int) {
-        originalListener.onElrsModeModeData(rf)
-    }
-
-    override fun onAntData(activeAntena: Int) {
-        originalListener.onAntData(activeAntena)
     }
 
     override fun onGPSData(list: List<Position>, addToEnd: Boolean) {
@@ -655,55 +606,11 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
         }
     }
 
-    override fun onVSpeedData(vspeed: Float) {
-        originalListener.onVSpeedData(vspeed)
-    }
-
-    override fun onThrottleData(throttle :Int) {
-        originalListener.onThrottleData(throttle)
-    }
-
-    override fun onAltitudeData(altitude: Float) {
-        decodedAltitude = altitude;
-        originalListener.onAltitudeData(altitude)
-    }
-
-    override fun onHomeData(latitude: Double, longitude: Double, altitudeMsl: Float) {
-        // forwarded, not defaulted away: a replayed LTM log must prove its
-        // altitude from the same home the live flight did
-        originalListener.onHomeData(latitude, longitude, altitudeMsl)
-    }
-
     override fun onGPSAltitudeData(altitude: Float) {
         originalListener.onGPSAltitudeData(altitude)
         if ( launchPointMSLAltitude == 0 && altitude != 0.0f) {
             launchPointMSLAltitude = Math.ceil(altitude.toDouble()).toInt();
         }
-    }
-
-    override fun onDistanceData(distance: Int) {
-        originalListener.onDistanceData(distance)
-    }
-
-    override fun onRollData(rollAngle: Float) {
-        originalListener.onRollData(rollAngle)
-    }
-
-    override fun onAirSpeedData(speed: Float) {
-        originalListener.onAirSpeedData(speed)
-    }
-
-    override fun onPitchData(pitchAngle: Float) {
-        originalListener.onPitchData(pitchAngle)
-    }
-
-    override fun onGSpeedData(speed: Float) {
-        decodedSpeed = speed;
-        originalListener.onGSpeedData(speed)
-    }
-
-    override fun onRCChannels(rcChannels:IntArray) {
-        originalListener.onRCChannels(rcChannels)
     }
 
     override fun onStatusText(message : String) {
@@ -748,43 +655,6 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
         return (durationMs * packets / total).toInt()
     }
 
-    override fun onDNSNRData(snr: Int) {
-        originalListener.onDNSNRData(snr)
-    }
-
-    override fun onUPSNRData(snr: Int) {
-        originalListener.onUPSNRData(snr)
-    }
-
-    override fun onPowerData(power: Int) {
-        originalListener.onPowerData(power)
-    }
-
-    override fun onRssiDbm1Data(rssi: Int) {
-        originalListener.onRssiDbm1Data(rssi)
-    }
-
-    override fun onRssiDbm2Data(rssi: Int) {
-        originalListener.onRssiDbm2Data(rssi)
-    }
-
-    override fun onRssiDbmdData(rssi: Int) {
-        originalListener.onRssiDbmdData(rssi)
-    }
-
-
-    override fun onTelemetryByte(){
-        originalListener.onTelemetryByte()
-    }
-
-    override fun onSuccessDecode() {
-        originalListener.onSuccessDecode()
-    }
-
-    override fun onDecoderRestart() {
-        originalListener.onDecoderRestart()
-    }
-
     override fun onProtocolDetected( protocolName: String) {
         // What the decoder says while the log is being played, as against what
         // the load worked out from its first bytes: the two agree about the
@@ -793,15 +663,6 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
     }
 
     override fun commit() {
-    }
-
-    override fun onFlyModeData(
-        armed: Boolean,
-        heading: Boolean,
-        firstFlightMode: DataDecoder.Companion.FlyMode?,
-        secondFlightMode: DataDecoder.Companion.FlyMode?
-    ) {
-        originalListener.onFlyModeData(armed, heading, firstFlightMode, secondFlightMode)
     }
 
     fun addGPXHeader(fileWriter : PrintWriter )
@@ -824,6 +685,52 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
                 "</gpx>")
     }
 
+    /**
+     * Walk the whole recording through a decoder of its own — the probe
+     * pattern firstPosition uses — handing each decoded coordinate to [step]
+     * with whatever altitude, speed and heading stood at that moment.
+     * The live replay is never touched: exports used to ride seek(0) and the
+     * live decoder, and saving a GPX threw the replay back to its start.
+     * [step] gets `changed` = this coordinate moved, altitude -10000f = none
+     * heard yet.
+     */
+    private fun walkWholeLog(
+        step: (index: Int, lat: Double, lon: Double, changed: Boolean,
+               altitude: Float, speed: Float, heading: Float) -> Unit
+    ) {
+        if (cachedData.isEmpty() || !::protocol.isInitialized) return
+        var arrivedLat = Double.NaN
+        var arrivedLon = Double.NaN
+        var altitude = -10000f
+        var speed = 0f
+        var heading = 0f
+        val probe = object : DataDecoder.Companion.DefaultDecodeListener() {
+            override fun onGPSData(latitude: Double, longitude: Double) {
+                // first of the packet, non-zero, like the replay's own list
+                if (arrivedLat.isNaN() && latitude != 0.0 && longitude != 0.0) {
+                    arrivedLat = latitude
+                    arrivedLon = longitude
+                }
+            }
+            override fun onAltitudeData(a: Float) { altitude = a }
+            override fun onGSpeedData(s: Float) { speed = s }
+            override fun onHeadingData(h: Float) { heading = h }
+        }
+        val decoder = ProtocolFactory.create(protocol, probe)?.dataDecoder ?: return
+        var lastLat = 0.0
+        var lastLon = 0.0
+        for (i in 0 until cachedData.size) {
+            decoder.decodeData(cachedData[i])
+            if (arrivedLat.isNaN()) continue
+            var changed = false
+            if (arrivedLon != lastLon) { lastLon = arrivedLon; changed = true }
+            if (arrivedLat != lastLat) { lastLat = arrivedLat; changed = true }
+            arrivedLat = Double.NaN
+            arrivedLon = Double.NaN
+            step(i, lastLat, lastLon, changed, altitude, speed, heading)
+        }
+    }
+
     //https://github.com/Parrot-Developers/mavlink/blob/master/pymavlink/tools/mavtogpx.py
     fun exportGPX(fileName: String, homePointAltitudeMSL: Float)
     {
@@ -834,50 +741,21 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
         var fileWriter = file.printWriter()
         addGPXHeader( fileWriter );
 
-        seek(0);
-
-        decodedAltitude = -10000f;
-        decodedSpeed = 0f;
-        decodedHeading = 0f;
-
-        var lastLon : Double = 0.0;
-        var lastLat : Double = 0.0;
-
         var startTime = System.currentTimeMillis()
         val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
 
-        for (i in 0 until cachedData.size) {
-                protocol.dataDecoder.decodeData(cachedData[i])
-
-                var output = false;
-                if (decodedCoordinates.size > 0)
-                {
-                    if ( decodedCoordinates[0].lon != lastLon)
-                    {
-                        lastLon = decodedCoordinates[0].lon;
-                        output= true;
-                    }
-                    if ( decodedCoordinates[0].lat != lastLat)
-                    {
-                        lastLat = decodedCoordinates[0].lat;
-                        output= true;
-                    }
-                    decodedCoordinates.clear();
-                }
-
-                if ( output && (decodedAltitude != - 10000f) )
-                {
-                    var t = startTime + i * 1800000L / cachedData.size;
-                    var s = "<trkpt lat=\"" + lastLat.toString() + "\" lon=\"" + lastLon.toString()  + "\">\n" +
-                            "  <ele>" +  ((decodedAltitude + homePointAltitudeMSL) ).toString()  + "</ele>\n" +
-                            //"  <time>%s</time>\n" +
-                            "  <course>" + decodedHeading.toString()  + "</course>\n" +
-                            "  <speed>" + decodedSpeed.toString()  + "</speed>\n" +
-                            "  <fix>3d</fix>\n" +
-                            "  <time>" + sdf.format( Date(t) ) + "</time>\n" +
-                            "</trkpt>";
-                    fileWriter.write(s);
-                }
+        walkWholeLog { i, lat, lon, changed, altitude, speed, heading ->
+            if (changed && altitude != -10000f) {
+                var t = startTime + i * 1800000L / cachedData.size;
+                var s = "<trkpt lat=\"" + lat.toString() + "\" lon=\"" + lon.toString()  + "\">\n" +
+                        "  <ele>" +  ((altitude + homePointAltitudeMSL) ).toString()  + "</ele>\n" +
+                        "  <course>" + heading.toString()  + "</course>\n" +
+                        "  <speed>" + speed.toString()  + "</speed>\n" +
+                        "  <fix>3d</fix>\n" +
+                        "  <time>" + sdf.format( Date(t) ) + "</time>\n" +
+                        "</trkpt>";
+                fileWriter.write(s);
+            }
         }
 
         addGPXFooter(fileWriter);
@@ -956,54 +834,25 @@ class LogPlayer(val originalListener: DataDecoder.Listener) : DataDecoder.Listen
         var fileWriter = file.printWriter()
         addKMLHeader( fileWriter, altitudeMode );
 
-        seek(0);
-
-        decodedAltitude = -10000f;
-        decodedSpeed = 0f;
-        decodedHeading = 0f;
-
-        var lastLon : Double = 0.0;
-        var lastLat : Double = 0.0;
-
         var firstLon : Double = 0.0;
         var firstLat : Double = 0.0;
         var firstAlt : Float = 0.0f;
 
         var s = "                            ";
 
-        for (i in 0 until cachedData.size) {
-            protocol.dataDecoder.decodeData(cachedData[i])
-
-            var output = false;
-            if (decodedCoordinates.size > 0)
-            {
-                if ( decodedCoordinates[0].lon != lastLon)
-                {
-                    lastLon = decodedCoordinates[0].lon;
-                    output= true;
-                }
-                if ( decodedCoordinates[0].lat != lastLat)
-                {
-                    lastLat = decodedCoordinates[0].lat;
-                    output= true;
-                }
-
-                if ( firstLon == 0.0 ) {
-                    firstLon = decodedCoordinates[0].lon
-                }
-                if ( firstLat == 0.0 ) {
-                    firstLat = decodedCoordinates[0].lat
-                }
-                if ( (firstAlt == 0.0f) && (decodedAltitude != - 10000f) ) {
-                    firstAlt = decodedAltitude.toFloat()
-                }
-
-                decodedCoordinates.clear();
+        walkWholeLog { _, lat, lon, changed, altitude, _, _ ->
+            if ( firstLon == 0.0 ) {
+                firstLon = lon
             }
-
-            if ( output && (decodedAltitude != - 10000f) )
+            if ( firstLat == 0.0 ) {
+                firstLat = lat
+            }
+            if ( (firstAlt == 0.0f) && (altitude != - 10000f) ) {
+                firstAlt = altitude
+            }
+            if ( changed && (altitude != - 10000f) )
             {
-                s += lastLon.toString() + "," + lastLat.toString() + "," + ((decodedAltitude + homePointAltitudeMSL) ).toString() + " "
+                s += lon.toString() + "," + lat.toString() + "," + ((altitude + homePointAltitudeMSL) ).toString() + " "
             }
         }
 

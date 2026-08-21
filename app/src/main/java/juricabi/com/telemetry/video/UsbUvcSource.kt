@@ -35,6 +35,9 @@ import juricabi.com.telemetry.utils.DebugLog
  */
 class UsbUvcSource(
     context: Context,
+    // the picture's extra quarter-turn, asked of the host at fit time — the
+    // host owns the setting, the source only wears it
+    private val turn: () -> Int,
     private val events: VideoSource.Events
 ) : VideoSource {
 
@@ -76,8 +79,7 @@ class UsbUvcSource(
     private fun fitToCamera() {
         val size = helper?.previewSize ?: return
         val v = view ?: return
-        val rotation = juricabi.com.telemetry.manager.PreferenceManager(v.context)
-            .getVideoRotation()
+        val rotation = turn()
         applyRotation(rotation)
         // the library turns the preview, so the half is fitted to the sides
         // as they land — swapped for a quarter-turn

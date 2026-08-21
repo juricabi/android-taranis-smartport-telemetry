@@ -34,7 +34,7 @@ class PrefsFragment : PreferenceFragmentCompat() {
     }
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
-        preferenceManager.sharedPreferencesName = "settings"
+        preferenceManager.sharedPreferencesName = PreferenceManager.STORE
         setPreferencesFromResource(R.xml.preferences, rootKey)
 
         prefManager = PreferenceManager(context!!)
@@ -459,8 +459,7 @@ class PrefsFragment : PreferenceFragmentCompat() {
     private fun updateSummary() {
         // The cell count is only used to divide a pack voltage, so it means
         // nothing when the flight controller already reports a single cell.
-        val reportsPack =
-            preferenceManager.sharedPreferences.getString("report_voltage", "Battery") == "Battery"
+        val reportsPack = prefManager.getReportVoltage() == "Battery"
         // preference 1.0.0 has the old, non generic findPreference
         findPreference("battery_cells")?.isEnabled = reportsPack
         // The typed address, readable where it was typed; the how-to text

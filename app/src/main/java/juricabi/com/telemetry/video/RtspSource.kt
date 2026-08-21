@@ -55,6 +55,9 @@ class RtspSource(
     // Asked afresh on every player build: a recovery may be the moment the
     // right network finally exists, or the one the last answer named is dead.
     private val socketFactory: () -> javax.net.SocketFactory?,
+    // the picture's extra quarter-turn, asked of the host at fit time — the
+    // host owns the setting, the source only wears it
+    private val turn: () -> Int,
     private val events: VideoSource.Events
 ) : VideoSource {
 
@@ -133,8 +136,7 @@ class RtspSource(
     override fun refit() {
         val v = view ?: return
         if (videoWidth <= 0 || videoHeight <= 0) return
-        val wanted = juricabi.com.telemetry.manager.PreferenceManager(v.context)
-            .getVideoRotation()
+        val wanted = turn()
         if (wanted != rotation) {
             rotation = wanted
             if (player != null) {

@@ -62,6 +62,9 @@ class MjpegSource(
     // the network that reaches the camera, when one specifically does — see
     // NetworkBinder; null leaves the connection on the phone's default route
     private val network: android.net.Network?,
+    // the picture's extra quarter-turn, asked of the host at fit time — the
+    // host owns the setting, the source only wears it
+    private val turn: () -> Int,
     private val events: VideoSource.Events
 ) : VideoSource {
 
@@ -101,7 +104,7 @@ class MjpegSource(
 
     override fun refit() {
         val v = view ?: return
-        rotation = juricabi.com.telemetry.manager.PreferenceManager(v.context).getVideoRotation()
+        rotation = turn()
         // the canvas turns the picture, so the half is fitted to the sides
         // as they land — swapped for a quarter-turn
         val (w, h) = turnedSides(frameWidth, frameHeight, rotation)

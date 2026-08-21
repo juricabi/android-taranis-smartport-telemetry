@@ -1,10 +1,5 @@
 package juricabi.com.telemetry.protocol.pollers
 
-import android.os.Handler
-import android.os.Looper
-import juricabi.com.telemetry.protocol.Protocol
-import juricabi.com.telemetry.protocol.ProtocolDetector
-import juricabi.com.telemetry.protocol.ProtocolFactory
 import juricabi.com.telemetry.protocol.decoder.DataDecoder
 import juricabi.com.telemetry.utils.NetworkBinder
 import java.io.FileOutputStream
@@ -50,8 +45,6 @@ class NetworkDataPoller(
      */
     private val highLatency: Boolean = false
 ) : DataPoller {
-
-    private val log = BestEffortLog(logFile)
 
     /**
      * The address this transport actually speaks to. A UDP listen and a TCP
@@ -130,25 +123,8 @@ class NetworkDataPoller(
         )
     }
 
-    /** Fresh per connection: the detector never resets its hit counters. */
-    private val detector = ProtocolDetector(object : ProtocolDetector.Callback {
-        override fun onProtocolDetected(protocol: Protocol?) {
-            // The detector keeps firing on every byte once something has two
-            // hits, and it fires for every protocol that reached the threshold,
-            // so the first answer wins and the rest are ignored.
-            if (selectedProtocol != null) return
-            val live = ProtocolFactory.create(protocol, listener)
-            if (live == null) {
-                finish()
-                return
-            }
-            selectedProtocol = live
-            listener.onProtocolDetected(ProtocolFactory.nameOf(live))
-        }
-    })
-
-    @Volatile
-    private var selectedProtocol: Protocol? = null
+    /** The shared road: log, detect, pump, and the single latched exit. */
+    private val chassis = PollerChassis(listener, logFile) { closeQuietly() }
 
     /** The stream has answered; the enable command has done its work. */
     @Volatile
@@ -168,16 +144,12 @@ class NetworkDataPoller(
                     listener.onSuccessDecode()
                 }
             }
-            selectedProtocol = juricabi.com.telemetry.protocol.MAVLink2Protocol(watching)
-            listener.onProtocolDetected("MAVLink High Latency")
+            chassis.select(
+                juricabi.com.telemetry.protocol.MAVLink2Protocol(watching),
+                "MAVLink High Latency"
+            )
         }
     }
-
-    @Volatile
-    private var connectedOnce = false
-
-    /** Exactly one of onDisconnected/onConnectionFailed must ever be sent. */
-    private val finished = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /**
      * Asked to stop. Ours rather than the thread's interrupt status, which the
@@ -218,7 +190,7 @@ class NetworkDataPoller(
                 // Anything at all that escapes still has to produce exactly one
                 // terminal callback, or DataService.isConnected() stays true
                 // forever and the app can never reconnect.
-                finish()
+                chassis.finish()
             }
         })
         thread.name = "telemetry-net"
@@ -237,23 +209,22 @@ class NetworkDataPoller(
         socket.tcpNoDelay = true
         socket.connect(InetSocketAddress(host, port), TCP_CONNECT_TIMEOUT_MS)
 
-        connectedOnce = true
-        runOnMainThread(Runnable { listener.onConnected() })
+        chassis.connected()
 
         // No receive timeout here on purpose: there is nothing this loop would
         // do with the wakeup. Stopping already unblocks it, by closing the
         // socket out from under the read.
         val buffer = ByteArray(BUFFER)
         val input = socket.getInputStream()
-        while (!stopping && !finished.get()) {
+        while (!stopping && !chassis.done) {
             // -1 is a clean close by the far end. The Bluetooth poller never
             // has to handle this because RFCOMM throws instead, but a TCP peer
             // that goes away politely would otherwise spin here forever.
             val size = input.read(buffer)
             if (size < 0) break
-            feed(buffer, 0, size)
+            chassis.feed(buffer, 0, size)
         }
-        finish()
+        chassis.finish()
     }
 
     private fun runTcpServer() {
@@ -265,11 +236,10 @@ class NetworkDataPoller(
         // Bound and waiting counts as connected: there is nothing else the user
         // can do, and reporting it lets the service go foreground and the UI
         // stop saying "connecting".
-        connectedOnce = true
-        runOnMainThread(Runnable { listener.onConnected() })
+        chassis.connected()
 
         server.soTimeout = RECEIVE_TIMEOUT_MS
-        while (!stopping && !finished.get()) {
+        while (!stopping && !chassis.done) {
             val client = try {
                 server.accept()
             } catch (e: SocketTimeoutException) {
@@ -280,10 +250,10 @@ class NetworkDataPoller(
             val buffer = ByteArray(BUFFER)
             val input = client.getInputStream()
             try {
-                while (!stopping && !finished.get()) {
+                while (!stopping && !chassis.done) {
                     val size = input.read(buffer)
                     if (size < 0) break
-                    feed(buffer, 0, size)
+                    chassis.feed(buffer, 0, size)
                 }
             } catch (e: IOException) {
                 // that client went away; keep the door open for the next one
@@ -295,7 +265,7 @@ class NetworkDataPoller(
             }
             tcpSocket = null
         }
-        finish()
+        chassis.finish()
     }
 
     // ---------------------------------------------------------- WebSocket
@@ -330,12 +300,11 @@ class NetworkDataPoller(
         // headers, and its body would then be parsed as frames
         if (!status.substringBefore(crlf).contains(" 101 ")) {
             // not a WebSocket endpoint: fail rather than feed HTML to a decoder
-            finish()
+            chassis.finish()
             return
         }
 
-        connectedOnce = true
-        runOnMainThread(Runnable { listener.onConnected() })
+        chassis.connected()
 
         // The module answers rather than volunteers: without a device ping the
         // socket opens and stays silent forever.
@@ -345,7 +314,7 @@ class NetworkDataPoller(
         socket.soTimeout = RECEIVE_TIMEOUT_MS
 
         var lastPing = System.currentTimeMillis()
-        while (!stopping && !finished.get()) {
+        while (!stopping && !chassis.done) {
             // Ask again now and then: the first ping is answered only if the
             // module was ready for it, and the name it replies with is what
             // tells a Crossfire from an ExpressLRS.
@@ -363,14 +332,14 @@ class NetworkDataPoller(
             } ?: break
             when (frame.first) {
                 OPCODE_BINARY, OPCODE_TEXT, OPCODE_CONTINUATION ->
-                    feed(frame.second, 0, frame.second.size)
+                    chassis.feed(frame.second, 0, frame.second.size)
                 OPCODE_PING -> writeFrame(out, OPCODE_PONG, frame.second)
                 OPCODE_CLOSE -> {
                     stopping = true
                 }
             }
         }
-        finish()
+        chassis.finish()
     }
 
     /**
@@ -411,7 +380,7 @@ class NetworkDataPoller(
                 input.read(out, read, n - read)
             } catch (e: SocketTimeoutException) {
                 if (read == 0 && mayTimeOut) throw e
-                if (stopping || finished.get()) return null
+                if (stopping || chassis.done) return null
                 continue
             }
             if (r < 0) return null
@@ -497,8 +466,7 @@ class NetworkDataPoller(
             // ignore
         }
 
-        connectedOnce = true
-        runOnMainThread(Runnable { listener.onConnected() })
+        chassis.connected()
 
         // Keep saying hello for as long as we are listening.
         //
@@ -515,7 +483,7 @@ class NetworkDataPoller(
         var lastAnnounce = 0L
         val buffer = ByteArray(DATAGRAM_BUFFER)
         val packet = DatagramPacket(buffer, buffer.size)
-        while (!stopping && !finished.get()) {
+        while (!stopping && !chassis.done) {
             val now = System.currentTimeMillis()
             if (now - lastAnnounce >= ANNOUNCE_EVERY_MS) {
                 lastAnnounce = now
@@ -533,9 +501,9 @@ class NetworkDataPoller(
                 continue
             }
             rememberPeer(packet.address, packet.port)
-            feed(packet.data, packet.offset, packet.length)
+            chassis.feed(packet.data, packet.offset, packet.length)
         }
-        finish()
+        chassis.finish()
     }
 
     /**
@@ -577,7 +545,7 @@ class NetworkDataPoller(
         // something else, this is a ground station heartbeat being written into
         // a link that never asked for one — and a TBS module in bridge mode puts
         // whatever arrives straight onto the CRSF serial link.
-        val live = selectedProtocol
+        val live = chassis.protocol
         if (live != null && live !is juricabi.com.telemetry.protocol.MAVLinkProtocol &&
             live !is juricabi.com.telemetry.protocol.MAVLink2Protocol
         ) {
@@ -642,33 +610,6 @@ class NetworkDataPoller(
         return target == "localhost" || target.startsWith("127.") || target == "::1"
     }
 
-    private fun feed(buffer: ByteArray, offset: Int, size: Int) {
-        if (size <= 0) return
-        log.write(buffer, offset, size)
-        for (i in offset until offset + size) {
-            // Unsigned. A sign extended byte silently breaks every decoder's
-            // state machine and detection then never fires at all.
-            val value = buffer[i].toUByte().toInt()
-            listener.onTelemetryByte()
-            val protocol = selectedProtocol
-            if (protocol != null) protocol.process(value) else detector.feedData(value)
-        }
-        // Once per batch, as with every other transport: this is what makes the
-        // map and the telemetry views redraw.
-        listener.commit()
-    }
-
-    /** The single exit; failure or disconnect is decided by whether it came up. */
-    private fun finish() {
-        if (!finished.compareAndSet(false, true)) return
-        closeQuietly()
-        log.close()
-        val connected = connectedOnce
-        runOnMainThread(Runnable {
-            if (connected) listener.onDisconnected() else listener.onConnectionFailed()
-        })
-    }
-
     private fun closeQuietly() {
         try {
             tcpSocket?.close()
@@ -686,10 +627,6 @@ class NetworkDataPoller(
             // ignore
         }
         binder?.release()
-    }
-
-    private fun runOnMainThread(runnable: Runnable) {
-        Handler(Looper.getMainLooper()).post { runnable.run() }
     }
 
     /**
@@ -730,27 +667,12 @@ class NetworkDataPoller(
         }
         stopping = true
         thread.interrupt()
-        // Closing is what unblocks a thread parked in receive() or read(); the
-        // flag is what stops one that is busy handling data.
-        try {
-            tcpSocket?.close()
-        } catch (e: IOException) {
-            // ignore
-        }
-        try {
-            if (!farewellOwnsUdp) udpSocket?.close()
-        } catch (e: Exception) {
-            // ignore
-        }
-        try {
-            serverSocket?.close()
-        } catch (e: Exception) {
-            // ignore
-        }
         // Report it here rather than waiting for the thread to notice and do
-        // it: finish() is latched, so whichever gets there first wins and the
-        // other is a no-op. Without this the UI sat on "Disconnecting…" for as
-        // long as the thread took to come back round.
-        finish()
+        // it: the chassis's exit is latched, so whichever gets there first
+        // wins and the other is a no-op — and its teardown closes the sockets,
+        // which is what unblocks a thread parked in receive() or read().
+        // Without this the UI sat on "Disconnecting…" for as long as the
+        // thread took to come back round.
+        chassis.finish()
     }
 }
