@@ -178,7 +178,14 @@ class ConnectFlow(
                                     )
                                 ) {
                                     device?.apply {
-                                        connectUSB(newSession)
+                                        // A grant can land after the retry it
+                                        // was asked for has died — timed out
+                                        // behind this very dialog. The tap
+                                        // still deserves its connect, but as
+                                        // the fresh link it was announced to
+                                        // be, not a continuation of a flight
+                                        // the wait no longer owns.
+                                        connectUSB(newSession || !host.usbReconnectArmed())
                                     }
                                 } else {
                                     Toast.makeText(

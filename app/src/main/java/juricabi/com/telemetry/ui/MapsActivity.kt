@@ -423,13 +423,15 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), Fr24Manager.Lis
     private var lastBluetoothDevice: BluetoothDevice? = null;
     private var reconnectOnFailure = false;
 
-    // One USB drop is a cable coming out. Two auto-reconnects in quick
-    // succession are a rhythm: the radio drinking charge from the phone
-    // faster than the phone can feed it, resetting the bus. Nothing on
-    // screen distinguishes that from a loose plug, so it gets said once
-    // per screen — deliberately not carried across rotation, so a bar
-    // waved off returns on a later screen if the churn is still real.
+    // One USB drop is a cable coming out, and two can be a person replugging
+    // twice while rerouting it. Three auto-reconnects in quick succession
+    // are a rhythm: the radio drinking charge from the phone faster than
+    // the phone can feed it, resetting the bus. Nothing on screen
+    // distinguishes that from a loose plug, so it gets said once per
+    // screen — deliberately not carried across rotation, so a bar waved
+    // off returns on a later screen if the churn is still real.
     private var lastUsbAutoReconnect = 0L
+    private var usbChurnStreak = 0
     private var usbPowerHintShown = false
 
     // The USB wait's one pending retirement: replaced on each (re)arm and
@@ -615,6 +617,16 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), Fr24Manager.Lis
             lastNetworkHighLatency = it.getBoolean("last_net_hl", false)
             reconnectOnFailure = it.getBoolean("reconnect_on_failure", false)
             reconnectionStartTime = it.getLong("reconnect_start", 0L)
+            // A bundle outlives its window by hours when the process dies in
+            // the background. An expired retry is not restored at all —
+            // re-armed, the first thing a cold start said was "Reconnect
+            // timed out", about a link from another day.
+            if (reconnectionStartTime != 0L &&
+                (System.currentTimeMillis() - reconnectionStartTime) >= RECONNECT_WINDOW_MS
+            ) {
+                reconnectOnFailure = false
+                reconnectionStartTime = 0L
+            }
         }
         fullscreenWindow = preferenceManager.isFullscreenWindow()
 
@@ -2993,8 +3005,12 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), Fr24Manager.Lis
                             reconnectOnFailure = false
                             reconnectionStartTime = 0L
                             connectButton.text = getString(R.string.connect)
-                            Toast.makeText(this@MapsActivity,
-                                "Reconnect timed out", Toast.LENGTH_SHORT).show()
+                            // switched off mid-wait, the ending was already
+                            // chosen — only a wait that ran its course is news
+                            if (preferenceManager.getReconnectionEnabled()) {
+                                Toast.makeText(this@MapsActivity,
+                                    "Reconnect timed out", Toast.LENGTH_SHORT).show()
+                            }
                         }
                         usbRetire = retire
                         connectButton.postDelayed(retire, RECONNECT_WINDOW_MS -
@@ -3045,10 +3061,23 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), Fr24Manager.Lis
      * and comes back through here — quiet until then, since the chooser is
      * on the radio's own screen.
      */
+    /** Whether a dropped USB link's retry still stands — the late permission
+     *  grant asks before continuing a flight the wait may no longer own. */
+    internal fun usbReconnectArmed(): Boolean =
+        reconnectOnFailure && lastConnectionType == CONNTYPE_USB
+
     private fun reconnectToUSB() {
         if (lastConnectionType != CONNTYPE_USB || !reconnectOnFailure) return
         if (dataService?.isConnected() == true) return
-        if (!preferenceManager.getReconnectionEnabled()) return
+        if (!preferenceManager.getReconnectionEnabled()) {
+            // switched off mid-wait: the wait ends here, quietly — the
+            // switch was the person's own word, and the label must not
+            // keep promising what the setting now forbids
+            reconnectOnFailure = false
+            reconnectionStartTime = 0L
+            connectButton.text = getString(R.string.connect)
+            return
+        }
         if (reconnectionStartTime != 0L &&
             (System.currentTimeMillis() - reconnectionStartTime) >= RECONNECT_WINDOW_MS
         ) {
@@ -3063,7 +3092,10 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), Fr24Manager.Lis
         }
         if (!connectFlow.hasSerialDevice()) return
         val now = System.currentTimeMillis()
-        if (!usbPowerHintShown && now - lastUsbAutoReconnect < 45000) {
+        usbChurnStreak =
+            if (now - lastUsbAutoReconnect < 45000) usbChurnStreak + 1 else 0
+        lastUsbAutoReconnect = now
+        if (!usbPowerHintShown && usbChurnStreak >= 2) {
             usbPowerHintShown = true
             // a toast was tried first and lost twice over: the connect's own
             // toasts replaced it, and its few seconds were too short for
@@ -3075,7 +3107,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), Fr24Manager.Lis
                 com.google.android.material.R.id.snackbar_text)?.maxLines = 6
             bar.show()
         }
-        lastUsbAutoReconnect = now
         if (preferenceManager.getConnectionVoiceMessagesEnabled()) {
             soundPool!!.play(reconnectingSoundId, 1f, 1f, 0, 0, 1f)
         }
@@ -3223,8 +3254,17 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), Fr24Manager.Lis
         // already stops the retries; a flight ended from the locate button
         // was left with them running, so a link that had dropped on its own
         // could come back a few seconds after somebody said they were done
-        // — and the ending would read as though it had not worked. The
-        // retry already scheduled reads this before it acts.
+        // — and the ending would read as though it had not worked. Called
+        // off whole — flag, window and label, not only the type: the USB
+        // wait wears Reconnecting… on the button, and its retirement backs
+        // off at a foreign type without touching the label, so clearing the
+        // type alone left the button promising a retry that had died here.
+        if (reconnectOnFailure) {
+            Toast.makeText(this, "Reconnect called off", Toast.LENGTH_SHORT).show()
+        }
+        reconnectOnFailure = false
+        reconnectionStartTime = 0L
+        connectButton.text = getString(R.string.connect)
         lastConnectionType = CONNTYPE_NONE
         // There is no link, so there is no fix. Left standing, a frame the
         // decoder was already holding when the button was pressed lands
@@ -3636,7 +3676,6 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), Fr24Manager.Lis
      */
     private val usbAttached: BroadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action != UsbManager.ACTION_USB_DEVICE_ATTACHED) return
             reconnectToUSB()
         }
     }
