@@ -1,4 +1,4 @@
-# Android Telemetry Viewer 2.5.1
+# Android Telemetry Viewer 2.5.2
 
 Live and recorded RC telemetry on a smooth 2D map or real 3D terrain.
 
