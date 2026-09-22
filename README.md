@@ -1,4 +1,4 @@
-# Android Telemetry Viewer 2.5.1
+# Android Telemetry Viewer 2.5.3
 
 Live and recorded RC telemetry on a smooth 2D map or real 3D terrain.
 
@@ -14,11 +14,29 @@ Bluetooth, BLE, USB serial and network connections.
 
 ## Current state
 
-Version 2.5.1: live video beside the map — USB goggles and receivers,
-RTSP, MJPEG, and raw RTP pushed at the phone, each flown until it
-behaved — and the drone's GPS republished as the phone's own position
-for tracker apps. On the 2.4 ground and map, with the flight ending when
-you say so and one camera across both views.
+Version 2.5.3: the live picture records — every source, into a file a
+crash cannot spoil — and takes the whole screen when it is the thing to
+watch. On 2.5's live video beside the map — USB goggles and receivers,
+RTSP, MJPEG, and raw RTP pushed at the phone — the drone's GPS
+republished as the phone's own position for tracker apps, and the 2.4
+ground and map, with the flight ending when you say so and one camera
+across both views.
+
+- **The picture records**: the red dot on the picture writes it to
+  `Movies/Telemetry`, named like the flight logs. A network stream — RTSP,
+  raw RTP — is written exactly as it arrives, never re-encoded; a USB
+  camera and MJPEG go through the phone's hardware encoder, timed to the
+  camera's own frame rate. The file is a transport stream, so a flat
+  battery or a killed app keeps everything up to the last second; one
+  recording stays one file through rotations and dropouts, each gap kept
+  at its real length, and nothing is ever turned. Picture only, no sound.
+  See **Recording the picture** below.
+- **The picture takes the whole screen**: the expand button on the
+  picture sets the map, the readouts and the system bars aside; Back gives
+  the split back as it was.
+- **A stream that goes quiet leaves nothing behind**: its last frame is
+  cleared, where it used to stay at its old size and spread over the map
+  when the pane changed shape.
 
 - **The recordings have a manager, not a list**: flights grouped by the
   day they were flown, opened with a tap or marked several at a time —
@@ -199,7 +217,8 @@ Pick a source under **Settings → Video** — a USB (UVC) receiver or goggles
 plugged in over OTG, or a network stream — and a video button appears in the
 top bar. It splits the pane in half — picture beside the map, left of it in
 landscape and above it in portrait — the flight overlays keep to the map's
-half, and the picture carries its own sound, fill and quarter-turn buttons.
+half, and the picture carries its own record, sound, quarter-turn and
+expand buttons.
 The network address says what the stream is:
 
 - **`rtsp://…`** — RTSP, H.264 through the phone's hardware decoder.
@@ -244,26 +263,54 @@ decoration: left out, ffmpeg encodes the RGB test pattern as 4:4:4, which
 no phone hardware decodes — the app refuses such a stream by name rather
 than failing on a bare error code.
 
-The picture wears its own controls on its top-right: the speaker where the
-stream could carry sound, **fill** to crop the picture over the whole half
-instead of letterboxing it, and a **quarter-turn** per tap for a camera
-mounted sideways — fill and turn are remembered across sessions. The flight
-overlays — horizon, clock, compass, the button column, the seek bar — keep
-to the map's half and scale with it, so nothing ever stands over the
-picture.
+The picture wears its own controls in a column on its bottom-right:
+**record**, the speaker where the stream could carry sound, a
+**quarter-turn** per tap for a camera mounted sideways — remembered across
+sessions — and **expand**, which gives the picture the whole screen until
+Back. The seam between picture and map drags to size them, and the picture
+is letterboxed, never cropped. The flight overlays — horizon, clock,
+compass, the button column, the seek bar — keep to the map's half and scale
+with it, so nothing ever stands over the picture.
 
 The reliability work sits where field flying found the holes: RTSP rides
 TCP from the first frame, because a UDP first contact smeared the opening
 second of every new address; an unreachable network stream keeps its pane
 and retries every two seconds instead of folding; a stalled or starved
-stream rejoins itself; a picture drifting
-behind the camera's clock jumps back to the live edge; MJPEG decodes only
+stream rejoins itself; a stream that goes quiet has its last frame
+cleared, so nothing stale is left to spread over the map; MJPEG decodes only
 as many pixels as the pane can show and reuses its frame memory, so the
 collector never fights the decoder; and every source starts on a fresh
 surface, so switching between MJPEG and RTSP mid-session cannot poison the
 hardware decoder. RTSP starts as picture alone so it is on screen at once;
 the speaker button joins the stream's sound, and a stream whose advertised
 audio never arrives drops back to picture by itself.
+
+### Recording the picture
+
+The red dot on the picture records it; the label over the picture counts
+the time and the size while it runs, and a second tap saves it. Files go to
+`Movies/Telemetry/`, named by the same date stamp as the flight logs — not
+beside them, since `TelemetryLogs` is often synced off the phone and video
+runs to gigabytes.
+
+- **RTSP and raw RTP** are written exactly as they arrive — the goggle's own
+  H.264 or H.265, no re-encoding, no quality lost, next to no work for the
+  phone.
+- **USB cameras and MJPEG** are encoded to H.264 on the phone's hardware
+  encoder, at the camera's size and frame rate.
+- The files are MPEG transport streams (`.ts`), which VLC, mpv and ffmpeg
+  play directly. A transport stream is readable up to its last byte, so a
+  recording cut short by a flat battery, a crash or an install keeps
+  everything up to the last second.
+- One recording is one file: turning the phone, a stream dropping out and
+  coming back, or leaving the screen and returning all continue it, each
+  gap kept at its real length. While the picture is not on screen, nothing
+  is recorded.
+- The quarter-turn is a way of watching: recordings keep the picture as the
+  camera sent it.
+- Picture only — the stream's sound is not recorded. A recording stops by
+  itself, and says so, when storage runs low; one that caught nothing
+  leaves no file behind.
 
 ### Drone GPS as phone location
 
@@ -384,6 +431,7 @@ the signed release APK. The release build is the normal distributable artifact.
 | Connection ownership | `service/DataService.kt`, `protocol/pollers/` |
 | Protocols | `protocol/`, `protocol/decoder/` |
 | Replay and logs | `protocol/pollers/LogPlayer.kt`, `logger/` |
+| Live video and its recording | `ui/VideoPane.kt`, `video/` |
 
 When adding a sensor, carry it through the complete path: protocol constant and
 parser, decoder listener, service forwarding, timeout state, screen view,
@@ -411,6 +459,8 @@ first. Ghost telemetry mirror uses **115200 baud**.
 - Live video (Settings → Video) is a USB UVC receiver or goggles over OTG, or
   a network stream — RTSP at roughly half-a-second ground-station latency, or
   MJPEG over HTTP; it is not a sub-150 ms FPV feed.
+- Video recordings are picture only, written as `.ts`, and pause while the
+  screen is away.
 - `.local` / mDNS names are not resolved: modules are dialled by IP, which the
   network dialog's **Find** button will search out.
 

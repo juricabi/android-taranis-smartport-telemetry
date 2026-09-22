@@ -20,11 +20,21 @@ issues and reviews use these terms as written here.
   decoder-listener seam; the activity forwards display-only callbacks here.
 - **VideoPane** (`ui/VideoPane.kt`) — the live picture and everything that
   owns it: the wish to watch, the stale-events generation, the retry that
-  keeps the card standing, the split, the permission choreography.
+  keeps the card standing, the split, the permission choreography, the
+  picture expanded over the whole screen, and the video recording's life —
+  started, carried across a rebuilt screen, announced once its file shuts.
 - **VideoSource** (`video/VideoSource.kt`) — the seam a picture arrives
   through; four adapters (RTSP, MJPEG, UDP/RTP, USB UVC). Rotation crosses
   this seam as a question the source asks back (`turn`); sources never read
-  settings.
+  settings. Every source can hand its picture to a recording (`record`).
+- **Video recording** (`video/StreamRecorder.kt`, `video/TsMuxer.kt`,
+  `video/H264Encoder.kt`) — the live picture written to `Movies/Telemetry`
+  as an MPEG transport stream; not to be confused with the flight's own
+  recording, the `.tlm` log. Sources that arrive compressed (RTSP, UDP/RTP)
+  are copied as they came; the others (USB, MJPEG) go through the hardware
+  encoder, their times smoothed by a `FrameClock`. Never turned. The
+  recorder writes on a thread of its own; `RecordingClock` lays every run of
+  a stream on one timeline, and a rebuilt screen appends to the same file.
 - **PhoneWatcher** (`service/PhoneWatcher.kt`) — where the phone is and which
   way it faces: sensing, fix arbitration (`worthBelieving`), the background
   compass wake lock. What is written down stays with the service.

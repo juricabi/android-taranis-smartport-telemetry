@@ -22,8 +22,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 The unit tests are CI's gate: `./gradlew :app:testDebugUnitTest` — JUnit
 and Robolectric over the decoders, the geo and altitude maths, the bus,
-the replay hold and the permission funnel (192 at last count). Green
-before every push.
+the replay hold, the permission funnel and the video recorder's transport
+stream (216 at last count). Green before every push.
 
 Package ids: release `juricabi.com.telemetry`, debug
 `juricabi.com.telemetry.debug`. Both install side by side, so the debug build can
@@ -163,7 +163,8 @@ and letting CI rebuild it — same number, same notes. Older releases stay up.
 
 `CONTEXT.md` names every module; start there. The short of it: tiles,
 their icons and their greying are TelemetryPanel's; video is VideoPane
-and the sources; choosing a link is ConnectFlow, while connecting and
+and the sources, and recording it is StreamRecorder; choosing a link is
+ConnectFlow, while connecting and
 the reconnect policy stay in MapsActivity; the log list and its dialogs
 are LogManager's; replay resume/autostart authority is ReplayHold; the
 overlays both views draw are FlightOverlays. The bus forwards
