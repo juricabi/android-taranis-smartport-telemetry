@@ -71,16 +71,47 @@
                     app:outlineColor="@android:color/black"
                     app:outlineSize="3dp"/>
 
+            <!-- While a recording runs: how long and how much, top-left of
+                 the picture, where the playback controls are not. -->
+            <juricabi.com.telemetry.ui.TextViewOutline
+                    android:id="@+id/video_record_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="top|start"
+                    android:layout_margin="8dp"
+                    android:textColor="#FFE53935"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:visibility="gone"
+                    app:outlineColor="@android:color/black"
+                    app:outlineSize="3dp"
+                    tools:text="REC 01:23 · 45 MB"
+                    tools:visibility="visible"/>
+
             <!-- The picture's playback controls, a column on its own
                  bottom-right — the mirror of the map's button column, so
                  both halves read the same way. Inside the half, they fold
-                 away with it. -->
+                 away with it, and stay with the picture when it is
+                 expanded over the whole screen. -->
             <LinearLayout
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_gravity="bottom|end"
                     android:layout_margin="4dp"
                     android:orientation="vertical">
+
+                <ImageView
+                        android:id="@+id/video_record_button"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:layout_margin="4dp"
+                        android:padding="8dp"
+                        android:background="@drawable/bg_video_control"
+                        android:contentDescription="Record the picture"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_record"
+                        android:visibility="gone"
+                        tools:visibility="visible"/>
 
                 <ImageView
                         android:id="@+id/video_sound_button"
@@ -107,6 +138,17 @@
                         android:src="@drawable/ic_rotate"
                         android:visibility="gone"
                         tools:visibility="visible"/>
+
+                <ImageView
+                        android:id="@+id/video_expand_button"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:layout_margin="4dp"
+                        android:padding="8dp"
+                        android:background="@drawable/bg_video_control"
+                        android:contentDescription="Expand the picture"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_expand"/>
 
             </LinearLayout>
 

@@ -27,7 +27,9 @@ interface VideoSource {
          * The picture stopped but may return — a camera unplugged mid-watch.
          * The screen puts the waiting card back where the picture was, and
          * onLive takes it down again. Unlike onTrouble, this does not give
-         * the watching up.
+         * the watching up. The screen also gives the view a fresh surface,
+         * retiring the stale frame, so a source that says this must carry on
+         * after losing its surface mid-run — UDP ends its decoder with it.
          */
         fun onIdle() {}
 
@@ -73,6 +75,13 @@ interface VideoSource {
 
     /** The stream's sound, on or off. A no-op unless hasAudio. */
     fun setAudio(on: Boolean) {}
+
+    /**
+     * The recording to feed from now on, or null to stop. Set on the UI
+     * thread, before or after start; the frames go out from the source's own.
+     * Every source records — a new one must say how.
+     */
+    fun record(sink: RecordSink?)
 }
 
 /**

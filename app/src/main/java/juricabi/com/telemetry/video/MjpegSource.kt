@@ -91,11 +91,107 @@ class MjpegSource(
     // but the frames nobody would have seen in time anyway.
     private val latest = java.util.concurrent.ArrayBlockingQueue<ByteArray>(1)
     private var skipped = 0
+
+    // What a stutter cost, and where: the longest the wire went without a
+    // whole frame, and the slowest decode, screen draw and recording, since
+    // the last report. Written down only when one of them stalled, so a
+    // smooth stream says nothing and a field log still shows which half —
+    // the network or the phone — held the picture up.
+    @Volatile private var worstWireMs = 0L
+    private var lastWireAt = 0L
+    private var worstDecodeMs = 0L
+    private var worstScreenMs = 0L
+    private var worstRecordMs = 0L
+    private var reportedAt = 0L
+    private var skippedAtReport = 0
     @Volatile private var frameWidth = 0
     @Volatile private var frameHeight = 0
     // the turn for a sideways camera; the canvas turns the bitmap, read on
     // the UI thread and used on the draw thread
     @Volatile private var rotation = 0
+
+    // ---- recording -------------------------------------------------------
+    //
+    // Every frame is a JPEG, which no recording keeps, so the picture already
+    // decoded for the screen is drawn once more onto a hardware encoder's
+    // surface. The encoder is fed on the draw thread but built on a thread of
+    // its own, at the size of the frame that asked for it: built on the draw
+    // thread it froze the picture for the quarter-second it took (measured
+    // 227 ms). The frames go to the screen alone until it is ready.
+
+    @Volatile private var recordSink: RecordSink? = null
+    private val encoderLock = Any()
+    private var encoder: BitmapEncoder? = null
+    private var building = false
+
+    override fun record(sink: RecordSink?) {
+        recordSink = sink
+        if (sink == null) releaseEncoder()
+    }
+
+    private fun recordFrame(bitmap: android.graphics.Bitmap, sink: RecordSink) {
+        synchronized(encoderLock) {
+            // a frame caught in flight by a stop must not ask for an encoder
+            // for a recording that is over
+            if (recordSink !== sink) return
+            // encoders take even sides; an odd camera loses its last line
+            val w = bitmap.width and 1.inv()
+            val h = bitmap.height and 1.inv()
+            val e = encoder
+            if (e == null || e.width != w || e.height != h) {
+                if (!building) {
+                    building = true
+                    Thread({ buildEncoder(w, h, sink) }, "mjpeg-encoder").start()
+                }
+                return
+            }
+            try {
+                e.encode(bitmap, sink)
+            } catch (x: Exception) {
+                fail(sink, x)
+            }
+        }
+    }
+
+    private fun buildEncoder(w: Int, h: Int, sink: RecordSink) {
+        val made = try {
+            BitmapEncoder(w, h)
+        } catch (x: Exception) {
+            synchronized(encoderLock) {
+                building = false
+                if (recordSink === sink) fail(sink, x)
+            }
+            return
+        }
+        synchronized(encoderLock) {
+            building = false
+            // the recording may have ended, or the camera changed size, while
+            // it was being built; either way this one is not wanted
+            if (recordSink !== sink) {
+                made.release()
+                return
+            }
+            encoder?.release()
+            encoder = made
+        }
+        DebugLog.note("Video", "mjpeg recording encoder ${w}x$h")
+    }
+
+    /** Held under the encoder lock. */
+    private fun fail(sink: RecordSink, x: Exception) {
+        DebugLog.note("Video", "mjpeg recording encoder failed: ${x.message}")
+        encoder?.release()
+        encoder = null
+        recordSink = null
+        sink.trouble("the phone could not encode the stream's picture (${x.message})")
+    }
+
+    private fun releaseEncoder() {
+        synchronized(encoderLock) {
+            encoder?.release()
+            encoder = null
+        }
+    }
 
     // refits the letterbox when the divider resizes the pane
     private val refitOnLayout = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
@@ -113,6 +209,7 @@ class MjpegSource(
 
     override fun start(view: SurfaceView) {
         DebugLog.note("Video", "mjpeg start")
+        reportedAt = android.os.SystemClock.elapsedRealtime()
         this.view = view
         view.addOnLayoutChangeListener(refitOnLayout)
         running = true
@@ -163,6 +260,9 @@ class MjpegSource(
             throw IOException("HTTP " + conn.responseCode)
         }
         scanMjpegFrames(BufferedInputStream(conn.inputStream)) { bytes ->
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (lastWireAt != 0L) worstWireMs = maxOf(worstWireMs, now - lastWireAt)
+            lastWireAt = now
             if (!latest.offer(bytes)) {
                 latest.clear()
                 latest.offer(bytes)
@@ -198,10 +298,13 @@ class MjpegSource(
     private fun draw(bytes: ByteArray) {
         if (!running) return
         val view = view ?: return
+        val startedAt = android.os.SystemClock.elapsedRealtime()
         // the frame's own header says its size — read every time, because
         // some cameras switch size mid-stream when their screen is turned
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, boundsOptions)
-        val sample = sampleFor(maxOf(boundsOptions.outWidth, boundsOptions.outHeight), view)
+        // a recording wants every pixel the camera sent, not the pane's share
+        val sample = if (recordSink != null) 1
+        else sampleFor(maxOf(boundsOptions.outWidth, boundsOptions.outHeight), view)
         if (decodeOptions.inSampleSize != sample) {
             decodeOptions.inSampleSize = sample
             decodeOptions.inBitmap = null
@@ -214,6 +317,7 @@ class MjpegSource(
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions)
         } ?: return
         decodeOptions.inBitmap = bitmap
+        val decodedAt = android.os.SystemClock.elapsedRealtime()
         if (bitmap.width != frameWidth || bitmap.height != frameHeight) {
             frameWidth = bitmap.width
             frameHeight = bitmap.height
@@ -252,6 +356,28 @@ class MjpegSource(
             DebugLog.note("Video", "mjpeg first frame ${bitmap.width}x${bitmap.height}")
             events.onLive()
         }
+        val shownAt = android.os.SystemClock.elapsedRealtime()
+        // after the screen has it, so a recording never delays the picture
+        recordSink?.let { recordFrame(bitmap, it) }
+        val doneAt = android.os.SystemClock.elapsedRealtime()
+        worstDecodeMs = maxOf(worstDecodeMs, decodedAt - startedAt)
+        worstScreenMs = maxOf(worstScreenMs, shownAt - decodedAt)
+        worstRecordMs = maxOf(worstRecordMs, doneAt - shownAt)
+        if (doneAt - reportedAt >= 2000) {
+            if (worstWireMs > 150 || maxOf(worstDecodeMs, worstScreenMs, worstRecordMs) > 100) {
+                DebugLog.note(
+                    "Video", "mjpeg stall in the last ${doneAt - reportedAt} ms: " +
+                        "wire gap $worstWireMs, decode $worstDecodeMs, screen $worstScreenMs, " +
+                        "record $worstRecordMs ms; ${skipped - skippedAtReport} frames dropped"
+                )
+            }
+            reportedAt = doneAt
+            skippedAtReport = skipped
+            worstWireMs = 0
+            worstDecodeMs = 0
+            worstScreenMs = 0
+            worstRecordMs = 0
+        }
     }
 
     override fun stop() {
@@ -261,5 +387,7 @@ class MjpegSource(
         connection = null
         view?.removeOnLayoutChangeListener(refitOnLayout)
         view = null
+        recordSink = null
+        releaseEncoder()
     }
 }

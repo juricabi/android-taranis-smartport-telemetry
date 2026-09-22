@@ -13,9 +13,13 @@ import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.MimeTypes
+import androidx.media3.decoder.DecoderInputBuffer
+import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.FormatHolder
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.mediacodec.MediaCodecAdapter
 import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
@@ -84,6 +88,14 @@ class RtspSource(
             .joinToString(" << ") { it.message ?: it.javaClass.simpleName }
 
     override val hasAudio get() = true
+
+    // read by every player's renderer as it queues a sample, so a recording
+    // rides through the rebuilds a turn, the sound or a recovery cause
+    @Volatile private var recordSink: RecordSink? = null
+
+    override fun record(sink: RecordSink?) {
+        recordSink = sink
+    }
 
     override fun setAudio(on: Boolean) {
         if (audioOn == on) return
@@ -315,7 +327,7 @@ class RtspSource(
         }
         playedThisSession = false
         lastRendered = 0
-        val player = ExoPlayer.Builder(context, RotatingRenderersFactory(context) { rotation })
+        val player = ExoPlayer.Builder(context, RotatingRenderersFactory(context, { rotation }, { recordSink }))
             .setLoadControl(
                 DefaultLoadControl.Builder()
                     // Start on 100ms — the number Orqa's own app starts its
@@ -439,11 +451,16 @@ class RtspSource(
  * picture, since the view cannot and the player's decoder is otherwise
  * sealed. The turn changes only across a re-prepare, which rebuilds the
  * codec and reads the value afresh.
+ *
+ * The same renderer hands each compressed sample to [recording] as it goes
+ * into the codec — the stream exactly as it came, so a recording costs a
+ * copy and never an encoder.
  */
 @OptIn(UnstableApi::class)
 private class RotatingRenderersFactory(
     context: Context,
     private val rotation: () -> Int,
+    private val recording: () -> RecordSink?,
 ) : DefaultRenderersFactory(context) {
     override fun buildVideoRenderers(
         context: Context,
@@ -474,6 +491,46 @@ private class RotatingRenderersFactory(
                         config.mediaFormat.setInteger(android.media.MediaFormat.KEY_ROTATION, turn)
                     }
                     return config
+                }
+
+                // the track's codec and its parameter sets, which RTSP
+                // carries in the session description rather than in-band
+                private var codec: RtpCodec? = null
+                private var mime: String? = null
+                private var parameterSets = emptyList<ByteArray>()
+
+                override fun onInputFormatChanged(
+                    formatHolder: FormatHolder
+                ): DecoderReuseEvaluation? {
+                    val f = formatHolder.format
+                    mime = f?.sampleMimeType
+                    codec = when (mime) {
+                        MimeTypes.VIDEO_H264 -> RtpCodec.H264
+                        MimeTypes.VIDEO_H265 -> RtpCodec.H265
+                        else -> null
+                    }
+                    parameterSets = f?.initializationData ?: emptyList()
+                    return super.onInputFormatChanged(formatHolder)
+                }
+
+                // called with the sample flipped and ready, just before the
+                // codec takes it; read through a duplicate so its position
+                // stays the codec's
+                override fun onQueueInputBuffer(buffer: DecoderInputBuffer) {
+                    super.onQueueInputBuffer(buffer)
+                    val sink = recording() ?: return
+                    val c = codec
+                    if (c == null) {
+                        // a picture the transport stream cannot carry — MJPEG
+                        // over RTSP, say — ends the recording saying so, where
+                        // it would have run on writing nothing
+                        sink.trouble("this stream's ${mime ?: "picture"} cannot be recorded")
+                        return
+                    }
+                    val data = buffer.data ?: return
+                    val bytes = ByteArray(data.remaining())
+                    data.duplicate().get(bytes)
+                    sink.frame(c, bytes, buffer.timeUs, buffer.isKeyFrame, parameterSets)
                 }
             }
         )

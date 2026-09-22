@@ -3,7 +3,10 @@ package juricabi.com.telemetry.ui
 import android.app.Activity
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.media.MediaScannerConnection
 import android.os.Bundle
+import android.os.Environment
+import android.os.SystemClock
 import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.SurfaceView
@@ -26,9 +29,14 @@ import juricabi.com.telemetry.utils.DebugLog
 import juricabi.com.telemetry.utils.NetworkBinder
 import juricabi.com.telemetry.video.MjpegSource
 import juricabi.com.telemetry.video.RtspSource
+import juricabi.com.telemetry.video.StreamRecorder
 import juricabi.com.telemetry.video.UdpSource
 import juricabi.com.telemetry.video.UsbUvcSource
 import juricabi.com.telemetry.video.VideoSource
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * The live picture: over the map, under the readouts — and everything that
@@ -49,12 +57,17 @@ class VideoPane(
     /** The activity's one permission funnel. */
     private val askPermission: (String, Int) -> Unit,
     private val cameraPermissionCode: Int,
-    private val recordAudioPermissionCode: Int
+    private val recordAudioPermissionCode: Int,
+    /** The picture was expanded or collapsed; the window's bars follow. */
+    private val onExpandedChanged: () -> Unit
 ) {
 
     private val videoButton: ImageView = activity.findViewById(R.id.video_button)
     private val videoSoundButton: ImageView = activity.findViewById(R.id.video_sound_button)
     private val videoRotateButton: ImageView = activity.findViewById(R.id.video_rotate_button)
+    private val videoRecordButton: ImageView = activity.findViewById(R.id.video_record_button)
+    private val videoRecordLabel: TextView = activity.findViewById(R.id.video_record_label)
+    private val videoExpandButton: ImageView = activity.findViewById(R.id.video_expand_button)
     private val videoDivider: View = activity.findViewById(R.id.video_divider)
     private val videoView: SurfaceView = activity.findViewById(R.id.video_view)
     private val videoHalf: FrameLayout = activity.findViewById(R.id.video_half)
@@ -62,6 +75,8 @@ class VideoPane(
     private val videoBlank: View = activity.findViewById(R.id.video_blank)
     private val flightPane: LinearLayout = activity.findViewById(R.id.flight_pane)
     private val mapPane: FrameLayout = activity.findViewById(R.id.map_pane)
+    private val topLayout: View = activity.findViewById(R.id.top_layout)
+    private val bottomLayout: View = activity.findViewById(R.id.bottom_layout)
 
     init {
         videoButton.setOnClickListener { toggle() }
@@ -82,6 +97,8 @@ class VideoPane(
             false
         }
         videoDivider.setOnTouchListener { _, event -> dragSplit(event) }
+        videoRecordButton.setOnClickListener { toggleRecording() }
+        videoExpandButton.setOnClickListener { setExpanded(!expanded) }
     }
 
     private var videoSource: VideoSource? = null
@@ -116,14 +133,45 @@ class VideoPane(
         if (videoWanted && videoSource == null) startVideo(retrying = true)
     }
 
+    /**
+     * The picture over the whole screen: the map, the readouts and the
+     * system bars step aside. A way of watching the picture, so it lives and
+     * dies with it — survives a rotation, never outlives the picture itself.
+     */
+    var expanded = false
+        private set
+
+    /**
+     * The recording in progress, if any: its file, and when it began on the
+     * boot clock. Both outlive the recorder writing them, which goes with the
+     * source's screen — a rotation closes it and the next one appends, so one
+     * flight stays one file.
+     */
+    private var recording: File? = null
+    private var recordingSince = 0L
+    private var recorder: StreamRecorder? = null
+
+    /**
+     * Recorders closed because their recording ended, with why (null: asked
+     * for). The toast waits for the file to be shut, since only then is it
+     * known whether anything was recorded at all.
+     */
+    private val finishing = HashMap<StreamRecorder, String?>()
+
     fun saveInto(outState: Bundle) {
         outState.putBoolean("video_wanted", videoWanted)
         outState.putBoolean("video_audio", videoAudioOn)
+        outState.putBoolean("video_expanded", expanded)
+        outState.putString("video_recording", recording?.path)
+        outState.putLong("video_recording_since", recordingSince)
     }
 
     fun restoreFrom(savedInstanceState: Bundle) {
         videoWanted = savedInstanceState.getBoolean("video_wanted", false)
         videoAudioOn = savedInstanceState.getBoolean("video_audio", false)
+        expanded = savedInstanceState.getBoolean("video_expanded", false)
+        recording = savedInstanceState.getString("video_recording")?.let(::File)
+        recordingSince = savedInstanceState.getLong("video_recording_since", 0L)
     }
 
     private fun newVideoEvents(): VideoSource.Events {
@@ -138,9 +186,17 @@ class VideoPane(
 
             override fun onIdle() {
                 activity.runOnUiThread {
-                    // the picture stopped and may return; the card says so where
-                    // the picture was, instead of the layout jumping about
-                    if (current()) videoWaiting.visibility = View.VISIBLE
+                    if (!current()) return@runOnUiThread
+                    // The picture stopped and may return; the card says so
+                    // where the picture was, instead of the layout jumping
+                    // about. Its last frame goes: a SurfaceView takes a new
+                    // size only with its next frame, and a silent stream sends
+                    // none — a frame left standing through an expand, a
+                    // collapse or a drag of the divider stayed at its old
+                    // size, spread over the map. The card stands on an empty
+                    // surface, and the stream's next frame brings it back.
+                    videoWaiting.visibility = View.VISIBLE
+                    freshSurface()
                 }
             }
 
@@ -443,18 +499,26 @@ class VideoPane(
         return true
     }
 
-    private fun startVideo(retrying: Boolean = false) {
-        // Each source gets a surface with no history: removing and re-adding
-        // the SurfaceView destroys its surface and creates a fresh one, so a
-        // decoder or a canvas from the previous source can never draw the
-        // wrong picture into the next — and the dead stream's last frame is
-        // retired with the old surface. Done before every branch, so the
-        // camera-permission card below never stands on a stale picture.
+    /**
+     * A surface with no history: removing and re-adding the SurfaceView
+     * destroys its surface and creates a fresh one, and whatever it last
+     * showed goes with the old.
+     */
+    private fun freshSurface() {
         (videoView.parent as ViewGroup).let { parent ->
             val at = parent.indexOfChild(videoView)
             parent.removeViewAt(at)
             parent.addView(videoView, at)
         }
+    }
+
+    private fun startVideo(retrying: Boolean = false) {
+        // Each source gets a surface with no history, so a decoder or a
+        // canvas from the previous source can never draw the wrong picture
+        // into the next — and the dead stream's last frame is retired with
+        // the old surface. Done before every branch, so the camera-permission
+        // card below never stands on a stale picture.
+        freshSurface()
         // Android hands a camera-class USB device only to a holder of the
         // camera permission; without it the USB ask is refused instantly and
         // silently, which the field read as a "no" that could never be taken
@@ -471,9 +535,10 @@ class VideoPane(
             videoWaiting.visibility = View.VISIBLE
             arrangeFlightPane()
             videoHalf.visibility = View.VISIBLE
-            videoDivider.visibility = View.VISIBLE
+            applyExpanded()
             videoSoundButton.visibility = View.GONE
             videoRotateButton.visibility = View.GONE
+            videoRecordButton.visibility = View.GONE
             DebugLog.note("Video", "camera permission asked")
             askPermission(android.Manifest.permission.CAMERA, cameraPermissionCode)
             return
@@ -493,7 +558,7 @@ class VideoPane(
         videoWaiting.visibility = View.VISIBLE
         arrangeFlightPane()
         videoHalf.visibility = View.VISIBLE
-        videoDivider.visibility = View.VISIBLE
+        applyExpanded()
         // the speaker only where there could be sound; remembered before
         // start so the choice needs no second session
         videoSoundButton.visibility = if (source.hasAudio) View.VISIBLE else View.GONE
@@ -505,6 +570,14 @@ class VideoPane(
         // wears the same angle so it shows which turn is on
         videoRotateButton.visibility = View.VISIBLE
         videoRotateButton.rotation = preferenceManager.getVideoRotation().toFloat()
+        videoRecordButton.visibility = View.VISIBLE
+        showRecording()
+        // a recording running when the source was rebuilt — a retry, a
+        // rotation, coming back to the screen — carries on into the same file
+        if (recording != null) {
+            if (recorder == null) openRecorder(append = true)
+            source.record(recorder)
+        }
         source.start(videoView)
     }
 
@@ -559,11 +632,185 @@ class VideoPane(
         videoWanted = false
         videoGeneration++ // whatever the stopped source still says is stale
         videoWaiting.removeCallbacks(videoRetry)
+        stopRecording(null)
         videoSource?.stop()
         videoSource = null
         videoBlank.visibility = View.GONE
         videoHalf.visibility = View.GONE
-        videoDivider.visibility = View.GONE
+        setExpanded(false)
+    }
+
+    // ---- the picture over the whole screen ---------------------------------
+
+    private fun setExpanded(on: Boolean) {
+        val changed = expanded != on
+        expanded = on
+        applyExpanded()
+        if (changed) {
+            // written down: hiding the map takes its surfaces away, and a
+            // field log must be able to tell that from anything else doing so
+            DebugLog.note("Video", if (on) "picture expanded" else "picture collapsed")
+            onExpandedChanged()
+        }
+    }
+
+    /** Back collapses an expanded picture before it does anything else. */
+    fun collapse() = setExpanded(false)
+
+    /**
+     * Lays the screen out for the state: expanded, everything but the picture
+     * steps aside, and the picture — the only weighted child of the flight
+     * pane left — takes it all; otherwise the split stands as dragged. The map
+     * gone is the map not drawn, so an expanded picture has the GPU to itself.
+     */
+    private fun applyExpanded() {
+        val showing = videoHalf.visibility == View.VISIBLE
+        val over = expanded && showing
+        val rest = if (over) View.GONE else View.VISIBLE
+        topLayout.visibility = rest
+        bottomLayout.visibility = rest
+        mapPane.visibility = rest
+        videoDivider.visibility = if (showing && !over) View.VISIBLE else View.GONE
+        videoExpandButton.setImageResource(if (over) R.drawable.ic_collapse else R.drawable.ic_expand)
+        videoExpandButton.contentDescription =
+            if (over) "Back to the map" else "Expand the picture"
+    }
+
+    // ---- recording -----------------------------------------------------------
+
+    private fun toggleRecording() {
+        if (recording != null) stopRecording(null) else startRecording()
+    }
+
+    /**
+     * Recordings go to Movies/Telemetry, beside the phone's other videos, and
+     * not in TelemetryLogs: that folder is synced off the phone, and a flight
+     * of video is gigabytes. Named by the same stamp as the flight logs, so
+     * the two pair up by eye without being tied together.
+     */
+    private fun startRecording() {
+        if (ContextCompat.checkSelfPermission(
+                activity, android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            Toast.makeText(
+                activity, "Recording needs the storage permission — allow it in the app's settings",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        val dir = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "Telemetry"
+        )
+        dir.mkdirs()
+        if (dir.usableSpace < 500L shl 20) {
+            Toast.makeText(activity, "Not enough free storage to record", Toast.LENGTH_LONG).show()
+            return
+        }
+        val stamp = SimpleDateFormat("yyyy-MM-dd HH-mm-ss", Locale.US).format(Date())
+        // two recordings in one second must not overwrite each other: the
+        // name is claimed here, at once, not when the writer thread gets to it
+        val file = try {
+            generateSequence(1) { it + 1 }
+                .map { File(dir, if (it == 1) "$stamp.ts" else "$stamp ($it).ts") }
+                .first { it.createNewFile() }
+        } catch (e: java.io.IOException) {
+            Toast.makeText(activity, "Cannot record: ${e.message}", Toast.LENGTH_LONG).show()
+            return
+        }
+        recording = file
+        recordingSince = SystemClock.elapsedRealtime()
+        openRecorder(append = false)
+        // No running source is fine — a network stream between retries: the
+        // recording opens now and the next source joins it as it starts.
+        videoSource?.record(recorder)
+        DebugLog.note("Video", "record start ${file.name}")
+        Toast.makeText(
+            activity, "Recording the picture, without sound, to Movies/Telemetry",
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    private fun openRecorder(append: Boolean) {
+        val file = recording ?: return
+        recorder = StreamRecorder(file, append, recordingSince * 1000, onClosed = { closed, endedBy ->
+            // into the gallery, every time it closes — a rotation included, so
+            // a recording the app never gets to finish is still found there
+            if (closed.file.exists()) MediaScannerConnection.scanFile(
+                activity.applicationContext, arrayOf(closed.file.path), arrayOf("video/mp2t"), null
+            )
+            activity.runOnUiThread {
+                // ended by itself — storage, a write error, the encoder
+                if (recorder === closed) stopRecording(endedBy ?: "the recording stopped")
+                if (finishing.containsKey(closed)) announce(closed.file, finishing.remove(closed))
+            }
+        })
+        showRecording()
+    }
+
+    private fun announce(file: File, why: String?) {
+        val text = when {
+            // nothing written — and when something stopped it, that is the
+            // news, not a picture that never came
+            !file.exists() ->
+                if (why == null) "Nothing was recorded — no picture arrived"
+                else "Recording stopped — $why. Nothing was saved"
+            why == null -> "Recording saved as Movies/Telemetry/${file.name}"
+            else -> "Recording stopped — $why. Saved as Movies/Telemetry/${file.name}"
+        }
+        // the application's context: this can land after the screen is gone
+        Toast.makeText(activity.applicationContext, text, Toast.LENGTH_LONG).show()
+    }
+
+    /**
+     * Takes the recorder from the source and closes it. Whether the recording
+     * goes on is the caller's: the screen going away keeps it, a stop ends it.
+     */
+    private fun closeRecorder() {
+        videoSource?.record(null)
+        recorder?.close()
+        recorder = null
+    }
+
+    /**
+     * Ends the recording — asked for when [why] is null, or forced by what
+     * [why] says. The toast follows once the file is shut (see [finishing]).
+     */
+    private fun stopRecording(why: String?) {
+        val file = recording ?: return
+        val writing = recorder
+        if (writing != null) {
+            finishing[writing] = why
+        } else {
+            // no writer is open to judge the file — the screen went away
+            // mid-recording and the video was then turned off in Settings
+            if (file.length() == 0L) file.delete()
+            announce(file, why)
+        }
+        closeRecorder()
+        recording = null
+        showRecording()
+        DebugLog.note("Video", "record stop ${file.name}" + (why?.let { ": $it" } ?: ""))
+    }
+
+    /** The button and the label say whether a recording runs, and the label how long and how much. */
+    private fun showRecording() {
+        val on = recording != null
+        videoRecordButton.imageAlpha = if (on) 255 else 128
+        videoRecordLabel.visibility = if (on) View.VISIBLE else View.GONE
+        videoRecordLabel.removeCallbacks(recordTicker)
+        if (on) recordTicker.run()
+    }
+
+    private val recordTicker = object : Runnable {
+        override fun run() {
+            val file = recording ?: return
+            val seconds = (SystemClock.elapsedRealtime() - recordingSince) / 1000
+            videoRecordLabel.text = "REC %d:%02d · %d MB".format(
+                seconds / 60, seconds % 60, file.length() shr 20
+            )
+            videoRecordLabel.postDelayed(this, 1000)
+        }
     }
 
     /**
@@ -590,6 +837,11 @@ class VideoPane(
     fun releaseForStop() {
         videoGeneration++
         videoWaiting.removeCallbacks(videoRetry)
+        videoRecordLabel.removeCallbacks(recordTicker)
+        // a screen that is finishing — Back on older Androids — takes the
+        // recording with it, announced like every other ending; any other
+        // stop only pauses it
+        if (activity.isFinishing) stopRecording(null) else closeRecorder()
         videoSource?.stop()
         videoSource = null
     }

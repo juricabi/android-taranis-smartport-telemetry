@@ -15,7 +15,7 @@ import java.util.concurrent.ArrayBlockingQueue
 import juricabi.com.telemetry.utils.DebugLog
 
 /** Which codec the stream's parameter sets betrayed. */
-internal enum class RtpCodec(val mime: String) {
+enum class RtpCodec(val mime: String) {
     H264(MediaFormat.MIMETYPE_VIDEO_AVC),
     H265(MediaFormat.MIMETYPE_VIDEO_HEVC)
 }
@@ -252,6 +252,12 @@ class UdpSource(
     // there is no codec to feed
     @Volatile private var feedNudge: (() -> Unit)? = null
 
+    @Volatile private var recordSink: RecordSink? = null
+
+    override fun record(sink: RecordSink?) {
+        recordSink = sink
+    }
+
     private val refitOnLayout = android.view.View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
         refit()
     }
@@ -261,6 +267,8 @@ class UdpSource(
     // rebuild — the receive loop respawns it, the socket untouched
     @Volatile private var decoderRotation = 0
     @Volatile private var rebuildDecoder = false
+    // the running decoder's thread, for the surface's end to wait on
+    @Volatile private var decodeThread: Thread? = null
 
     override fun refit() {
         val v = view ?: return
@@ -287,6 +295,13 @@ class UdpSource(
         override fun surfaceDestroyed(holder: SurfaceHolder) {
             DebugLog.note("Video", "udp surface gone")
             surface = null
+            // Nothing may draw into a surface once this returns, and the
+            // running decoder is bound to this one — the screen hands a
+            // silent stream a fresh surface to retire its last frame. So the
+            // decoder is ended and waited for here; the receive loop builds
+            // the next on the new surface when the stream flows again.
+            rebuildDecoder = true
+            decodeThread?.join(1000)
         }
     }
 
@@ -334,6 +349,12 @@ class UdpSource(
         val au = ByteArrayOutputStream(256 * 1024)
         var auTimestamp = -1L
         var auHasKeyframe = false
+        // the recording's own 64-bit run of the RTP clock, extended the way
+        // the decoder extends it: the 32 bits start anywhere and wrap every
+        // thirteen hours, and a wrap read raw looked like a new stream — the
+        // recording threw frames away waiting for a keyframe
+        var recordTicks = 0L
+        var lastRecordRaw = -1L
         var lastHeard = System.currentTimeMillis()
         var firstHeard = lastHeard
         var everHeard = false
@@ -344,6 +365,16 @@ class UdpSource(
             val key = auHasKeyframe
             au.reset()
             auHasKeyframe = false
+            // Recorded here, ahead of the decoder and its gate: a turn that
+            // rebuilds the decoder, or a decoder falling behind, leaves the
+            // recording whole. The RTP clock is 90 kHz.
+            if (lastRecordRaw >= 0) recordTicks += (auTimestamp - lastRecordRaw).toInt()
+            lastRecordRaw = auTimestamp
+            val c = codec
+            if (c != null) recordSink?.frame(
+                c, bytes, recordTicks * 100 / 9, key,
+                if (key) csd.toSortedMap().values.map(::annexB) else emptyList()
+            )
             if (needKeyframe && !key) return
             needKeyframe = false
             if (!units.offer(Triple(bytes, auTimestamp, key))) {
@@ -462,6 +493,7 @@ class UdpSource(
                     // whatever order the stream repeated them in
                     val d = Thread({ decode(codec!!, csd.toSortedMap().values.toList()) }, "udp-decode")
                     decoder = d
+                    decodeThread = d
                     d.start()
                 }
             }

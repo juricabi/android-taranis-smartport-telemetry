@@ -388,6 +388,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), Fr24Manager.Lis
 
     private var fullscreenWindow = false
 
+    // Back collapses an expanded picture first; enabled only while it is one
+    private val collapseOnBack = object : androidx.activity.OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            videoPane.collapse()
+        }
+    }
+
     private var gotHeading = false;
 
     /**
@@ -578,8 +585,13 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), Fr24Manager.Lis
             showDialog = ::showDialog,
             askPermission = permissionFunnel::ask,
             cameraPermissionCode = REQUEST_CAMERA_PERMISSION,
-            recordAudioPermissionCode = REQUEST_RECORD_AUDIO_PERMISSION
+            recordAudioPermissionCode = REQUEST_RECORD_AUDIO_PERMISSION,
+            onExpandedChanged = {
+                collapseOnBack.isEnabled = videoPane.expanded
+                updateWindowFullscreenDecoration()
+            }
         )
+        onBackPressedDispatcher.addCallback(this, collapseOnBack)
 
         trafficWarnings = TrafficWarnings(this)
 
@@ -671,6 +683,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), Fr24Manager.Lis
         myLocationButton = findViewById(R.id.my_location_button)
         findQuadButton = findViewById(R.id.find_quad_button)
         savedInstanceState?.let { videoPane.restoreFrom(it) }
+        collapseOnBack.isEnabled = videoPane.expanded
         settingsButton = findViewById(R.id.settings_button)
         replayButton = findViewById(R.id.replay_button)
         seekBar = findViewById(R.id.seekbar)
@@ -850,9 +863,22 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), Fr24Manager.Lis
         View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
         View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
 
+    /**
+     * The bars hide for the flyer's own fullscreen, and for an expanded
+     * picture whatever that setting is — collapsing gives the setting back.
+     */
+    private fun immersive() = fullscreenWindow || videoPane.expanded
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // some phones drop the flags under a system dialog — a permission
+        // ask — and do not give them back when it goes
+        if (hasFocus && immersive()) updateWindowFullscreenDecoration()
+    }
+
     internal fun updateWindowFullscreenDecoration() {
         window.decorView.systemUiVisibility =
-            if (this.fullscreenWindow) fullscreenFlags else 0
+            if (immersive()) fullscreenFlags else 0
         // The flags hide the status bar, but a phone with a camera cutout
         // still keeps the window out of the cutout's strip by default — the
         // bar went away and a black band stayed, which read as fullscreen
@@ -865,7 +891,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), Fr24Manager.Lis
         if (android.os.Build.VERSION.SDK_INT >= 28) {
             val decorated = WindowManager.LayoutParams()
             decorated.copyFrom(window.attributes)
-            decorated.layoutInDisplayCutoutMode = if (fullscreenWindow)
+            decorated.layoutInDisplayCutoutMode = if (immersive())
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             else
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
@@ -1518,7 +1544,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), Fr24Manager.Lis
             );
             progressDialog.show();
             progressDialog.window?.decorView?.systemUiVisibility =
-                if (this.fullscreenWindow) fullscreenFlags else 0
+                if (immersive()) fullscreenFlags else 0
             progressDialog.window?.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
 
             switchToReplayMode()
@@ -3866,7 +3892,7 @@ class MapsActivity : androidx.appcompat.app.AppCompatActivity(), Fr24Manager.Lis
         );
         dialog.show();
         dialog.window?.decorView?.systemUiVisibility =
-            if (this.fullscreenWindow) fullscreenFlags else 0
+            if (immersive()) fullscreenFlags else 0
         dialog.window?.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
     }
 

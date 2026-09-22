@@ -48,16 +48,88 @@ class UsbUvcSource(
     /**
      * One real camera frame is the proof a picture exists. The renderer also
      * paints a surface the moment it is added — a clear, not a picture — and
-     * a split trusting surface updates showed an empty half for it.
+     * a split trusting surface updates showed an empty half for it. While a
+     * recording runs, every frame after it goes to the encoder too.
      */
-    private val firstFrame = IFrameCallback { frame ->
+    private val frames = IFrameCallback { frame ->
         if (!live) {
             live = true
             DebugLog.note("Video", "uvc first frame, ${frame?.remaining() ?: 0} bytes")
             events.onLive()
+            view?.post { listenForFrames() }
         }
-        // heard once; the per-frame copy is not worth carrying after that
-        view?.post { helper?.setFrameCallback(null, 0) }
+        val sink = recordSink
+        if (sink != null && frame != null) encode(frame, sink)
+    }
+
+    /**
+     * Frames are listened to only while they are needed: the first one, as
+     * the proof above, and all of them while recording — as NV21 then, which
+     * the encoder takes. Otherwise the per-frame copy is not worth carrying.
+     */
+    private fun listenForFrames() {
+        val h = helper ?: return
+        when {
+            recordSink != null -> h.setFrameCallback(frames, UVCCamera.PIXEL_FORMAT_NV21)
+            !live -> h.setFrameCallback(frames, UVCCamera.PIXEL_FORMAT_RAW)
+            else -> h.setFrameCallback(null, 0)
+        }
+    }
+
+    // ---- recording -------------------------------------------------------
+    //
+    // The camera's frames arrive raw, so a recording encodes them. The
+    // encoder lives on the frame thread and is built at the first frame of
+    // each camera open, at that camera's size; the lock is for its release
+    // from the UI thread.
+
+    @Volatile private var recordSink: RecordSink? = null
+    @Volatile private var pictureWidth = 0
+    @Volatile private var pictureHeight = 0
+    @Volatile private var pictureFps = 0
+    private val encoderLock = Any()
+    private var encoder: Nv21Encoder? = null
+
+    override fun record(sink: RecordSink?) {
+        recordSink = sink
+        if (sink == null) releaseEncoder()
+        if (helper?.isCameraOpened == true) listenForFrames()
+    }
+
+    private fun encode(frame: java.nio.ByteBuffer, sink: RecordSink) {
+        synchronized(encoderLock) { encodeLocked(frame, sink) }
+    }
+
+    private fun encodeLocked(frame: java.nio.ByteBuffer, sink: RecordSink) {
+        // a frame caught in flight by a stop must not build a new encoder for
+        // a recording that is over
+        if (recordSink !== sink) return
+        // a frame from before the switch to NV21 is not one it can take
+        val w = pictureWidth
+        val h = pictureHeight
+        if (w <= 0 || h <= 0 || frame.remaining() != w * h * 3 / 2) return
+        try {
+            val e = encoder?.takeIf { it.width == w && it.height == h }
+                ?: Nv21Encoder(w, h, pictureFps).also {
+                    encoder?.release()
+                    encoder = it
+                    DebugLog.note("Video", "uvc recording encoder ${w}x$h@$pictureFps")
+                }
+            e.encode(frame, android.os.SystemClock.elapsedRealtimeNanos() / 1000, sink)
+        } catch (e: Exception) {
+            DebugLog.note("Video", "uvc recording encoder failed: ${e.message}")
+            encoder?.release()
+            encoder = null
+            recordSink = null
+            sink.trouble("the phone could not encode the camera's picture (${e.message})")
+        }
+    }
+
+    private fun releaseEncoder() {
+        synchronized(encoderLock) {
+            encoder?.release()
+            encoder = null
+        }
     }
 
     init {
@@ -144,7 +216,12 @@ class UsbUvcSource(
                 "Video", "uvc camera open ${said(device)}, " +
                     "preview=${helper?.previewSize}, supports=$sizes"
             )
-            helper?.setFrameCallback(firstFrame, UVCCamera.PIXEL_FORMAT_RAW)
+            helper?.previewSize?.let {
+                pictureWidth = it.width
+                pictureHeight = it.height
+                pictureFps = it.fps
+            }
+            listenForFrames()
             helper?.startPreview()
             fitToCamera()
             attachSurfaceIfReady()
@@ -159,6 +236,8 @@ class UsbUvcSource(
             // Dropped, not released: the holder owns it and frees it itself.
             surface?.let { helper?.removeSurface(it) }
             surface = null
+            // the next camera may be another size; its first frame builds anew
+            releaseEncoder()
             // the half folds away until frames flow again — a replugged
             // camera re-earns it through the next first frame
             live = false
@@ -365,5 +444,7 @@ class UsbUvcSource(
         surface = null
         helper?.release()
         helper = null
+        recordSink = null
+        releaseEncoder()
     }
 }
