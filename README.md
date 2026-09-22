@@ -37,7 +37,6 @@ across both views.
 - **A stream that goes quiet leaves nothing behind**: its last frame is
   cleared, where it used to stay at its old size and spread over the map
   when the pane changed shape.
-
 - **The recordings have a manager, not a list**: flights grouped by the
   day they were flown, opened with a tap or marked several at a time —
   drag down the rows to take a run — then deleted, renamed, or exported
