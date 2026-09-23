@@ -61,6 +61,7 @@ class CrsfDataDecoder(listener: Listener) : DataDecoder(listener) {
     private val nativeGps = SourceFreshness()
     private val nativeBattery = SourceFreshness()
     private val millivolts = SourceFreshness()
+    private var batteryDecivolts = -1
     private val extendedGps = SourceFreshness()
     private var extendedGpsFixed = false
     private val nativeVario = SourceFreshness()
@@ -83,6 +84,7 @@ class CrsfDataDecoder(listener: Listener) : DataDecoder(listener) {
         this.latitude = 0.0
         this.longitude = 0.0
         this.rcChannels = IntArray(16) { 1500 };
+        this.batteryDecivolts = -1
         this.listener.onDecoderRestart()
     }
 
@@ -351,6 +353,7 @@ https://github.com/iNavFlight/inav/blob/135456936834ab4129e6ed540038b2e88dcb3c44
             }
             Protocol.VBAT_OR_CELL -> {
                 nativeBattery.arrived()
+                batteryDecivolts = data.data
                 // An ExpressLRS receiver sends its VBAT pad twice, rounded here
                 // and exact in millivolts; showing both would flick the tile
                 // between 12.0 and 11.987.
@@ -359,8 +362,16 @@ https://github.com/iNavFlight/inav/blob/135456936834ab4129e6ed540038b2e88dcb3c44
                 }
             }
             Protocol.VBAT_OR_CELL_MV -> {
-                millivolts.arrived()
-                listener.onVBATOrCellData(data.data / 1000f)
+                // Only as the same reading as the battery frame. ExpressLRS
+                // stops its own battery frame when a flight controller sends
+                // one, but sends the millivolts regardless — 0 from a pad that
+                // is not wired — and those must not replace the pack. Its
+                // battery frame truncates these very millivolts, so the two
+                // agree to a tenth; the slack is the time between the frames.
+                if (batteryDecivolts >= 0 && Math.abs(data.data - batteryDecivolts * 100) <= 150) {
+                    millivolts.arrived()
+                    listener.onVBATOrCellData(data.data / 1000f)
+                }
             }
             Protocol.DISTANCE -> {
                 // Computed from wherever the model armed, which is a stand-in.

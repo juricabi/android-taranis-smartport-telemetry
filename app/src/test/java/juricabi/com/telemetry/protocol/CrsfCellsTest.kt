@@ -9,7 +9,8 @@ import java.nio.ByteBuffer
 /**
  * ExpressLRS 4.1 receivers report their VBAT pad twice: in the battery frame
  * (0x08) in tenths of a volt, and in a CELLS frame (0x0E) in millivolts under
- * a voltage-sensor source id. The exact one wins while it arrives.
+ * a voltage-sensor source id. The exact one wins while it arrives — but only
+ * as the same reading: a flight controller's pack is never replaced by it.
  */
 class CrsfCellsTest {
 
@@ -47,28 +48,51 @@ class CrsfCellsTest {
         return frame(0x08, b.array())
     }
 
-    @Test
-    fun millivoltsReachTheVoltageExactly() {
-        val captor = Captor()
-        feed(CrsfProtocol(captor), cells(128, 11987))
-        assertEquals(listOf(11.987f), captor.volts)
-    }
+    // ExpressLRS's battery frame truncates the same millivolts: 11987 -> 119
 
     @Test
-    fun aValueAbove32VoltsIsNotReadAsNegative() {
+    fun theSameReadingInMillivoltsGoesExact() {
         val captor = Captor()
-        feed(CrsfProtocol(captor), cells(128, 50400))   // 12S full
-        assertEquals(listOf(50.4f), captor.volts)
+        feed(CrsfProtocol(captor), battery(119) + cells(128, 11987))
+        assertEquals(listOf(11.9f, 11.987f), captor.volts)
     }
 
     @Test
     fun theRoundedFrameStandsAsideWhileMillivoltsArrive() {
         val captor = Captor()
-        val protocol = CrsfProtocol(captor)
-        feed(protocol, cells(128, 11987))
-        feed(protocol, battery(120))
-        feed(protocol, cells(128, 11985))
-        assertEquals(listOf(11.987f, 11.985f), captor.volts)
+        feed(CrsfProtocol(captor),
+            battery(119) + cells(128, 11987) + battery(119) + cells(128, 11985))
+        assertEquals(listOf(11.9f, 11.987f, 11.985f), captor.volts)
+    }
+
+    @Test
+    fun aValueAbove32VoltsIsNotReadAsNegative() {
+        val captor = Captor()
+        feed(CrsfProtocol(captor), battery(504) + cells(128, 50400))   // 12S full
+        assertEquals(listOf(50.4f, 50.4f), captor.volts)
+    }
+
+    @Test
+    fun aFlightControllersPackIsNotReplacedByAnUnwiredPad() {
+        // the receiver stops its own battery frame for the FC's, but keeps
+        // sending its pad in millivolts: 0 when nothing is wired to it
+        val captor = Captor()
+        feed(CrsfProtocol(captor), battery(168) + cells(128, 0) + battery(168))
+        assertEquals(listOf(16.8f, 16.8f), captor.volts)
+    }
+
+    @Test
+    fun aPadOnAnotherBatteryIsNotThePack() {
+        val captor = Captor()
+        feed(CrsfProtocol(captor), battery(168) + cells(128, 5012) + battery(167))
+        assertEquals(listOf(16.8f, 16.7f), captor.volts)
+    }
+
+    @Test
+    fun millivoltsWithNoBatteryFrameToMatchSayNothing() {
+        val captor = Captor()
+        feed(CrsfProtocol(captor), cells(128, 11987))
+        assertEquals(emptyList<Float>(), captor.volts)
     }
 
     @Test
@@ -81,9 +105,7 @@ class CrsfCellsTest {
     @Test
     fun aBatterysOwnCellsAreNotTakenForThePack() {
         val captor = Captor()
-        val protocol = CrsfProtocol(captor)
-        feed(protocol, cells(0, 4012, 4015, 4011, 4013))
-        feed(protocol, battery(160))
+        feed(CrsfProtocol(captor), cells(0, 4012, 4015, 4011, 4013) + battery(160))
         assertEquals(listOf(16.0f), captor.volts)
     }
 }
