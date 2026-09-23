@@ -60,6 +60,7 @@ class CrsfDataDecoder(listener: Listener) : DataDecoder(listener) {
      */
     private val nativeGps = SourceFreshness()
     private val nativeBattery = SourceFreshness()
+    private val millivolts = SourceFreshness()
     private val nativeVario = SourceFreshness()
     private val nativeAttitude = SourceFreshness()
     private val nativeAltitude = SourceFreshness()
@@ -345,8 +346,16 @@ https://github.com/iNavFlight/inav/blob/135456936834ab4129e6ed540038b2e88dcb3c44
             }
             Protocol.VBAT_OR_CELL -> {
                 nativeBattery.arrived()
-                val value = data.data / 10f
-                listener.onVBATOrCellData(value)
+                // An ExpressLRS receiver sends its VBAT pad twice, rounded here
+                // and exact in millivolts; showing both would flick the tile
+                // between 12.0 and 11.987.
+                if (!millivolts.fresh()) {
+                    listener.onVBATOrCellData(data.data / 10f)
+                }
+            }
+            Protocol.VBAT_OR_CELL_MV -> {
+                millivolts.arrived()
+                listener.onVBATOrCellData(data.data / 1000f)
             }
             Protocol.DISTANCE -> {
                 // Computed from wherever the model armed, which is a stand-in.

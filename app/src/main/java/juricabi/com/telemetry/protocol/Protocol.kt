@@ -78,6 +78,12 @@ abstract class Protocol(val dataDecoder: DataDecoder) {
         const val ORIGIN = 67
         /** MAVLink HIGH_LATENCY2: the whole 42-byte message, decoded in one piece. */
         const val HIGH_LATENCY = 68
+        /**
+         * The same reading as [VBAT_OR_CELL], in millivolts: ExpressLRS 4.1
+         * receivers send their VBAT pad in a CRSF CELLS frame beside the
+         * battery frame's tenths of a volt.
+         */
+        const val VBAT_OR_CELL_MV = 69
 
         const val RC_CHANNEL_0 = 100
         const val RC_CHANNEL_1 = 101

@@ -36,6 +36,15 @@ class CrsfProtocol : Protocol {
         private const val BATTERY_TYPE = 0x08
         private const val BAROALT_SENSOR = 0x09
         private const val AIRSPEED_SENSOR = 0x0A
+
+        /**
+         * CELLS: a source id, then up to 29 big-endian millivolt values. An id
+         * of 128 and up names a voltage sensor — ExpressLRS 4.1 puts its
+         * receiver's VBAT pad there — while below 128 it is a battery's
+         * individual cells, which nothing here shows yet.
+         */
+        private const val CELLS_TYPE = 0x0E
+        private const val CELLS_VOLTAGE_SENSOR = 128
         private const val LINK_STATS = 0x14
 
         /**
@@ -168,6 +177,14 @@ class CrsfProtocol : Protocol {
                         dataDecoder.decodeData( Protocol.Companion.TelemetryData( VBAT_OR_CELL, voltage.toInt()))
                         dataDecoder.decodeData( Protocol.Companion.TelemetryData( CURRENT, current.toInt()))
                         dataDecoder.decodeData(Protocol.Companion.TelemetryData(FUEL, capacity))
+                    }
+                }
+                CELLS_TYPE.toByte() -> {
+                    // type, source id, then at least one value
+                    if (inputData.size >= 4 &&
+                        (data.get().toInt() and 0xFF) >= CELLS_VOLTAGE_SENSOR) {
+                        val millivolts = data.short.toInt() and 0xFFFF
+                        dataDecoder.decodeData(Protocol.Companion.TelemetryData(VBAT_OR_CELL_MV, millivolts))
                     }
                 }
                 GPS_TYPE.toByte() -> {

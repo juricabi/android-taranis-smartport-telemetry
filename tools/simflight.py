@@ -36,6 +36,7 @@ SYNC = 0xC8
 
 GPS = 0x02
 BATTERY = 0x08
+CELLS = 0x0E
 LINK = 0x14
 ATTITUDE = 0x1E
 FLIGHT_MODE = 0x21
@@ -90,6 +91,12 @@ def battery_frame(volts, amps, used_mah, remaining_pct):
     return frame(BATTERY, struct.pack(">HH", int(round(volts * 10)), int(round(amps * 10)))
                  + bytes([(used >> 16) & 0xFF, (used >> 8) & 0xFF, used & 0xFF,
                           int(round(remaining_pct)) & 0xFF]))
+
+
+def rx_vbat_frame(volts):
+    # ExpressLRS 4.1's second copy of the receiver's VBAT pad: a CELLS frame
+    # under voltage-sensor id 128, in millivolts
+    return frame(CELLS, bytes([128]) + struct.pack(">H", int(round(max(0.0, min(65.535, volts)) * 1000))))
 
 
 def attitude_frame(pitch_deg, roll_deg, yaw_deg):
@@ -385,6 +392,9 @@ def main():
                         help="report height above the launch point, as iNav "
                              "over CRSF (and old Betaflight) does, instead of "
                              "above sea level")
+    parser.add_argument("--rx-vbat", action="store_true",
+                        help="also send the battery in millivolts, the way an "
+                             "ExpressLRS 4.1 receiver reports its VBAT pad")
     parser.add_argument("--no-name", action="store_true",
                         help="send no DEVICE_INFO, like a Bluetooth telemetry "
                              "mirror — the link the rate-system override "
@@ -701,6 +711,8 @@ def main():
         if now - last["battery"] >= 0.5:
             last["battery"] = now
             send(battery_frame(volts, amps, used_mah, remaining))
+            if args.rx_vbat:
+                send(rx_vbat_frame(volts))
         if now - last["link"] >= 0.1:
             last["link"] = now
             send(link_frame(up_rssi, up_lq, 12, 2, 3, up_rssi - 6, up_lq - 4, 9))
