@@ -150,7 +150,7 @@ dependencies {
     // Drawn by the GPU, so a flight line costs the same however many points
     // are in it. It replaced osmdroid, which was archived in November 2024.
     implementation 'org.maplibre.gl:android-sdk-opengl:13.4.1'
-    // Video. UVCAndroid drives USB (UVC) receivers and goggles over OTG —
+    // Video. UVCAndroid drives USB (UVC) receivers and cameras over OTG —
     // it replaced the 2014 serenegiant module chain this repo used to carry.
     // Ours is the published 1.0.13 rebuilt with UVC 1.5 accepted, without
     // which a modern camera's webcam mode (DJI's among them) fails every

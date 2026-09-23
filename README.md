@@ -52,7 +52,7 @@ video beside it. This is [juricabi's fork](https://github.com/juricabi/android-t
   import as one zip.
 
 **Video and trackers**
-- Live video beside the map from USB (UVC) receivers and goggles, RTSP, MJPEG
+- Live video beside the map from USB (UVC) receivers and cameras, RTSP, MJPEG
   or raw RTP; recorded crash-safe, full screen on demand
   ([details](#live-video)).
 - The drone's GPS as the phone's own location, so a tracker app broadcasts
@@ -125,9 +125,9 @@ portrait. The address says what the stream is:
 - **`http://…`** — MJPEG: ESP32-CAM, mjpg-streamer, IP Webcam's `/video`.
 - **`udp://5600`** — raw RTP, H.264 or H.265, pushed at this phone's IP by
   **OpenIPC / wfb-ng** and QGroundControl-style senders. No buffer at all.
-- **USB (UVC)** — analog OTG receivers (ROTG02 and kin), DJI and Walksnail
-  goggles in webcam mode, and action cameras, including UVC 1.5 ones such as
-  the DJI Osmo Action that stock Android UVC libraries refuse.
+- **USB (UVC)** — analog OTG receivers (ROTG02 and kin) and action cameras
+  in webcam mode, including UVC 1.5 ones such as the DJI Osmo Action that
+  stock Android UVC libraries refuse.
 
 The picture carries its own **record**, **sound**, **quarter-turn**
 (remembered) and **expand** buttons; expand gives it the whole screen until
