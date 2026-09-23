@@ -1,0 +1,11 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <!-- a crosshair: a ring round a dot, with its four ticks -->
+    <path android:fillColor="#fff"
+        android:pathData="M12,5a7,7 0 1,1 0,14a7,7 0 1,1 0,-14zM12,6.6a5.4,5.4 0 1,0 0,10.8a5.4,5.4 0 1,0 0,-10.8z"/>
+    <path android:fillColor="#fff"
+        android:pathData="M12,10a2,2 0 1,1 0,4a2,2 0 1,1 0,-4z"/>
+    <path android:fillColor="#fff"
+        android:pathData="M11.2,1.5h1.6v4.5h-1.6zM11.2,18h1.6v4.5h-1.6zM1.5,11.2h4.5v1.6h-4.5zM18,11.2h4.5v1.6h-4.5z"/>
+</vector>

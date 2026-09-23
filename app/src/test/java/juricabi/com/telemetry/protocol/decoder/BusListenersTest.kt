@@ -1,5 +1,6 @@
 package juricabi.com.telemetry.protocol.decoder
 
+import juricabi.com.telemetry.protocol.GpsPrecision
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -18,9 +19,10 @@ class BusListenersTest {
         override fun commit() { heard.add("commit") }
         override fun onTemperatureData(celsius: Float) { heard.add("temp:$celsius") }
         override fun onRpmData(rpm: Int) { heard.add("rpm:$rpm") }
+        override fun onGPSPrecisionData(precision: GpsPrecision) { heard.add(precision.text()) }
     }
 
-    // These two are defaulted empty on the interface, so the compiler does
+    // These are defaulted empty on the interface, so the compiler does
     // not insist on a relay: a forgotten one would drop the reading silently.
     @Test
     fun defaultedCallbacksAreRelayedToo() {
@@ -28,7 +30,8 @@ class BusListenersTest {
         val bus = MulticastListener({ ear })
         bus.onTemperatureData(71.5f)
         bus.onRpmData(21000)
-        assertEquals(listOf("temp:71.5", "rpm:21000"), ear.heard)
+        bus.onGPSPrecisionData(GpsPrecision.Hdop(1.2f))
+        assertEquals(listOf("temp:71.5", "rpm:21000", GpsPrecision.Hdop(1.2f).text()), ear.heard)
     }
 
     @Test

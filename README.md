@@ -16,8 +16,8 @@ video beside it. This is [juricabi's fork](https://github.com/juricabi/android-t
 - FrSky S.PORT, CRSF (Crossfire, Tracer, ExpressLRS), Ghost, LTM and MAVLink
   1/2, detected automatically. ArduPilot passthrough over CRSF and MAVLink
   High Latency carry full telemetry over plain ELRS or satellite/LoRa links.
-- Tiles for battery, cells, current, satellites, speeds, distances, altitude,
-  climb, throttle, temperature, motor RPM, RC channels, RSSI/LQ/SNR, antennas,
+- Tiles for battery, cells, current, satellites, [GPS precision](#how-gps-precision-works),
+  speeds, distances, altitude, climb, throttle, temperature, motor RPM, RC channels, RSSI/LQ/SNR, antennas,
   power, rate and protocol, plus an artificial horizon — arranged in Sensor
   display settings, greyed when stale.
 
@@ -63,7 +63,7 @@ video beside it. This is [juricabi's fork](https://github.com/juricabi/android-t
 | Protocol | Main data |
 |---|---|
 | FrSky S.PORT | GPS, altitude, vario, airspeed, battery, current and sensors |
-| CRSF / Crossfire / Tracer / ExpressLRS | GPS, attitude, flight mode, battery (millivolts from ExpressLRS 4.1 receivers), temperature, motor RPM, RC and link statistics |
+| CRSF / Crossfire / Tracer / ExpressLRS | GPS (with Betaflight's fix and precision over Crossfire and Tracer), attitude, flight mode, battery (millivolts from ExpressLRS 4.1 receivers), temperature, motor RPM, RC and link statistics |
 | Ghost (GHST) | GPS, battery and Ghost link statistics/profile |
 | LTM | GPS, attitude, status and battery |
 | MAVLink 1 and 2 | GPS, global position, attitude, battery, radio, flight mode and status text |
@@ -177,6 +177,39 @@ A barometric altitude is preferred where the protocol has one. With only CRSF
 GPS altitude, the normal and GPS altitude fields may show the same value —
 they share one source.
 
+## How GPS precision works
+
+The **GPS precision** tile, off until turned on in Sensor display settings,
+shows how well the model knows where it is — in whatever form its link sends,
+because the firmwares do not send the same thing:
+
+| Link | The tile shows |
+|---|---|
+| CRSF from Betaflight, over Crossfire or Tracer | `±1.5 m`, the receiver's own accuracy; `HDOP 1.2` from a receiver speaking NMEA |
+| MAVLink, any firmware | `±1.5 m` from GPS_RAW_INT's accuracy; from ArduPilot or PX4 without it, `HDOP 1.2` |
+| MAVLink High Latency from PX4 | `±1.5 m`, the worst error since the last message |
+| ArduPilot passthrough, S.Port or CRSF | `HDOP 1.2` |
+| LTM from iNav | `HDOP 1.2` |
+| S.Port from iNav or Betaflight | `HDOP ≤2.0` — one digit, in steps of 0.5 |
+| Ghost; CRSF from iNav or ArduPilot; Betaflight over ExpressLRS; LTM from ArduPilot or Betaflight; High Latency from ArduPilot | nothing: none of them sends a precision |
+
+Metres and HDOP are different quantities and are never converted into each
+other. Metres is the receiver's estimate of its own error. HDOP is a unitless
+measure of how well the satellites in view are spread: under 1.5 is good,
+over 5 is poor. iNav, and Betaflight when its receiver gives no DOP, send
+PDOP under HDOP's name, which reads a little worse than the true HDOP would.
+iNav and Betaflight step the S.Port digit half a unit apart, and the sensor
+does not say which one sent it, so the tile shows the bound true of both.
+iNav fills MAVLink's HDOP field with its accuracy in centimetres, so that
+field is not read from iNav; set to call itself ArduPilot and speaking
+MAVLink 1, which has no accuracy field, it cannot be told apart and shows its
+metres as HDOP — use MAVLink 2.
+
+The same extended frame is what gives Betaflight's fix. ExpressLRS does not
+run the CRSF negotiation Betaflight waits for before sending it, so over
+ExpressLRS — as with iNav — the fix is still judged from the satellite count,
+more than six.
+
 ## Drone GPS as phone location
 
 **Settings → Mock location** republishes the drone's GPS — position, altitude
@@ -245,7 +278,7 @@ Connect with **Network → TBS Crossfire / Tracer (UDP)** on port 8888.
 `--style acro` throws the model about, `--above-launch` sends launch-relative
 heights, `--passthrough` weaves in ArduPilot passthrough, `--rx-vbat` and
 `--esc-telemetry` add ExpressLRS millivolts and iNav-style RPM and ESC
-temperatures, and `--protocol mavlink-hl --wait-enable` plays an ArduPilot high-latency port
+temperatures, `--gps-extended` adds Betaflight's fix, accuracy and HDOP, and `--protocol mavlink-hl --wait-enable` plays an ArduPilot high-latency port
 (use the **MAVLink High Latency (UDP)** preset with the PC's address).
 `--help` lists the rest.
 

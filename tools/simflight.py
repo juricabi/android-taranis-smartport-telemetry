@@ -35,6 +35,7 @@ import time
 SYNC = 0xC8
 
 GPS = 0x02
+GPS_EXTENDED = 0x06
 BATTERY = 0x08
 RPM = 0x0C
 TEMP = 0x0D
@@ -82,6 +83,16 @@ def gps_frame(lat, lon, speed_kmh, heading_deg, altitude_m, satellites):
         int(round(speed_kmh * 10)) & 0xFFFF,
         int(round(heading_deg % 360 * 100)) & 0xFFFF,
         min(0xFFFF, max(0, int(round(altitude_m)) + 1000)), satellites))
+
+
+def gps_extended_frame(flight_s):
+    # Betaflight's GPS extended, as a u-blox receiver fills it: a 3D fix, then
+    # zeros up to the horizontal accuracy in centimetres — wandering between
+    # about 0.8 and 2.2 m so the readout visibly lives — and HDOP in tenths.
+    h_acc_cm = int(150 + 70 * math.sin(flight_s / 20.0))
+    hdop_tenths = int(11 + 3 * math.sin(flight_s / 30.0))
+    return frame(GPS_EXTENDED, bytes([3]) + bytes(12) +
+                 struct.pack(">hhBBB", h_acc_cm, 0, 0, hdop_tenths, 0))
 
 
 def battery_frame(volts, amps, used_mah, remaining_pct):
@@ -409,6 +420,10 @@ def main():
     parser.add_argument("--rx-vbat", action="store_true",
                         help="also send the battery in millivolts, the way an "
                              "ExpressLRS 4.1 receiver reports its VBAT pad")
+    parser.add_argument("--gps-extended", action="store_true",
+                        help="also send Betaflight's GPS extended frame: the "
+                             "fix type, the accuracy in metres and HDOP, as "
+                             "it does over Crossfire and Tracer")
     parser.add_argument("--esc-telemetry", action="store_true",
                         help="also send motor RPM and ESC temperatures, the "
                              "way iNav reports its ESC telemetry")
@@ -720,6 +735,8 @@ def main():
             last["gps"] = now
             reported = climb if args.above_launch else altitude
             send(gps_frame(lat, lon, speed * 3.6, heading, reported, 14))
+            if args.gps_extended:
+                send(gps_extended_frame(t))
         # attitude fastest, since it is what the horizon and the model ride on
         # yaw goes on the wire in radians as a signed 16 bit value, so it has
         # to be given as plus or minus 180: sending 0 to 360 overflowed past

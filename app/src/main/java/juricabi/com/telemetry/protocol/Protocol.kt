@@ -90,6 +90,10 @@ abstract class Protocol(val dataDecoder: DataDecoder) {
         const val RPM = 71
         /** The GPS receiver's own fix type: 1 none, 2 two-dimensional, 3 three. */
         const val GPS_FIX_TYPE = 72
+        /** The receiver's own horizontal accuracy, in centimetres. */
+        const val GPS_ACCURACY_CM = 73
+        /** Horizontal dilution of precision, in hundredths. */
+        const val GPS_HDOP = 74
 
         const val RC_CHANNEL_0 = 100
         const val RC_CHANNEL_1 = 101

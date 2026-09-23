@@ -3,6 +3,7 @@ package juricabi.com.telemetry.protocol
 import juricabi.com.telemetry.protocol.crc.CRC8
 import juricabi.com.telemetry.protocol.decoder.DataDecoder
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.ByteBuffer
 
@@ -70,5 +71,23 @@ class CrsfGpsFixTest {
     @Test
     fun aTwoDimensionalFixPlacesTheModel() {
         assertEquals(listOf(true), decode(extended(2), gps(4)))
+    }
+
+    @Test
+    fun aSeekKeepsTheFixTypeInStepWithTheCounts() {
+        // collapsed to its last frame, the walk judged every fix by the count
+        assertTrue(CrsfProtocol(Captor()).dataDecoder.isGPSOrImageData(Protocol.GPS_FIX_TYPE))
+    }
+
+    @Test
+    fun aRestartForgetsTheExtendedFrame() {
+        // a seek restarts the decoder and walks from the start of the log,
+        // where the frame heard later must not vouch for the counts yet
+        val captor = Captor()
+        val protocol = CrsfProtocol(captor)
+        (extended(1) + gps(10)).forEach { protocol.process(it.toInt() and 0xFF) }
+        protocol.dataDecoder.restart()
+        gps(10).forEach { protocol.process(it.toInt() and 0xFF) }
+        assertEquals(listOf(false, true), captor.fixes)
     }
 }

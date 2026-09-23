@@ -2,6 +2,7 @@ package juricabi.com.telemetry.protocol.decoder
 
 import android.util.Log
 import juricabi.com.telemetry.utils.GeoUtils
+import juricabi.com.telemetry.protocol.GpsPrecision
 import juricabi.com.telemetry.protocol.Protocol
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -148,6 +149,9 @@ class LTMDataDecoder(listener: Listener) : DataDecoder(listener) {
                 if (homeLatitude != 0.0 || homeLongitude != 0.0) {
                     listener.onHomeData(homeLatitude, homeLongitude, homeAltitude)
                 }
+            }
+            Protocol.GPS_HDOP -> {
+                listener.onGPSPrecisionData(GpsPrecision.Hdop(data.data / 100f))
             }
             else -> {
                 decoded = false

@@ -110,7 +110,8 @@ class PreferenceManager(context: Context) {
             // above renames every sensor after it and hands each one the
             // neighbour's saved place.
             SensorSetting("Temperature", 18, "top", false ),
-            SensorSetting("RPM", 10, "bottom", false )
+            SensorSetting("RPM", 10, "bottom", false ),
+            SensorSetting("GPS precision", 19, "top", false )
         )
     }
 

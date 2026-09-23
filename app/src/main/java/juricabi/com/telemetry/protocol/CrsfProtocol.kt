@@ -48,7 +48,9 @@ class CrsfProtocol : Protocol {
 
         /**
          * RPM: a source id, then one signed 24-bit value per motor. iNav sends
-         * its ESC telemetry here, with 0 for a motor whose data went stale.
+         * its ESC telemetry here: 0 for an ESC that has never reported, and a
+         * stale one's last reading, never zeroed — so a 0 is a motor that is
+         * not turning, and counts in the mean.
          */
         private const val RPM_TYPE = 0x0C
 
@@ -70,8 +72,11 @@ class CrsfProtocol : Protocol {
 
         /**
          * Betaflight's GPS extended: the fix type first, then velocities and
-         * accuracies. Only the fix type is read — the plain GPS frame carries
-         * no fix at all, which left the fix a guess from the satellite count.
+         * accuracies, of which the horizontal one and HDOP are read. The
+         * plain GPS frame carries no fix at all, which left the fix a guess
+         * from the satellite count. Betaflight sends this only
+         * once CRSF v3's baud negotiation has run — Crossfire and Tracer do it,
+         * ExpressLRS does not — so over ExpressLRS the guess still stands.
          */
         private const val GPS_EXTENDED_TYPE = 0x06
         private const val GPS_EXTENDED_PACKET_LEN = 21
@@ -250,6 +255,17 @@ class CrsfProtocol : Protocol {
                 GPS_EXTENDED_TYPE.toByte() -> {
                     if (inputData.size == GPS_EXTENDED_PACKET_LEN) {
                         dataDecoder.decodeData(Protocol.Companion.TelemetryData(GPS_FIX_TYPE, data.get().toInt() and 0xFF))
+                        // The accuracy in centimetres when the receiver measured
+                        // one — only u-blox's own protocol gives it, NMEA leaves
+                        // 0, and past 327 m the int16 wraps negative — else the
+                        // DOP in tenths, which falls back to PDOP without NAV-DOP.
+                        val accuracyCm = data.getShort(14).toInt()
+                        val hdopTenths = data.get(19).toInt() and 0xFF
+                        if (accuracyCm > 0) {
+                            dataDecoder.decodeData(Protocol.Companion.TelemetryData(GPS_ACCURACY_CM, accuracyCm))
+                        } else if (hdopTenths > 0) {
+                            dataDecoder.decodeData(Protocol.Companion.TelemetryData(GPS_HDOP, hdopTenths * 10))
+                        }
                     }
                 }
                 BARO_TYPE.toByte() -> {

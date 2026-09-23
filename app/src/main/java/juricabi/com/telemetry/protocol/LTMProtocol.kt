@@ -109,6 +109,12 @@ class LTMProtocol : Protocol {
                             Companion.PacketType.NAVIGATION -> {
                             }
                             Companion.PacketType.EXTRA -> {
+                                // iNav's HDOP in hundredths, little-endian — its
+                                // receiver's PDOP in truth — and 9999 for none.
+                                val hdop = (packet[0].toInt() and 0xFF) or ((packet[1].toInt() and 0xFF) shl 8)
+                                if (hdop in 1 until 9999) {
+                                    dataDecoder.decodeData( Protocol.Companion.TelemetryData( GPS_HDOP, hdop, packet ) )
+                                }
                             }
                         }
                     }

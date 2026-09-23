@@ -1,6 +1,7 @@
 package juricabi.com.telemetry.protocol.decoder
 
 import android.util.Log
+import juricabi.com.telemetry.protocol.GpsPrecision
 import juricabi.com.telemetry.protocol.Protocol
 import juricabi.com.telemetry.protocol.ProtocolFactory
 import juricabi.com.telemetry.protocol.SourceFreshness
@@ -85,6 +86,12 @@ class CrsfDataDecoder(listener: Listener) : DataDecoder(listener) {
         this.longitude = 0.0
         this.rcChannels = IntArray(16) { 1500 };
         this.batteryDecivolts = -1
+        // A replay's seek restarts the decoder and walks the GPS frames from
+        // the log's start; the fix type heard later in the flight must not
+        // judge them. The other sources are left be: their frames are fired
+        // after the walk, and it is their standing that ranks them there.
+        extendedGps.reset()
+        this.extendedGpsFixed = false
         this.listener.onDecoderRestart()
     }
 
@@ -432,6 +439,12 @@ https://github.com/iNavFlight/inav/blob/135456936834ab4129e6ed540038b2e88dcb3c44
                         listener.onStatusText(String(data.rawData, 1, end - 1))
                     }
                 }
+            }
+            Protocol.GPS_ACCURACY_CM -> {
+                listener.onGPSPrecisionData(GpsPrecision.Metres(data.data / 100f))
+            }
+            Protocol.GPS_HDOP -> {
+                listener.onGPSPrecisionData(GpsPrecision.Hdop(data.data / 100f))
             }
             else -> {
                 decoded = false

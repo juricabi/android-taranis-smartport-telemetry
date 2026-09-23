@@ -18,6 +18,8 @@ class MAVLinkProtocol : Protocol {
     private var buffer: IntArray = IntArray(0)
     private var payloadIndex = 0
     private var packetLength = 0
+    /** From the heartbeat: what the vehicle says it runs, for GPS_RAW_INT's eph. */
+    private var autopilot = -1
     private var packetIndex = 0
     private var systemId = 0
     private var componentId = 0
@@ -150,6 +152,10 @@ class MAVLinkProtocol : Protocol {
             val customMode = byteBuffer.int
             val aircraftType = byteBuffer.get()
             val autopilotClass = byteBuffer.get()
+            // not from a ground station, gimbal or camera on the same link
+            if (autopilotClass.toInt() != MavGpsPrecision.AUTOPILOT_INVALID) {
+                autopilot = autopilotClass.toInt() and 0xFF
+            }
             val mode = byteBuffer.get()
             val state = byteBuffer.get()
             val version = byteBuffer.get()
@@ -269,6 +275,7 @@ class MAVLinkProtocol : Protocol {
             // nothing about either.
             dataDecoder.decodeData( Protocol.Companion.TelemetryData( Protocol.GPS_STATE, fixType.toInt()))
             dataDecoder.decodeData( Protocol.Companion.TelemetryData( Protocol.GPS_SATELLITES, satellites.toInt()))
+            MavGpsPrecision.of(eph.toInt() and 0xFFFF, 0, autopilot)?.let { dataDecoder.decodeData(it) }
             // The place itself only while nothing better is being sent. Both
             // frames at once made the model step between the receiver's own
             // position and the estimator's several times a second.

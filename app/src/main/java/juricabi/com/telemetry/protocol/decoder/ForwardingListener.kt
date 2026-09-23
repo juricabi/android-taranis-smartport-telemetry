@@ -1,6 +1,7 @@
 package juricabi.com.telemetry.protocol.decoder
 
 import juricabi.com.telemetry.maps.Position
+import juricabi.com.telemetry.protocol.GpsPrecision
 
 /**
  * A listener that hands everything on, written once.
@@ -68,6 +69,7 @@ open class ForwardingListener(
     override fun onAirSpeedData(speed: Float) = relay { it.onAirSpeedData(speed) }
     override fun onTemperatureData(celsius: Float) = relay { it.onTemperatureData(celsius) }
     override fun onRpmData(rpm: Int) = relay { it.onRpmData(rpm) }
+    override fun onGPSPrecisionData(precision: GpsPrecision) = relay { it.onGPSPrecisionData(precision) }
     override fun onRCChannels(rcChannels: IntArray) = relay { it.onRCChannels(rcChannels) }
     override fun onStatusText(message: String) = relay { it.onStatusText(message) }
     override fun onDNSNRData(snr: Int) = relay { it.onDNSNRData(snr) }

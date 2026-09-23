@@ -11,6 +11,7 @@ import com.nex3z.flowlayout.FlowLayout
 import juricabi.com.telemetry.R
 import juricabi.com.telemetry.manager.PreferenceManager
 import juricabi.com.telemetry.manager.SensorTimeoutManager
+import juricabi.com.telemetry.protocol.GpsPrecision
 import juricabi.com.telemetry.protocol.ProtocolFactory
 import juricabi.com.telemetry.protocol.decoder.DataDecoder
 import kotlin.math.roundToInt
@@ -77,6 +78,7 @@ class TelemetryPanel(
     private val tlmRate: TextView = activity.findViewById(R.id.tlm_rate)
     private val temperature: TextView = activity.findViewById(R.id.temperature)
     private val rpm: TextView = activity.findViewById(R.id.rpm)
+    private val gpsPrecision: TextView = activity.findViewById(R.id.gps_precision)
     private val mode: TextView = activity.findViewById(R.id.mode)
     private val topList: FlowLayout = activity.findViewById(R.id.top_list)
     private val bottomList: FlowLayout = activity.findViewById(R.id.bottom_list)
@@ -111,7 +113,8 @@ class TelemetryPanel(
         Pair(PreferenceManager.sensors.elementAt(26).name, tlmRate),
         Pair(PreferenceManager.sensors.elementAt(27).name, protocolView),
         Pair(PreferenceManager.sensors.elementAt(28).name, temperature),
-        Pair(PreferenceManager.sensors.elementAt(29).name, rpm)
+        Pair(PreferenceManager.sensors.elementAt(29).name, rpm),
+        Pair(PreferenceManager.sensors.elementAt(30).name, gpsPrecision)
     )
 
     companion object {
@@ -341,6 +344,13 @@ class TelemetryPanel(
         sensorTimeoutManager.onRpmData(rpm)
         activity.runOnUiThread {
             this.rpm.text = if (rpm < 1000) "$rpm rpm" else "${"%.1f".format(rpm / 1000f)}k rpm"
+        }
+    }
+
+    override fun onGPSPrecisionData(precision: GpsPrecision) {
+        sensorTimeoutManager.onGPSPrecisionData(precision)
+        activity.runOnUiThread {
+            gpsPrecision.text = precision.text()
         }
     }
 
@@ -1002,6 +1012,7 @@ class TelemetryPanel(
             SensorTimeoutManager.SENSOR_THROTTLE -> throttle.alpha = alpha
             SensorTimeoutManager.SENSOR_TEMPERATURE -> temperature.alpha = alpha
             SensorTimeoutManager.SENSOR_RPM -> rpm.alpha = alpha
+            SensorTimeoutManager.SENSOR_GPS_PRECISION -> gpsPrecision.alpha = alpha
             SensorTimeoutManager.SENSOR_FUEL -> fuel.alpha = alpha
             SensorTimeoutManager.SENSOR_RC_CHANNELS -> rcWidget.alpha = alpha
             SensorTimeoutManager.SENSOR_STATUSTEXT -> {
@@ -1075,6 +1086,7 @@ class TelemetryPanel(
         throttle.text = "-"
         temperature.text = "-"
         rpm.text = "-"
+        gpsPrecision.text = "-"
         protocolView.text = "-"
         tlmRate.text = "0 b/s"
     }
