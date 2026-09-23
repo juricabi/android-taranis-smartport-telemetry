@@ -1,6 +1,7 @@
 package juricabi.com.telemetry.protocol.decoder
 
 import android.util.Log
+import juricabi.com.telemetry.protocol.GpsPrecision
 import juricabi.com.telemetry.protocol.Protocol
 import juricabi.com.telemetry.protocol.ProtocolFactory
 import juricabi.com.telemetry.protocol.SourceFreshness
@@ -60,6 +61,10 @@ class CrsfDataDecoder(listener: Listener) : DataDecoder(listener) {
      */
     private val nativeGps = SourceFreshness()
     private val nativeBattery = SourceFreshness()
+    private val millivolts = SourceFreshness()
+    private var batteryDecivolts = -1
+    private val extendedGps = SourceFreshness()
+    private var extendedGpsFixed = false
     private val nativeVario = SourceFreshness()
     private val nativeAttitude = SourceFreshness()
     private val nativeAltitude = SourceFreshness()
@@ -80,6 +85,13 @@ class CrsfDataDecoder(listener: Listener) : DataDecoder(listener) {
         this.latitude = 0.0
         this.longitude = 0.0
         this.rcChannels = IntArray(16) { 1500 };
+        this.batteryDecivolts = -1
+        // A replay's seek restarts the decoder and walks the GPS frames from
+        // the log's start; the fix type heard later in the flight must not
+        // judge them. The other sources are left be: their frames are fired
+        // after the walk, and it is their standing that ranks them there.
+        extendedGps.reset()
+        this.extendedGpsFixed = false
         this.listener.onDecoderRestart()
     }
 
@@ -113,11 +125,14 @@ class CrsfDataDecoder(listener: Listener) : DataDecoder(listener) {
             Protocol.GPS_SATELLITES -> {
                 // First word of the native GPS frame, so the frame is counted
                 // here once. The satellite-count guess at a fix stands back
-                // while the passthrough stream carries the receiver's real one.
+                // while the passthrough stream carries the receiver's real one,
+                // and answers only when Betaflight's GPS extended frame, with
+                // the receiver's own fix type, is not arriving either.
                 nativeGps.arrived()
                 val satellites = data.data
                 if (!passthroughGps.fresh()) {
-                    listener.onGPSState(satellites, satellites > 6)
+                    val fixed = if (extendedGps.fresh()) extendedGpsFixed else satellites > 6
+                    listener.onGPSState(satellites, fixed)
                 }
             }
             Protocol.HEADING -> {
@@ -345,8 +360,25 @@ https://github.com/iNavFlight/inav/blob/135456936834ab4129e6ed540038b2e88dcb3c44
             }
             Protocol.VBAT_OR_CELL -> {
                 nativeBattery.arrived()
-                val value = data.data / 10f
-                listener.onVBATOrCellData(value)
+                batteryDecivolts = data.data
+                // An ExpressLRS receiver sends its VBAT pad twice, rounded here
+                // and exact in millivolts; showing both would flick the tile
+                // between 12.0 and 11.987.
+                if (!millivolts.fresh()) {
+                    listener.onVBATOrCellData(data.data / 10f)
+                }
+            }
+            Protocol.VBAT_OR_CELL_MV -> {
+                // Only as the same reading as the battery frame. ExpressLRS
+                // stops its own battery frame when a flight controller sends
+                // one, but sends the millivolts regardless — 0 from a pad that
+                // is not wired — and those must not replace the pack. Its
+                // battery frame truncates these very millivolts, so the two
+                // agree to a tenth; the slack is the time between the frames.
+                if (batteryDecivolts >= 0 && Math.abs(data.data - batteryDecivolts * 100) <= 150) {
+                    millivolts.arrived()
+                    listener.onVBATOrCellData(data.data / 1000f)
+                }
             }
             Protocol.DISTANCE -> {
                 // Computed from wherever the model armed, which is a stand-in.
@@ -355,6 +387,16 @@ https://github.com/iNavFlight/inav/blob/135456936834ab4129e6ed540038b2e88dcb3c44
                 if (!passthroughHome.fresh()) {
                     listener.onDistanceData(data.data)
                 }
+            }
+            Protocol.GPS_FIX_TYPE -> {
+                extendedGps.arrived()
+                extendedGpsFixed = data.data >= 2
+            }
+            Protocol.TEMPERATURE -> {
+                listener.onTemperatureData(data.data / 10f)
+            }
+            Protocol.RPM -> {
+                listener.onRpmData(data.data)
             }
             Protocol.ASPEED -> {
                 listener.onAirSpeedData(data.data / 10f)
@@ -397,6 +439,12 @@ https://github.com/iNavFlight/inav/blob/135456936834ab4129e6ed540038b2e88dcb3c44
                         listener.onStatusText(String(data.rawData, 1, end - 1))
                     }
                 }
+            }
+            Protocol.GPS_ACCURACY_CM -> {
+                listener.onGPSPrecisionData(GpsPrecision.Metres(data.data / 100f))
+            }
+            Protocol.GPS_HDOP -> {
+                listener.onGPSPrecisionData(GpsPrecision.Hdop(data.data / 100f))
             }
             else -> {
                 decoded = false

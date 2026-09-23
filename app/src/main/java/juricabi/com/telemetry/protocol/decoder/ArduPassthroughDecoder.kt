@@ -1,5 +1,6 @@
 package juricabi.com.telemetry.protocol.decoder
 
+import juricabi.com.telemetry.protocol.GpsPrecision
 import juricabi.com.telemetry.protocol.Protocol
 import kotlin.math.ceil
 import kotlin.math.pow
@@ -111,12 +112,16 @@ class ArduPassthroughDecoder(private val listener: DataDecoder.Listener) {
         listener.onFlyModeData(arduArmed, false, firstFlightMode, null)
     }
 
-    /** 0x5002: satellites, fix, and the GPS altitude above the sea. */
+    /** 0x5002: satellites, fix, HDOP, and the GPS altitude above the sea. */
     fun gpsStatus(word: Int, withAltitude: Boolean) {
         val satellites = bitExtracted(word, 4, 1)
         val gpsStatus = bitExtracted(word, 2, 5)
         val isFix = gpsStatus >= 3
         listener.onGPSState(satellites, isFix)
+        // Tenths, as seven bits and a power of ten; all ones is ArduPilot's
+        // "unknown", which it sends while it has no GPS.
+        val hdopTenths = bitExtracted(word, 7, 8) * 10.0.pow(bitExtracted(word, 1, 7)).toInt()
+        if (hdopTenths < 1270) listener.onGPSPrecisionData(GpsPrecision.Hdop(hdopTenths / 10f))
         if (!withAltitude) return
         val gpsAlt: Double =
             bitExtracted(word, 7, 25) * 10.0.pow(bitExtracted(word, 2, 23).toDouble()) / 10f

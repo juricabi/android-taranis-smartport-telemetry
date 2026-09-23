@@ -1,0 +1,15 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <!-- a three-bladed propeller -->
+    <group android:pivotX="12" android:pivotY="12" android:rotation="0">
+        <path android:fillColor="#fff" android:pathData="M12,11C10.2,8 10.4,3.2 12,1.5C13.6,3.2 13.8,8 12,11Z"/>
+    </group>
+    <group android:pivotX="12" android:pivotY="12" android:rotation="120">
+        <path android:fillColor="#fff" android:pathData="M12,11C10.2,8 10.4,3.2 12,1.5C13.6,3.2 13.8,8 12,11Z"/>
+    </group>
+    <group android:pivotX="12" android:pivotY="12" android:rotation="240">
+        <path android:fillColor="#fff" android:pathData="M12,11C10.2,8 10.4,3.2 12,1.5C13.6,3.2 13.8,8 12,11Z"/>
+    </group>
+    <path android:fillColor="#fff" android:pathData="M12,9.6a2.4,2.4 0 1,0 0.001,0z"/>
+</vector>

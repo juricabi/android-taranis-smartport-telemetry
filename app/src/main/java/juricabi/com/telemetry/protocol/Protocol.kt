@@ -78,6 +78,22 @@ abstract class Protocol(val dataDecoder: DataDecoder) {
         const val ORIGIN = 67
         /** MAVLink HIGH_LATENCY2: the whole 42-byte message, decoded in one piece. */
         const val HIGH_LATENCY = 68
+        /**
+         * The same reading as [VBAT_OR_CELL], in millivolts: ExpressLRS 4.1
+         * receivers send their VBAT pad in a CRSF CELLS frame beside the
+         * battery frame's tenths of a volt.
+         */
+        const val VBAT_OR_CELL_MV = 69
+        /** The hottest temperature a frame reports, in tenths of a degree Celsius. */
+        const val TEMPERATURE = 70
+        /** The motors' mean RPM, from ESC telemetry. */
+        const val RPM = 71
+        /** The GPS receiver's own fix type: 1 none, 2 two-dimensional, 3 three. */
+        const val GPS_FIX_TYPE = 72
+        /** The receiver's own horizontal accuracy, in centimetres. */
+        const val GPS_ACCURACY_CM = 73
+        /** Horizontal dilution of precision, in hundredths. */
+        const val GPS_HDOP = 74
 
         const val RC_CHANNEL_0 = 100
         const val RC_CHANNEL_1 = 101

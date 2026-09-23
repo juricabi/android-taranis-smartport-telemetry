@@ -104,10 +104,14 @@ class PreferenceManager(context: Context) {
             SensorSetting("Altitude above MSL", 7, "bottom", false),
             SensorSetting("Throttle", 8, "bottom", false),
             SensorSetting("Telemetry rate", 17, "top", false ),
-            // Last, and last for good: the screen maps these to their views by
-            // position in this set, so anything inserted above renames every
-            // sensor after it and hands each one the neighbour's saved place.
-            SensorSetting("Protocol", 9, "bottom", false )
+            SensorSetting("Protocol", 9, "bottom", false ),
+            // New sensors go on the end and nowhere else: the screen maps these
+            // to their views by position in this set, so anything inserted
+            // above renames every sensor after it and hands each one the
+            // neighbour's saved place.
+            SensorSetting("Temperature", 18, "top", false ),
+            SensorSetting("RPM", 10, "bottom", false ),
+            SensorSetting("GPS precision", 19, "top", false )
         )
     }
 

@@ -1,5 +1,6 @@
 package juricabi.com.telemetry.protocol.decoder
 
+import juricabi.com.telemetry.protocol.GpsPrecision
 import juricabi.com.telemetry.protocol.Protocol
 import java.io.IOException
 import kotlin.math.ceil
@@ -222,6 +223,11 @@ class FrskyDataDecoder(listener: Listener) : DataDecoder(listener) {
                 val satellites = data.data % 100
                 val isFix = data.data > 1000
                 listener.onGPSState(satellites, isFix)
+                // The hundreds are iNav's and Betaflight's one digit of DOP.
+                // An all-zero word is a GPS that is not there, not a bad one.
+                if (data.data > 0) {
+                    listener.onGPSPrecisionData(GpsPrecision.HdopDigit(data.data / 100 % 10))
+                }
 //                Log.d(TAG, "Decoded satellites $satellites isFix=$isFix")
             }
             Protocol.VSPEED -> {

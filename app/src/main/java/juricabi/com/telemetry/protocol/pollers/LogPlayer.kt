@@ -101,6 +101,14 @@ class LogPlayer(val originalListener: DataDecoder.Listener) :
     private var fireGPSState = false;
     /** Inside a seek's second pass, re-firing the frames that changed the fix. */
     private var refiringState = false;
+    /**
+     * The fix each of those frames reported when the walk decoded it. The
+     * second pass decodes them again, but by then the decoder holds what came
+     * after them — CRSF's extended fix type, which stream is fresh — and would
+     * report every fix the flight had as the one the walk ended on.
+     */
+    private val walkedState = HashMap<Int, Pair<Int, Boolean>>()
+    private var refiring = -1
 
     private var mTimer: Timer? = null
 
@@ -299,6 +307,7 @@ class LogPlayer(val originalListener: DataDecoder.Listener) :
         uniqueData.clear()
         uniqueDataIndex.clear()
         decodedCoordinates.clear()
+        walkedState.clear()
 
         //when decodedCoordinates.size=key, cachedData[value]
         var outUniqueData: HashMap<Int, ArrayList<Int>> = HashMap<Int, ArrayList<Int>>();
@@ -336,6 +345,7 @@ class LogPlayer(val originalListener: DataDecoder.Listener) :
                             outUniqueData[index] = ArrayList<Int>();
                         }
                         outUniqueData[index]?.add(i);
+                        walkedState[i] = this.satellites to this.hasGPSFix
                     }
                 } else if ( protocol.dataDecoder.isHeightData( cachedData[i].telemetryType )) {
                     // where it happened, not collapsed to the last one: a
@@ -369,6 +379,7 @@ class LogPlayer(val originalListener: DataDecoder.Listener) :
                             outUniqueData[index] = ArrayList<Int>();
                         }
                         outUniqueData[index]?.add(i);
+                        walkedState[i] = this.satellites to this.hasGPSFix
                         uniqueData.remove(cachedData[i].telemetryType)
                         uniqueDataIndex.remove(cachedData[i].telemetryType)
                     }
@@ -417,6 +428,7 @@ class LogPlayer(val originalListener: DataDecoder.Listener) :
                     // would add it a second time — a duplicate point at the
                     // tail, since the walk's bound was fixed before it grew.
                     refiringState = true
+                    refiring = it
                     try {
                         protocol.dataDecoder.decodeData(cachedData[it])
                     } finally {
@@ -599,10 +611,11 @@ class LogPlayer(val originalListener: DataDecoder.Listener) :
     }
 
     override fun onGPSState(satellites: Int, gpsFix: Boolean) {
-        this.hasGPSFix = gpsFix
-        this.satellites = satellites
+        val walked = if (refiringState) walkedState[refiring] else null
+        this.hasGPSFix = walked?.second ?: gpsFix
+        this.satellites = walked?.first ?: satellites
         if ( fireGPSState) {
-            originalListener.onGPSState(satellites, gpsFix)
+            originalListener.onGPSState(this.satellites, this.hasGPSFix)
         }
     }
 

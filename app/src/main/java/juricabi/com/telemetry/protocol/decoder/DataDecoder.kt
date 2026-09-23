@@ -1,6 +1,7 @@
 package juricabi.com.telemetry.protocol.decoder
 
 import juricabi.com.telemetry.maps.Position
+import juricabi.com.telemetry.protocol.GpsPrecision
 import juricabi.com.telemetry.protocol.Protocol
 
 abstract class DataDecoder(protected val listener: Listener) {
@@ -196,6 +197,19 @@ abstract class DataDecoder(protected val listener: Listener) {
             secondFlightMode: FlyMode? = null
         )
         fun onAirSpeedData(speed: Float)
+        /**
+         * The hottest temperature reported, in degrees Celsius, and the
+         * motors' mean RPM. Defaulted empty: only CRSF carries them — iNav's
+         * ESC telemetry, Betaflight's barometer, ArduPilot through
+         * ExpressLRS — and only the screen shows them.
+         */
+        fun onTemperatureData(celsius: Float) {}
+        fun onRpmData(rpm: Int) {}
+        /**
+         * How well the model knows where it is, in the form its link sends:
+         * see [GpsPrecision]. Defaulted empty for the same reason.
+         */
+        fun onGPSPrecisionData(precision: GpsPrecision) {}
         fun onRCChannels(rcChannels:IntArray)
         fun onStatusText(message: String)
         fun onDNSNRData(snr: Int)
@@ -245,6 +259,10 @@ abstract class DataDecoder(protected val listener: Listener) {
         return telemetryType == Protocol.GPS ||
             telemetryType == Protocol.GPS_STATE ||
             telemetryType == Protocol.GPS_SATELLITES ||
+            // In step with the satellite counts it vouches for: collapsed to
+            // its last frame, a seek judged the whole walk's fixes by the
+            // count alone and drew points the live flight had rejected.
+            telemetryType == Protocol.GPS_FIX_TYPE ||
             telemetryType == Protocol.GPS_STATE_ARDU ||
             telemetryType == Protocol.GPS_LATITUDE ||
             telemetryType == Protocol.GPS_LONGITUDE ||

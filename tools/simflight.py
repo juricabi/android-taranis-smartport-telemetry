@@ -35,7 +35,11 @@ import time
 SYNC = 0xC8
 
 GPS = 0x02
+GPS_EXTENDED = 0x06
 BATTERY = 0x08
+RPM = 0x0C
+TEMP = 0x0D
+CELLS = 0x0E
 LINK = 0x14
 ATTITUDE = 0x1E
 FLIGHT_MODE = 0x21
@@ -81,6 +85,16 @@ def gps_frame(lat, lon, speed_kmh, heading_deg, altitude_m, satellites):
         min(0xFFFF, max(0, int(round(altitude_m)) + 1000)), satellites))
 
 
+def gps_extended_frame(flight_s):
+    # Betaflight's GPS extended, as a u-blox receiver fills it: a 3D fix, then
+    # zeros up to the horizontal accuracy in centimetres — wandering between
+    # about 0.8 and 2.2 m so the readout visibly lives — and HDOP in tenths.
+    h_acc_cm = int(150 + 70 * math.sin(flight_s / 20.0))
+    hdop_tenths = int(11 + 3 * math.sin(flight_s / 30.0))
+    return frame(GPS_EXTENDED, bytes([3]) + bytes(12) +
+                 struct.pack(">hhBBB", h_acc_cm, 0, 0, hdop_tenths, 0))
+
+
 def battery_frame(volts, amps, used_mah, remaining_pct):
     # a flat pack is a real state; a negative one is not, and it crashed the
     # packer thirty minutes into a flight
@@ -90,6 +104,24 @@ def battery_frame(volts, amps, used_mah, remaining_pct):
     return frame(BATTERY, struct.pack(">HH", int(round(volts * 10)), int(round(amps * 10)))
                  + bytes([(used >> 16) & 0xFF, (used >> 8) & 0xFF, used & 0xFF,
                           int(round(remaining_pct)) & 0xFF]))
+
+
+def rx_vbat_frame(volts):
+    # ExpressLRS 4.1's second copy of the receiver's VBAT pad: a CELLS frame
+    # under voltage-sensor id 128, in millivolts
+    return frame(CELLS, bytes([128]) + struct.pack(">H", int(round(max(0.0, min(65.535, volts)) * 1000))))
+
+
+def esc_frames(amps, flight_s):
+    # iNav's ESC telemetry: one RPM and one temperature per motor, source 0.
+    # RPM follows the current, each motor a little apart; the ESCs warm up
+    # over the first minutes and run hotter under load.
+    rpms = [int(9000 + amps * 450 + offset) for offset in (0, 180, -150, 60)]
+    temps = [int((30 + min(35.0, flight_s / 8.0) + amps * 0.4 + offset) * 10)
+             for offset in (0, 2.5, -1.0, 4.0)]
+    rpm_payload = bytes([0]) + b"".join(struct.pack(">i", r)[1:] for r in rpms)
+    temp_payload = bytes([0]) + b"".join(struct.pack(">h", t) for t in temps)
+    return frame(RPM, rpm_payload) + frame(TEMP, temp_payload)
 
 
 def attitude_frame(pitch_deg, roll_deg, yaw_deg):
@@ -385,6 +417,16 @@ def main():
                         help="report height above the launch point, as iNav "
                              "over CRSF (and old Betaflight) does, instead of "
                              "above sea level")
+    parser.add_argument("--rx-vbat", action="store_true",
+                        help="also send the battery in millivolts, the way an "
+                             "ExpressLRS 4.1 receiver reports its VBAT pad")
+    parser.add_argument("--gps-extended", action="store_true",
+                        help="also send Betaflight's GPS extended frame: the "
+                             "fix type, the accuracy in metres and HDOP, as "
+                             "it does over Crossfire and Tracer")
+    parser.add_argument("--esc-telemetry", action="store_true",
+                        help="also send motor RPM and ESC temperatures, the "
+                             "way iNav reports its ESC telemetry")
     parser.add_argument("--no-name", action="store_true",
                         help="send no DEVICE_INFO, like a Bluetooth telemetry "
                              "mirror — the link the rate-system override "
@@ -693,6 +735,8 @@ def main():
             last["gps"] = now
             reported = climb if args.above_launch else altitude
             send(gps_frame(lat, lon, speed * 3.6, heading, reported, 14))
+            if args.gps_extended:
+                send(gps_extended_frame(t))
         # attitude fastest, since it is what the horizon and the model ride on
         # yaw goes on the wire in radians as a signed 16 bit value, so it has
         # to be given as plus or minus 180: sending 0 to 360 overflowed past
@@ -701,6 +745,10 @@ def main():
         if now - last["battery"] >= 0.5:
             last["battery"] = now
             send(battery_frame(volts, amps, used_mah, remaining))
+            if args.rx_vbat:
+                send(rx_vbat_frame(volts))
+            if args.esc_telemetry:
+                send(esc_frames(amps, t))
         if now - last["link"] >= 0.1:
             last["link"] = now
             send(link_frame(up_rssi, up_lq, 12, 2, 3, up_rssi - 6, up_lq - 4, 9))

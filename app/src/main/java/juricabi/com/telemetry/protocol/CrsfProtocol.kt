@@ -36,6 +36,50 @@ class CrsfProtocol : Protocol {
         private const val BATTERY_TYPE = 0x08
         private const val BAROALT_SENSOR = 0x09
         private const val AIRSPEED_SENSOR = 0x0A
+
+        /**
+         * CELLS: a source id, then up to 29 big-endian millivolt values. An id
+         * of 128 and up names a voltage sensor — ExpressLRS 4.1 puts its
+         * receiver's VBAT pad there — while below 128 it is a battery's
+         * individual cells, which nothing here shows yet.
+         */
+        private const val CELLS_TYPE = 0x0E
+        private const val CELLS_VOLTAGE_SENSOR = 128
+
+        /**
+         * RPM: a source id, then one signed 24-bit value per motor. iNav sends
+         * its ESC telemetry here: 0 for an ESC that has never reported, and a
+         * stale one's last reading, never zeroed — so a 0 is a motor that is
+         * not turning, and counts in the mean.
+         */
+        private const val RPM_TYPE = 0x0C
+
+        /**
+         * TEMP: a source id, then signed tenths of a degree. iNav sends its
+         * ESCs and temperature sensors, marking a stale ESC with -125.0;
+         * ExpressLRS forwards ArduPilot's one ambient reading.
+         */
+        private const val TEMP_TYPE = 0x0D
+        private const val TEMP_STALE = -1250
+
+        /**
+         * Betaflight's barometer: pressure in pascals, then the sensor's
+         * temperature in hundredths of a degree — the only temperature it
+         * sends over CRSF.
+         */
+        private const val BARO_TYPE = 0x11
+        private const val BARO_PACKET_LEN = 9
+
+        /**
+         * Betaflight's GPS extended: the fix type first, then velocities and
+         * accuracies, of which the horizontal one and HDOP are read. The
+         * plain GPS frame carries no fix at all, which left the fix a guess
+         * from the satellite count. Betaflight sends this only
+         * once CRSF v3's baud negotiation has run — Crossfire and Tracer do it,
+         * ExpressLRS does not — so over ExpressLRS the guess still stands.
+         */
+        private const val GPS_EXTENDED_TYPE = 0x06
+        private const val GPS_EXTENDED_PACKET_LEN = 21
         private const val LINK_STATS = 0x14
 
         /**
@@ -168,6 +212,66 @@ class CrsfProtocol : Protocol {
                         dataDecoder.decodeData( Protocol.Companion.TelemetryData( VBAT_OR_CELL, voltage.toInt()))
                         dataDecoder.decodeData( Protocol.Companion.TelemetryData( CURRENT, current.toInt()))
                         dataDecoder.decodeData(Protocol.Companion.TelemetryData(FUEL, capacity))
+                    }
+                }
+                CELLS_TYPE.toByte() -> {
+                    // type, source id, then at least one value
+                    if (inputData.size >= 4 &&
+                        (data.get().toInt() and 0xFF) >= CELLS_VOLTAGE_SENSOR) {
+                        val millivolts = data.short.toInt() and 0xFFFF
+                        dataDecoder.decodeData(Protocol.Companion.TelemetryData(VBAT_OR_CELL_MV, millivolts))
+                    }
+                }
+                RPM_TYPE.toByte() -> {
+                    // type, source id, then at least one three-byte value
+                    val motors = (inputData.size - 2) / 3
+                    if (motors > 0) {
+                        data.get()
+                        var sum = 0L
+                        repeat(motors) {
+                            val raw = ((data.get().toInt() and 0xFF) shl 16) or
+                                ((data.get().toInt() and 0xFF) shl 8) or
+                                (data.get().toInt() and 0xFF)
+                            // sign-extend the 24 bits; reverse spin is still speed
+                            sum += Math.abs((raw shl 8) shr 8)
+                        }
+                        dataDecoder.decodeData(Protocol.Companion.TelemetryData(RPM, (sum / motors).toInt()))
+                    }
+                }
+                TEMP_TYPE.toByte() -> {
+                    val count = (inputData.size - 2) / 2
+                    if (count > 0) {
+                        data.get()
+                        var hottest = Int.MIN_VALUE
+                        repeat(count) {
+                            val value = data.short.toInt()
+                            if (value != TEMP_STALE && value > hottest) hottest = value
+                        }
+                        if (hottest != Int.MIN_VALUE) {
+                            dataDecoder.decodeData(Protocol.Companion.TelemetryData(TEMPERATURE, hottest))
+                        }
+                    }
+                }
+                GPS_EXTENDED_TYPE.toByte() -> {
+                    if (inputData.size == GPS_EXTENDED_PACKET_LEN) {
+                        dataDecoder.decodeData(Protocol.Companion.TelemetryData(GPS_FIX_TYPE, data.get().toInt() and 0xFF))
+                        // The accuracy in centimetres when the receiver measured
+                        // one — only u-blox's own protocol gives it, NMEA leaves
+                        // 0, and past 327 m the int16 wraps negative — else the
+                        // DOP in tenths, which falls back to PDOP without NAV-DOP.
+                        val accuracyCm = data.getShort(14).toInt()
+                        val hdopTenths = data.get(19).toInt() and 0xFF
+                        if (accuracyCm > 0) {
+                            dataDecoder.decodeData(Protocol.Companion.TelemetryData(GPS_ACCURACY_CM, accuracyCm))
+                        } else if (hdopTenths > 0) {
+                            dataDecoder.decodeData(Protocol.Companion.TelemetryData(GPS_HDOP, hdopTenths * 10))
+                        }
+                    }
+                }
+                BARO_TYPE.toByte() -> {
+                    if (inputData.size == BARO_PACKET_LEN) {
+                        data.int // pressure
+                        dataDecoder.decodeData(Protocol.Companion.TelemetryData(TEMPERATURE, data.int / 10))
                     }
                 }
                 GPS_TYPE.toByte() -> {

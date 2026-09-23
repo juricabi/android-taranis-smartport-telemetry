@@ -21,6 +21,12 @@ internal class SourceFreshness(
         alternateFrames = 0
     }
 
+    /** Nothing has arrived: a replay's seek starts the walk from here. */
+    fun reset() {
+        at = Long.MIN_VALUE
+        alternateFrames = 0
+    }
+
     fun fresh(): Boolean {
         if (at == Long.MIN_VALUE) return false
         alternateFrames++

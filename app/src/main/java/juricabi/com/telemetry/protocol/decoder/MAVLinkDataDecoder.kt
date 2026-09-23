@@ -1,6 +1,7 @@
 package juricabi.com.telemetry.protocol.decoder
 
 import android.util.Log
+import juricabi.com.telemetry.protocol.GpsPrecision
 import juricabi.com.telemetry.protocol.Protocol
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -276,7 +277,7 @@ class MAVLinkDataDecoder(listener: Listener) : DataDecoder(listener) {
                 val groundspeed = (b.get().toInt() and 0xFF) / 5f
                 val windspeed = b.get()
                 val windHeading = b.get()
-                val eph = b.get()
+                val eph = b.get().toInt() and 0xFF
                 val epv = b.get()
                 val temperature = b.get()
                 val climbRate = b.get()
@@ -300,6 +301,11 @@ class MAVLinkDataDecoder(listener: Listener) : DataDecoder(listener) {
                 // heights mean exactly as it does for links that only send MSL.
                 listener.onAltitudeData(altitudeMsl.toFloat())
                 listener.onHeadingData(heading.toFloat())
+                // The worst horizontal error since the last message, in
+                // decimetres: PX4 fills it, ArduPilot sends the zero above.
+                if (eph in 1..254) {
+                    listener.onGPSPrecisionData(GpsPrecision.Metres(eph / 10f))
+                }
                 listener.onThrottleData(throttle)
                 listener.onGSpeedData(groundspeed * 3.6f)
                 listener.onAirSpeedData(airspeed * 3.6f)
@@ -352,6 +358,12 @@ class MAVLinkDataDecoder(listener: Listener) : DataDecoder(listener) {
             }
             Protocol.DISTANCE -> {
                 listener.onDistanceData(data.data)
+            }
+            Protocol.GPS_ACCURACY_CM -> {
+                listener.onGPSPrecisionData(GpsPrecision.Metres(data.data / 100f))
+            }
+            Protocol.GPS_HDOP -> {
+                listener.onGPSPrecisionData(GpsPrecision.Hdop(data.data / 100f))
             }
             else -> {
                 decoded = false
