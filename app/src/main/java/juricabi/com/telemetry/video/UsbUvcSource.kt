@@ -25,8 +25,7 @@ import juricabi.com.telemetry.utils.DebugLog
 
 /**
  * A USB (UVC) camera over OTG: an analog receiver dongle — ROTG02 and kin —
- * or goggles that present themselves as a webcam, which DJI, Walksnail and
- * Orqa all do.
+ * or goggles that present themselves as a webcam, which DJI and Walksnail do.
  *
  * The helper does the courtship: it watches for a device, asks Android's USB
  * permission for it, opens it and runs the preview. This class only answers
