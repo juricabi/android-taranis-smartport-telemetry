@@ -88,6 +88,8 @@ abstract class Protocol(val dataDecoder: DataDecoder) {
         const val TEMPERATURE = 70
         /** The motors' mean RPM, from ESC telemetry. */
         const val RPM = 71
+        /** The GPS receiver's own fix type: 1 none, 2 two-dimensional, 3 three. */
+        const val GPS_FIX_TYPE = 72
 
         const val RC_CHANNEL_0 = 100
         const val RC_CHANNEL_1 = 101

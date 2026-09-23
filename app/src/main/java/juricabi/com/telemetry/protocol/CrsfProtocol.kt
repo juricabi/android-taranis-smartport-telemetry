@@ -67,6 +67,14 @@ class CrsfProtocol : Protocol {
          */
         private const val BARO_TYPE = 0x11
         private const val BARO_PACKET_LEN = 9
+
+        /**
+         * Betaflight's GPS extended: the fix type first, then velocities and
+         * accuracies. Only the fix type is read — the plain GPS frame carries
+         * no fix at all, which left the fix a guess from the satellite count.
+         */
+        private const val GPS_EXTENDED_TYPE = 0x06
+        private const val GPS_EXTENDED_PACKET_LEN = 21
         private const val LINK_STATS = 0x14
 
         /**
@@ -237,6 +245,11 @@ class CrsfProtocol : Protocol {
                         if (hottest != Int.MIN_VALUE) {
                             dataDecoder.decodeData(Protocol.Companion.TelemetryData(TEMPERATURE, hottest))
                         }
+                    }
+                }
+                GPS_EXTENDED_TYPE.toByte() -> {
+                    if (inputData.size == GPS_EXTENDED_PACKET_LEN) {
+                        dataDecoder.decodeData(Protocol.Companion.TelemetryData(GPS_FIX_TYPE, data.get().toInt() and 0xFF))
                     }
                 }
                 BARO_TYPE.toByte() -> {

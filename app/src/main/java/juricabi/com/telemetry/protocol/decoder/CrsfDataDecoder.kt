@@ -61,6 +61,8 @@ class CrsfDataDecoder(listener: Listener) : DataDecoder(listener) {
     private val nativeGps = SourceFreshness()
     private val nativeBattery = SourceFreshness()
     private val millivolts = SourceFreshness()
+    private val extendedGps = SourceFreshness()
+    private var extendedGpsFixed = false
     private val nativeVario = SourceFreshness()
     private val nativeAttitude = SourceFreshness()
     private val nativeAltitude = SourceFreshness()
@@ -114,11 +116,14 @@ class CrsfDataDecoder(listener: Listener) : DataDecoder(listener) {
             Protocol.GPS_SATELLITES -> {
                 // First word of the native GPS frame, so the frame is counted
                 // here once. The satellite-count guess at a fix stands back
-                // while the passthrough stream carries the receiver's real one.
+                // while the passthrough stream carries the receiver's real one,
+                // and answers only when Betaflight's GPS extended frame, with
+                // the receiver's own fix type, is not arriving either.
                 nativeGps.arrived()
                 val satellites = data.data
                 if (!passthroughGps.fresh()) {
-                    listener.onGPSState(satellites, satellites > 6)
+                    val fixed = if (extendedGps.fresh()) extendedGpsFixed else satellites > 6
+                    listener.onGPSState(satellites, fixed)
                 }
             }
             Protocol.HEADING -> {
@@ -364,6 +369,10 @@ https://github.com/iNavFlight/inav/blob/135456936834ab4129e6ed540038b2e88dcb3c44
                 if (!passthroughHome.fresh()) {
                     listener.onDistanceData(data.data)
                 }
+            }
+            Protocol.GPS_FIX_TYPE -> {
+                extendedGps.arrived()
+                extendedGpsFixed = data.data >= 2
             }
             Protocol.TEMPERATURE -> {
                 listener.onTemperatureData(data.data / 10f)
