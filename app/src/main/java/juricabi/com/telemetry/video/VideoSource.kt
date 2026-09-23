@@ -5,8 +5,8 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 
 /**
- * One live picture, whatever carries it: a USB (UVC) receiver or goggles, or
- * an RTSP stream off the network.
+ * One live picture, whatever carries it: a USB (UVC) receiver or camera, or
+ * a stream off the network.
  *
  * A source owns the view from start to stop, and only one is ever active. It
  * reports trouble through the callback it was built with rather than
