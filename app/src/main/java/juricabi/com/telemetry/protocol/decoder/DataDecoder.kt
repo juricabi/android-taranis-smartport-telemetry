@@ -196,6 +196,14 @@ abstract class DataDecoder(protected val listener: Listener) {
             secondFlightMode: FlyMode? = null
         )
         fun onAirSpeedData(speed: Float)
+        /**
+         * The hottest temperature reported, in degrees Celsius, and the
+         * motors' mean RPM. Defaulted empty: only CRSF carries them — iNav's
+         * ESC telemetry, Betaflight's barometer, ArduPilot through
+         * ExpressLRS — and only the screen shows them.
+         */
+        fun onTemperatureData(celsius: Float) {}
+        fun onRpmData(rpm: Int) {}
         fun onRCChannels(rcChannels:IntArray)
         fun onStatusText(message: String)
         fun onDNSNRData(snr: Int)

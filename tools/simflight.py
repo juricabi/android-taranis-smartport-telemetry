@@ -36,6 +36,8 @@ SYNC = 0xC8
 
 GPS = 0x02
 BATTERY = 0x08
+RPM = 0x0C
+TEMP = 0x0D
 CELLS = 0x0E
 LINK = 0x14
 ATTITUDE = 0x1E
@@ -97,6 +99,18 @@ def rx_vbat_frame(volts):
     # ExpressLRS 4.1's second copy of the receiver's VBAT pad: a CELLS frame
     # under voltage-sensor id 128, in millivolts
     return frame(CELLS, bytes([128]) + struct.pack(">H", int(round(max(0.0, min(65.535, volts)) * 1000))))
+
+
+def esc_frames(amps, flight_s):
+    # iNav's ESC telemetry: one RPM and one temperature per motor, source 0.
+    # RPM follows the current, each motor a little apart; the ESCs warm up
+    # over the first minutes and run hotter under load.
+    rpms = [int(9000 + amps * 450 + offset) for offset in (0, 180, -150, 60)]
+    temps = [int((30 + min(35.0, flight_s / 8.0) + amps * 0.4 + offset) * 10)
+             for offset in (0, 2.5, -1.0, 4.0)]
+    rpm_payload = bytes([0]) + b"".join(struct.pack(">i", r)[1:] for r in rpms)
+    temp_payload = bytes([0]) + b"".join(struct.pack(">h", t) for t in temps)
+    return frame(RPM, rpm_payload) + frame(TEMP, temp_payload)
 
 
 def attitude_frame(pitch_deg, roll_deg, yaw_deg):
@@ -395,6 +409,9 @@ def main():
     parser.add_argument("--rx-vbat", action="store_true",
                         help="also send the battery in millivolts, the way an "
                              "ExpressLRS 4.1 receiver reports its VBAT pad")
+    parser.add_argument("--esc-telemetry", action="store_true",
+                        help="also send motor RPM and ESC temperatures, the "
+                             "way iNav reports its ESC telemetry")
     parser.add_argument("--no-name", action="store_true",
                         help="send no DEVICE_INFO, like a Bluetooth telemetry "
                              "mirror — the link the rate-system override "
@@ -713,6 +730,8 @@ def main():
             send(battery_frame(volts, amps, used_mah, remaining))
             if args.rx_vbat:
                 send(rx_vbat_frame(volts))
+            if args.esc_telemetry:
+                send(esc_frames(amps, t))
         if now - last["link"] >= 0.1:
             last["link"] = now
             send(link_frame(up_rssi, up_lq, 12, 2, 3, up_rssi - 6, up_lq - 4, 9))

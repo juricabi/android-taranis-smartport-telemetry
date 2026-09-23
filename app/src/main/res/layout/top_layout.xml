@@ -295,6 +295,21 @@
                     app:minText="300 b/s"
                     app:iconWidthDp="24"/>
 
+            <juricabi.com.telemetry.ui.TextViewStableSize
+                    android:id="@+id/temperature"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_margin="6dp"
+                    android:drawableStart="@drawable/ic_temperature"
+                    android:drawablePadding="4dp"
+                    android:layout_centerVertical="true"
+                    android:gravity="center_horizontal"
+                    android:text="-"
+                    android:textColor="@android:color/white"
+                    android:textSize="16sp"
+                    app:minText="-10°C"
+                    app:iconWidthDp="24"/>
+
         </com.nex3z.flowlayout.FlowLayout>
 
 <!-- The one whole-screen video switch, beside replay; the picture's

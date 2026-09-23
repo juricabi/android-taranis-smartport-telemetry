@@ -38,8 +38,10 @@ class SensorTimeoutManager(protected val listener: SensorTimeoutManager.Listener
         public const val SENSOR_VBAT_OR_CELL = 23;
         public const val SENSOR_GPS_ALTITUDE = 24;
         public const val SENSOR_THROTTLE = 25;
+        public const val SENSOR_TEMPERATURE = 26;
+        public const val SENSOR_RPM = 27;
 
-        private const val SENSOR_COUNT = 26;
+        private const val SENSOR_COUNT = 28;
 
         private const val TIMER_INTERVAL_MS = 400;
         public const val DEFAULT_TIMEOUT_MS = 10000;
@@ -255,6 +257,14 @@ class SensorTimeoutManager(protected val listener: SensorTimeoutManager.Listener
 
     override fun onAirSpeedData(speed: Float){
         this.onSensorData(SensorTimeoutManager.SENSOR_AIRSPEED);
+    }
+
+    override fun onTemperatureData(celsius: Float){
+        this.onSensorData(SensorTimeoutManager.SENSOR_TEMPERATURE);
+    }
+
+    override fun onRpmData(rpm: Int){
+        this.onSensorData(SensorTimeoutManager.SENSOR_RPM);
     }
 
     override fun onRCChannels(rcChannels:IntArray){

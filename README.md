@@ -17,9 +17,9 @@ video beside it. This is [juricabi's fork](https://github.com/juricabi/android-t
   1/2, detected automatically. ArduPilot passthrough over CRSF and MAVLink
   High Latency carry full telemetry over plain ELRS or satellite/LoRa links.
 - Tiles for battery, cells, current, satellites, speeds, distances, altitude,
-  climb, throttle, RC channels, RSSI/LQ/SNR, antennas, power, rate and
-  protocol, plus an artificial horizon — arranged in Sensor display settings,
-  greyed when stale.
+  climb, throttle, temperature, motor RPM, RC channels, RSSI/LQ/SNR, antennas,
+  power, rate and protocol, plus an artificial horizon — arranged in Sensor
+  display settings, greyed when stale.
 
 **Connections**
 - Bluetooth, BLE, USB serial over OTG, TCP client or server, UDP and the
@@ -63,7 +63,7 @@ video beside it. This is [juricabi's fork](https://github.com/juricabi/android-t
 | Protocol | Main data |
 |---|---|
 | FrSky S.PORT | GPS, altitude, vario, airspeed, battery, current and sensors |
-| CRSF / Crossfire / Tracer / ExpressLRS | GPS, attitude, flight mode, battery, RC and link statistics |
+| CRSF / Crossfire / Tracer / ExpressLRS | GPS, attitude, flight mode, battery (millivolts from ExpressLRS 4.1 receivers), temperature, motor RPM, RC and link statistics |
 | Ghost (GHST) | GPS, battery and Ghost link statistics/profile |
 | LTM | GPS, attitude, status and battery |
 | MAVLink 1 and 2 | GPS, global position, attitude, battery, radio, flight mode and status text |
@@ -243,8 +243,9 @@ python tools/simflight.py --host <phone-ip> --port 8888 \
 
 Connect with **Network → TBS Crossfire / Tracer (UDP)** on port 8888.
 `--style acro` throws the model about, `--above-launch` sends launch-relative
-heights, `--passthrough` weaves in ArduPilot passthrough, and
-`--protocol mavlink-hl --wait-enable` plays an ArduPilot high-latency port
+heights, `--passthrough` weaves in ArduPilot passthrough, `--rx-vbat` and
+`--esc-telemetry` add ExpressLRS millivolts and iNav-style RPM and ESC
+temperatures, and `--protocol mavlink-hl --wait-enable` plays an ArduPilot high-latency port
 (use the **MAVLink High Latency (UDP)** preset with the PC's address).
 `--help` lists the rest.
 

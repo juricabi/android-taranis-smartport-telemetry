@@ -45,6 +45,28 @@ class CrsfProtocol : Protocol {
          */
         private const val CELLS_TYPE = 0x0E
         private const val CELLS_VOLTAGE_SENSOR = 128
+
+        /**
+         * RPM: a source id, then one signed 24-bit value per motor. iNav sends
+         * its ESC telemetry here, with 0 for a motor whose data went stale.
+         */
+        private const val RPM_TYPE = 0x0C
+
+        /**
+         * TEMP: a source id, then signed tenths of a degree. iNav sends its
+         * ESCs and temperature sensors, marking a stale ESC with -125.0;
+         * ExpressLRS forwards ArduPilot's one ambient reading.
+         */
+        private const val TEMP_TYPE = 0x0D
+        private const val TEMP_STALE = -1250
+
+        /**
+         * Betaflight's barometer: pressure in pascals, then the sensor's
+         * temperature in hundredths of a degree — the only temperature it
+         * sends over CRSF.
+         */
+        private const val BARO_TYPE = 0x11
+        private const val BARO_PACKET_LEN = 9
         private const val LINK_STATS = 0x14
 
         /**
@@ -185,6 +207,42 @@ class CrsfProtocol : Protocol {
                         (data.get().toInt() and 0xFF) >= CELLS_VOLTAGE_SENSOR) {
                         val millivolts = data.short.toInt() and 0xFFFF
                         dataDecoder.decodeData(Protocol.Companion.TelemetryData(VBAT_OR_CELL_MV, millivolts))
+                    }
+                }
+                RPM_TYPE.toByte() -> {
+                    // type, source id, then at least one three-byte value
+                    val motors = (inputData.size - 2) / 3
+                    if (motors > 0) {
+                        data.get()
+                        var sum = 0L
+                        repeat(motors) {
+                            val raw = ((data.get().toInt() and 0xFF) shl 16) or
+                                ((data.get().toInt() and 0xFF) shl 8) or
+                                (data.get().toInt() and 0xFF)
+                            // sign-extend the 24 bits; reverse spin is still speed
+                            sum += Math.abs((raw shl 8) shr 8)
+                        }
+                        dataDecoder.decodeData(Protocol.Companion.TelemetryData(RPM, (sum / motors).toInt()))
+                    }
+                }
+                TEMP_TYPE.toByte() -> {
+                    val count = (inputData.size - 2) / 2
+                    if (count > 0) {
+                        data.get()
+                        var hottest = Int.MIN_VALUE
+                        repeat(count) {
+                            val value = data.short.toInt()
+                            if (value != TEMP_STALE && value > hottest) hottest = value
+                        }
+                        if (hottest != Int.MIN_VALUE) {
+                            dataDecoder.decodeData(Protocol.Companion.TelemetryData(TEMPERATURE, hottest))
+                        }
+                    }
+                }
+                BARO_TYPE.toByte() -> {
+                    if (inputData.size == BARO_PACKET_LEN) {
+                        data.int // pressure
+                        dataDecoder.decodeData(Protocol.Companion.TelemetryData(TEMPERATURE, data.int / 10))
                     }
                 }
                 GPS_TYPE.toByte() -> {

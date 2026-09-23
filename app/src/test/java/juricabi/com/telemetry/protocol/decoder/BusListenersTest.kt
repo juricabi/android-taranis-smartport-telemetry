@@ -16,6 +16,19 @@ class BusListenersTest {
         override fun onFuelData(fuel: Int) { heard.add("fuel:$fuel") }
         override fun onGPSData(latitude: Double, longitude: Double) { heard.add("gps") }
         override fun commit() { heard.add("commit") }
+        override fun onTemperatureData(celsius: Float) { heard.add("temp:$celsius") }
+        override fun onRpmData(rpm: Int) { heard.add("rpm:$rpm") }
+    }
+
+    // These two are defaulted empty on the interface, so the compiler does
+    // not insist on a relay: a forgotten one would drop the reading silently.
+    @Test
+    fun defaultedCallbacksAreRelayedToo() {
+        val ear = Ear()
+        val bus = MulticastListener({ ear })
+        bus.onTemperatureData(71.5f)
+        bus.onRpmData(21000)
+        assertEquals(listOf("temp:71.5", "rpm:21000"), ear.heard)
     }
 
     @Test

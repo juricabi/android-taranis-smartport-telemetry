@@ -84,6 +84,10 @@ abstract class Protocol(val dataDecoder: DataDecoder) {
          * battery frame's tenths of a volt.
          */
         const val VBAT_OR_CELL_MV = 69
+        /** The hottest temperature a frame reports, in tenths of a degree Celsius. */
+        const val TEMPERATURE = 70
+        /** The motors' mean RPM, from ESC telemetry. */
+        const val RPM = 71
 
         const val RC_CHANNEL_0 = 100
         const val RC_CHANNEL_1 = 101

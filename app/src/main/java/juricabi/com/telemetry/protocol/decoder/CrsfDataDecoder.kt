@@ -365,6 +365,12 @@ https://github.com/iNavFlight/inav/blob/135456936834ab4129e6ed540038b2e88dcb3c44
                     listener.onDistanceData(data.data)
                 }
             }
+            Protocol.TEMPERATURE -> {
+                listener.onTemperatureData(data.data / 10f)
+            }
+            Protocol.RPM -> {
+                listener.onRpmData(data.data)
+            }
             Protocol.ASPEED -> {
                 listener.onAirSpeedData(data.data / 10f)
             }
