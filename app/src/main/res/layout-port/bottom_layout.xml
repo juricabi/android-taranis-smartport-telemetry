@@ -16,7 +16,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/speed"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -33,7 +33,7 @@
                     android:textSize="16sp"
                     app:minText="00 km/h"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/distance"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -50,7 +50,7 @@
                     android:textSize="16sp"
                     app:minText="000 m"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/traveled_distance"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -67,7 +67,7 @@
                     android:textSize="16sp"
                     app:minText="000 m"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/altitude"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -84,7 +84,7 @@
                     android:textSize="16sp"
                     app:minText="000,00 m"/>
 
-            <juricabi.com.telemetry.ui.RCWidget
+            <juricabi.com.groundtrack.ui.RCWidget
                     android:id="@+id/rc_widget"
                     android:layout_width="wrap_content"
                     android:layout_marginTop="8dp"
@@ -92,7 +92,7 @@
                     android:gravity="center_horizontal"
                     android:layout_height="36dp"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/airspeed"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -109,7 +109,7 @@
                     android:textSize="16sp"
                     app:minText="00 km/h"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/vspeed"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -126,7 +126,7 @@
                     android:textSize="16sp"
                     app:minText="00,0 m/s"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/altitude_msl"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -143,7 +143,7 @@
                     android:textSize="16sp"
                     app:minText="000,00 m"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/throttle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -160,7 +160,7 @@
                     android:textSize="16sp"
                     app:minText="100"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/rpm"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -177,7 +177,7 @@
                     android:textSize="16sp"
                     app:minText="88.8k rpm"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/protocol"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"

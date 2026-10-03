@@ -4,10 +4,9 @@ Groundtrack, an Android telemetry viewer for FrSky, CRSF, Ghost, LTM and
 MAVLink links. It draws a flight on a map or over 3D terrain as it happens,
 records it, and replays the recording afterwards.
 
-It was Telemetry viewer until 2.6.0. The package id, the Kotlin package and the
-`TelemetryLogs` and `Movies/Telemetry` folders keep the old word on purpose:
-changing the id installs a second app without the first one's settings, and
-moving a folder hides every flight and recording already in it.
+It was Telemetry viewer until 2.6.0, under the id `juricabi.com.telemetry`
+and the `TelemetryLogs` folder. 2.6.0 is a new app beside that one, not an
+update of it, and does not read the old folder.
 
 This is the `juricabi` fork. **`main`** is the branch everything is built from and
 the fork's default. `upstream` is RomanLut's repo, `jauler` the original.
@@ -30,8 +29,8 @@ and Robolectric over the decoders, the geo and altitude maths, the bus,
 the replay hold, the permission funnel and the video recorder's transport
 stream (216 at last count). Green before every push.
 
-Package ids: release `juricabi.com.telemetry`, debug
-`juricabi.com.telemetry.debug`. Both install side by side, so the debug build can
+Package ids: release `juricabi.com.groundtrack`, debug
+`juricabi.com.groundtrack.debug`. Both install side by side, so the debug build can
 be tried without losing the settings of the one being flown with.
 
 **Moving to another machine:** the clone builds nothing until two private
@@ -66,7 +65,7 @@ something.** Fix the machine.
 - Views come from `findViewById`. `kotlin-android-extensions` is gone with
   Kotlin 2.0 — do not reintroduce synthetics, and there is no view binding
   either.
-- `app/proguard-rules.pro` names `juricabi.com.telemetry.api` and
+- `app/proguard-rules.pro` names `juricabi.com.groundtrack.api` and
   `...proto.fr24` explicitly. Anything reached by reflection or by protobuf
   needs a rule, and its absence only shows in a release build.
 

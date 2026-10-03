@@ -27,7 +27,7 @@
                 android:layout_toStartOf="@+id/video_button"
                 android:layout_toEndOf="@id/connect_button">
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/rssi"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -42,7 +42,7 @@
                     app:minText="00"
                     app:iconWidthDp="24"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/satellites"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -58,7 +58,7 @@
                     app:iconWidthDp="29"/>
 
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/fuel"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -73,7 +73,7 @@
                     app:minText="100%"
                     app:iconWidthDp="29"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/current"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -88,7 +88,7 @@
                     app:minText="0,00 A"
                     app:iconWidthDp="29"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/voltage"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -103,7 +103,7 @@
                     app:minText="0,00 V"
                     app:iconWidthDp="29"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/phone_battery"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -117,7 +117,7 @@
                     app:minText="100%"
                     app:iconWidthDp="29"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/up_snr"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -131,7 +131,7 @@
                     app:minText="10"
                     app:iconWidthDp="24"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/dn_snr"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -145,7 +145,7 @@
                     app:minText="10"
                     app:iconWidthDp="24"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/up_lq"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -160,7 +160,7 @@
                     app:minText="00"
                     app:iconWidthDp="24"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/dn_lq"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -175,7 +175,7 @@
                     app:minText="00"
                     app:iconWidthDp="24"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/elrs_rate"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -190,7 +190,7 @@
                     app:minText="W100"
                     app:iconWidthDp="24"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/ant"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -205,7 +205,7 @@
                     app:minText="1"
                     app:iconWidthDp="24"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/power"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -220,7 +220,7 @@
                     app:minText="10mW"
                     app:iconWidthDp="24"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/up_rssi_dbm1"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -235,7 +235,7 @@
                     app:minText="-00"
                     app:iconWidthDp="24"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/up_rssi_dbm2"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -250,7 +250,7 @@
                     app:minText="-00"
                     app:iconWidthDp="24"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/dn_rssi_dbm"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -265,7 +265,7 @@
                     app:minText="-00"
                     app:iconWidthDp="24"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/cell_voltage"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -280,7 +280,7 @@
                     app:minText="0,0 V"
                     app:iconWidthDp="29"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/tlm_rate"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -295,7 +295,7 @@
                     app:minText="300 b/s"
                     app:iconWidthDp="24"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/temperature"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -310,7 +310,7 @@
                     app:minText="100°C"
                     app:iconWidthDp="24"/>
 
-            <juricabi.com.telemetry.ui.TextViewStableSize
+            <juricabi.com.groundtrack.ui.TextViewStableSize
                     android:id="@+id/gps_precision"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"

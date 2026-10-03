@@ -28,7 +28,7 @@ issues and reviews use these terms as written here.
   this seam as a question the source asks back (`turn`); sources never read
   settings. Every source can hand its picture to a recording (`record`).
 - **Video recording** (`video/StreamRecorder.kt`, `video/TsMuxer.kt`,
-  `video/H264Encoder.kt`) — the live picture written to `Movies/Telemetry`
+  `video/H264Encoder.kt`) — the live picture written to `Movies/Groundtrack`
   as an MPEG transport stream; not to be confused with the flight's own
   recording, the `.tlm` log. Sources that arrive compressed (RTSP, UDP/RTP)
   are copied as they came; the others (USB, MJPEG) go through the hardware

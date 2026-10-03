@@ -26,10 +26,10 @@ android {
     // applicationId below, which it has never been: the code sat in
     // crazydude's package and the phone installed it as jauler's, and this has
     // been neither of those for a long time.
-    namespace 'juricabi.com.telemetry'
+    namespace 'juricabi.com.groundtrack'
     compileSdk 35
     defaultConfig {
-        applicationId "juricabi.com.telemetry"
+        applicationId "juricabi.com.groundtrack"
         // MapLibre v13, used by the custom renderer, requires Android 6.
         minSdk 23
         // Deliberately behind compileSdk. Compiling against 35 is what the

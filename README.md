@@ -4,7 +4,10 @@ Live and recorded RC telemetry on a smooth 2D map or real 3D terrain, with live
 video beside it. This is [juricabi's fork](https://github.com/juricabi/android-taranis-smartport-telemetry).
 
 **Download:** [GitHub Releases](https://github.com/juricabi/android-taranis-smartport-telemetry/releases)
-· **New in 2.6.0:** Android Telemetry Viewer is now called Groundtrack.
+· **New in 2.6.0:** Android Telemetry Viewer is now called Groundtrack. It
+installs as a new app beside the old one and starts with default settings; to
+keep your flights, rename the `TelemetryLogs` folder to `GroundtrackLogs`
+before opening it.
 
 <p align="center">
   <img src="docs/flight-3d.jpg" width="360" alt="3D terrain flight view">
@@ -135,7 +138,7 @@ Back. The seam drags, the picture is letterboxed rather than cropped, and the
 flight overlays keep to the map's half. A stream that cannot connect keeps its
 pane, says why and retries; one that stalls rejoins itself.
 
-**Recording** writes to `Movies/Telemetry/`, named like the flight logs. RTSP
+**Recording** writes to `Movies/Groundtrack/`, named like the flight logs. RTSP
 and raw RTP are saved exactly as they arrive; USB and MJPEG go through the
 phone's hardware H.264 encoder. The files are MPEG transport streams (`.ts`,
 for VLC, mpv or ffmpeg), readable to the last byte, so a crash or a flat
@@ -260,8 +263,8 @@ every build, debug included, signs with it.
 ```
 
 APKs land in `app/build/outputs/apk/{debug,release}/`. The debug build
-(`juricabi.com.telemetry.debug`) installs beside the release
-(`juricabi.com.telemetry`). A `v*` tag makes CI
+(`juricabi.com.groundtrack.debug`) installs beside the release
+(`juricabi.com.groundtrack`). A `v*` tag makes CI
 (`.github/workflows/build-apk.yml`) build and attach the signed release APK.
 
 ### Simulator

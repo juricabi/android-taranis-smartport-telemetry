@@ -866,7 +866,7 @@ StateHandle* stateHandle(jlong value) {
 } // namespace
 
 extern "C" JNIEXPORT jlongArray JNICALL
-Java_juricabi_com_telemetry_maps_maplibre_MapLibreMovingLinesNative_create(
+Java_juricabi_com_groundtrack_maps_maplibre_MapLibreMovingLinesNative_create(
     JNIEnv* environment,
     jobject
 ) {
@@ -883,7 +883,7 @@ Java_juricabi_com_telemetry_maps_maplibre_MapLibreMovingLinesNative_create(
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_juricabi_com_telemetry_maps_maplibre_MapLibreMovingLinesNative_setLine(
+Java_juricabi_com_groundtrack_maps_maplibre_MapLibreMovingLinesNative_setLine(
     JNIEnv* environment,
     jobject,
     jlong handleValue,
@@ -915,7 +915,7 @@ Java_juricabi_com_telemetry_maps_maplibre_MapLibreMovingLinesNative_setLine(
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_juricabi_com_telemetry_maps_maplibre_MapLibreMovingLinesNative_clearLine(
+Java_juricabi_com_groundtrack_maps_maplibre_MapLibreMovingLinesNative_clearLine(
     JNIEnv*,
     jobject,
     jlong handleValue,
@@ -928,7 +928,7 @@ Java_juricabi_com_telemetry_maps_maplibre_MapLibreMovingLinesNative_clearLine(
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_juricabi_com_telemetry_maps_maplibre_MapLibreMovingLinesNative_setModel(
+Java_juricabi_com_groundtrack_maps_maplibre_MapLibreMovingLinesNative_setModel(
     JNIEnv*,
     jobject,
     jlong handleValue,
@@ -947,7 +947,7 @@ Java_juricabi_com_telemetry_maps_maplibre_MapLibreMovingLinesNative_setModel(
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_juricabi_com_telemetry_maps_maplibre_MapLibreMovingLinesNative_setModelImage(
+Java_juricabi_com_groundtrack_maps_maplibre_MapLibreMovingLinesNative_setModelImage(
     JNIEnv* environment,
     jobject,
     jlong handleValue,
@@ -993,7 +993,7 @@ Java_juricabi_com_telemetry_maps_maplibre_MapLibreMovingLinesNative_setModelImag
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_juricabi_com_telemetry_maps_maplibre_MapLibreMovingLinesNative_clearModel(
+Java_juricabi_com_groundtrack_maps_maplibre_MapLibreMovingLinesNative_clearModel(
     JNIEnv*,
     jobject,
     jlong handleValue
@@ -1005,7 +1005,7 @@ Java_juricabi_com_telemetry_maps_maplibre_MapLibreMovingLinesNative_clearModel(
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_juricabi_com_telemetry_maps_maplibre_MapLibreMovingLinesNative_setCamera(
+Java_juricabi_com_groundtrack_maps_maplibre_MapLibreMovingLinesNative_setCamera(
     JNIEnv*,
     jobject,
     jlong handleValue,
@@ -1026,7 +1026,7 @@ Java_juricabi_com_telemetry_maps_maplibre_MapLibreMovingLinesNative_setCamera(
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_juricabi_com_telemetry_maps_maplibre_MapLibreMovingLinesNative_commit(
+Java_juricabi_com_groundtrack_maps_maplibre_MapLibreMovingLinesNative_commit(
     JNIEnv*,
     jobject,
     jlong handleValue
@@ -1052,7 +1052,7 @@ Java_juricabi_com_telemetry_maps_maplibre_MapLibreMovingLinesNative_commit(
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_juricabi_com_telemetry_maps_maplibre_MapLibreMovingLinesNative_destroyHandle(
+Java_juricabi_com_groundtrack_maps_maplibre_MapLibreMovingLinesNative_destroyHandle(
     JNIEnv*,
     jobject,
     jlong handleValue
@@ -1061,7 +1061,7 @@ Java_juricabi_com_telemetry_maps_maplibre_MapLibreMovingLinesNative_destroyHandl
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_juricabi_com_telemetry_maps_maplibre_MapLibreMovingLinesNative_abandonHost(
+Java_juricabi_com_groundtrack_maps_maplibre_MapLibreMovingLinesNative_abandonHost(
     JNIEnv*,
     jobject,
     jlong hostValue
