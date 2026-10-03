@@ -1,10 +1,13 @@
-# Android Telemetry Viewer 2.5.3
+# Groundtrack 2.6.0
 
-Live and recorded RC telemetry on a smooth 2D map or real 3D terrain, with live
-video beside it. This is [juricabi's fork](https://github.com/juricabi/android-taranis-smartport-telemetry).
+Live and recorded FPV telemetry from ExpressLRS, Crossfire, FrSky, Ghost, LTM
+and MAVLink links, on a smooth 2D map or real 3D terrain, with live video beside
+it. Formerly Android Telemetry Viewer; see [Lineage](#lineage).
 
 **Download:** [GitHub Releases](https://github.com/juricabi/android-taranis-smartport-telemetry/releases)
-· **New in 2.5.3:** the live picture records, and takes the whole screen.
+· **Problems and ideas:** [Issues](https://github.com/juricabi/android-taranis-smartport-telemetry/issues)
+· **New in 2.6.0:** the new name. It installs over 2.5.3 and keeps its
+settings and flights.
 
 <p align="center">
   <img src="docs/flight-3d.jpg" width="360" alt="3D terrain flight view">

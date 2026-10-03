@@ -53,7 +53,7 @@ object Imagery {
     private const val TILE_URL =
         "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile"
 
-    private const val USER_AGENT = "TelemetryViewer/1.0 (Android)"
+    private const val USER_AGENT = "Groundtrack/1.0 (Android)"
 
     /** 3 is 8x8 children and a 2048px texture; past that no mesh shows the detail. */
     private const val MAX_EXTRA_ZOOM = 3

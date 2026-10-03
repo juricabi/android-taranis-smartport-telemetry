@@ -683,7 +683,7 @@ class LogPlayer(val originalListener: DataDecoder.Listener) :
         fileWriter.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
                 "<gpx\n" +
                 "  version=\"1.0\"\n" +
-                "  creator=\"telemetryViewer\"\n" +
+                "  creator=\"Groundtrack\"\n" +
                 "  xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n" +
                 "  xmlns=\"http://www.topografix.com/GPX/1/0\"\n" +
                 "  xsi:schemaLocation=\"http://www.topografix.com/GPX/1/0 http://www.topografix.com/GPX/1/0/gpx.xsd\">\n" +

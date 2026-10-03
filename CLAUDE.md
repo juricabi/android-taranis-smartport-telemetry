@@ -1,8 +1,13 @@
 # Working on this app
 
-An Android telemetry viewer for FrSky, CRSF, Ghost, LTM and MAVLink links. It
-draws a flight on a map or over 3D terrain as it happens, records it, and replays
-the recording afterwards.
+Groundtrack, an Android telemetry viewer for FrSky, CRSF, Ghost, LTM and
+MAVLink links. It draws a flight on a map or over 3D terrain as it happens,
+records it, and replays the recording afterwards.
+
+It was Telemetry viewer until 2.6.0. The package id, the Kotlin package and the
+`TelemetryLogs` and `Movies/Telemetry` folders keep the old word on purpose:
+changing the id installs a second app without the first one's settings, and
+moving a folder hides every flight and recording already in it.
 
 This is the `juricabi` fork. **`main`** is the branch everything is built from and
 the fork's default. `upstream` is RomanLut's repo, `jauler` the original.
@@ -68,7 +73,7 @@ something.** Fix the machine.
 ## Releases
 
 CI (`.github/workflows/build-apk.yml`) builds on every push and publishes on a
-`v*` tag, attaching `telemetry-<version>.apk`.
+`v*` tag, attaching `groundtrack-<version>.apk`.
 
 1. bump `versionCode` and `versionName` in `app/build.gradle`
 2. commit, push, then push the tag
