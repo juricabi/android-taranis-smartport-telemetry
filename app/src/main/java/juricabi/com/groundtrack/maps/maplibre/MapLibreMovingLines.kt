@@ -21,7 +21,7 @@ import org.maplibre.android.style.layers.CustomLayer
 @Keep
 internal object MapLibreMovingLinesNative {
     init {
-        System.loadLibrary("telemetry-map-lines")
+        System.loadLibrary("groundtrack-map-lines")
     }
 
     external fun create(): LongArray

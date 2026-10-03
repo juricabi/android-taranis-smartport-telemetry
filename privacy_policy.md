@@ -34,4 +34,4 @@ looking, along with the phone's IP address.
 **Contact**
 
 Questions about this policy go to the project's
-[issues](https://github.com/juricabi/android-taranis-smartport-telemetry/issues).
+[issues](https://github.com/juricabi/groundtrack/issues).
