@@ -1,10 +1,10 @@
-# Android Telemetry Viewer 2.5.3
+# Groundtrack 2.6.0
 
 Live and recorded RC telemetry on a smooth 2D map or real 3D terrain, with live
 video beside it. This is [juricabi's fork](https://github.com/juricabi/android-taranis-smartport-telemetry).
 
 **Download:** [GitHub Releases](https://github.com/juricabi/android-taranis-smartport-telemetry/releases)
-· **New in 2.5.3:** the live picture records, and takes the whole screen.
+· **New in 2.6.0:** Android Telemetry Viewer is now called Groundtrack.
 
 <p align="center">
   <img src="docs/flight-3d.jpg" width="360" alt="3D terrain flight view">
