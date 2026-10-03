@@ -442,7 +442,7 @@ class LogManager(private val host: MapsActivity) {
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "application/zip"
-            putExtra(Intent.EXTRA_TITLE, "telemetry-backup-$stamp.zip")
+            putExtra(Intent.EXTRA_TITLE, "groundtrack-backup-$stamp.zip")
         }
         try {
             host.startActivityForResult(intent, REQUEST_CREATE_BACKUP)

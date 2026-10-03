@@ -5,7 +5,7 @@
     <SwitchPreference
             app:iconSpaceReserved="false"
             android:title="Telemetry logging RAW"
-            android:summary="Save telemetry RAW data to sdcard. They are saved to TelemetryLog at external storage (sdcard) and can be replayed in this application (.tlm)"
+            android:summary="Save telemetry RAW data to sdcard. They are saved to GroundtrackLogs at external storage (sdcard) and can be replayed in this application (.tlm)"
             android:text="Logging enabled"
             android:defaultValue="true"
             android:key="logging_enabled"/>
